@@ -38,8 +38,8 @@ ser uma métrica de custo, e não só de experiência do cliente.
 - **Serviço próprio**, ligado ao Chatwoot como Agent Bot (D1).
 - **A carteira de inadimplentes é importada no próprio agente** (D2).
 - **O agente dispara a mensagem de abertura**, a que cita a dívida, pela API do disparador (D3).
-- **Pagamento por Pix dinâmico**, gerado por um PSP com webhook de confirmação, caindo na conta da
-  franquia (D4).
+- **Pagamento por Pix dinâmico**, gerado pela API Pix do banco do Cartão de Todos: uma cobrança por
+  cliente, com txid, e confirmação por webhook (D4, D22).
 
 ## 4. Regras da conversa
 

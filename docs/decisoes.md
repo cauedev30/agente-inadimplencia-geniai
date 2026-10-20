@@ -8,7 +8,7 @@ a revisou.
 | D1 | 2026-10-15 | Serviço próprio no servidor de produção, ligado ao Chatwoot como **Agent Bot** |
 | D2 | 2026-10-15 | A **carteira de inadimplentes é importada no próprio agente** |
 | D3 | 2026-10-15 | O agente **dispara a mensagem de abertura** (a que cita a dívida) **pela API do disparador** |
-| D4 | 2026-10-15 | **Pix dinâmico** de um PSP com **webhook de confirmação**: um PSP só, recebendo na conta de cada franquia |
+| D4 | 2026-10-15 | *(Revisada pela D22: o Pix vem do banco do Cartão de Todos, não de um PSP à parte.)* **Pix dinâmico** de um PSP com **webhook de confirmação**: um PSP só, recebendo na conta de cada franquia |
 | D5 | 2026-10-15 | Toda saída do robô, seja pelo teto ou por gatilho do Jev, manda o cliente para o **canal externo da franquia** |
 | D6 | 2026-10-15 | O LLM de redação é **escolhido por teste**. Candidato: Groq `gpt-oss-120b` |
 | D7 | 2026-10-19 | **Stack em Python**, mesmo com outros projetos da GeniAI em Go. O Go entra só se surgir gargalo, porque tende a render mais com muitos clientes ao mesmo tempo. Ver a análise abaixo |
@@ -26,6 +26,7 @@ a revisou.
 | D19 | 2026-10-19 | **A 4ª mensagem é fixa, sem LLM e sem Jev:** *"Para o problema ser resolvido de forma mais eficaz, entre em contato conosco por esse canal de atendimento."*, com o link do canal externo |
 | D20 | 2026-10-19 | Sem restrição de dado no repositório enquanto ele for público, porque ele vira privado em breve |
 | D21 | 2026-10-19 | O projeto é feito pelo Cauê **junto com outro dev** |
+| D22 | 2026-10-20 | **Pix pela API Pix do banco do Cartão de Todos, via integração**, sem PSP à parte. A cobrança é **gerada por cliente**, com identificador (txid), e o banco avisa por **webhook** quando o Pix cai. Pix fixo (a mesma chave ou QR para todos) foi descartado, porque não deixa o agente saber sozinho quem pagou |
 
 ## Análise do D7: Go × Python
 

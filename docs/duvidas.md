@@ -76,6 +76,9 @@ caso iria para o atendente.
 
 ### T1. PSP do Pix
 
+**Respondida em parte em 2026-10-20 → D22:** Pix pela API Pix do banco do Cartão de Todos, com cobrança
+por cliente (txid) e webhook. Continuam abertas as perguntas 1, 2 e 4 abaixo.
+
 Qual PSP gera o Pix dinâmico com webhook de confirmação (D4)? Candidatos: Asaas, Efí (Gerencianet),
 Mercado Pago ou o banco que a franquia já usa. Hoje basta receber na conta do João Pessoa Sul. Se o
 projeto expandir, o PSP precisa atender várias franquias, cada uma com a sua conta, numa integração só.
@@ -85,10 +88,10 @@ o **Pix do próprio Cartão de Todos, pelo banco deles, via integração**, sem 
 falta responder:
 
 1. **Qual banco?**
-2. O banco tem **API Pix** com **cobrança com identificador (txid)** e **webhook de Pix recebido**? Sem
-   isso, o agente não sabe sozinho quem pagou.
-3. É um **Pix fixo de verdade** (a mesma chave ou QR para todo mundo) ou uma **cobrança gerada por
-   cliente** pela API do banco?
+2. **Confirmar** que o banco tem **API Pix** com **cobrança com identificador (txid)** e **webhook de Pix
+   recebido**. A D22 depende disso.
+3. ~~É um Pix fixo de verdade ou uma cobrança gerada por cliente?~~ **Respondida → D22:** cobrança
+   gerada por cliente.
 4. O dinheiro cai na conta **da franquia João Pessoa Sul** ou na do **Cartão de Todos (franqueadora)**?
    A D4 previa a conta de cada franquia.
 
