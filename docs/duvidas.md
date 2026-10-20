@@ -62,6 +62,10 @@ Meta como template antes de ser usada.
 
 ### G7. Canal externo do João Pessoa Sul
 
+> ⭐ **Ideia em avaliação, com prioridade alta (2026-10-20): o atendimento humano vai para um webchat**,
+> com o cliente no widget do Chatwoot e o atendente no Chatwoot, em vez de outro WhatsApp. Pontos
+> positivos, negativos, soluções e as perguntas para o gestor em [`ideia-webchat.md`](ideia-webchat.md).
+
 Para onde a 4ª mensagem manda o cliente: qual é o **link do web chat** ou o **número de WhatsApp** da
 franquia?
 

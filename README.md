@@ -19,6 +19,7 @@ A primeira franquia é o **Cartão de Todos João Pessoa Sul**.
 | [`docs/spec.md`](docs/spec.md) | O produto: o problema, o escopo e as regras da conversa |
 | [`docs/arquitetura.md`](docs/arquitetura.md) | Como um turno funciona: gates, Jev 1, 2 e 3, estados, ações e entrada em fases |
 | [`docs/arquitetura/agente-inadimplente-jev.excalidraw`](docs/arquitetura/agente-inadimplente-jev.excalidraw) | O desenho da arquitetura (abra em [excalidraw.com](https://excalidraw.com)) |
+| ⭐ [`docs/ideia-webchat.md`](docs/ideia-webchat.md) | **Ideia em avaliação, com prioridade alta:** atendimento humano por webchat no lugar de outro WhatsApp |
 | [`docs/decisoes.md`](docs/decisoes.md) | Decisões numeradas (D1, D2, …), com data |
 | [`docs/duvidas.md`](docs/duvidas.md) | Perguntas em aberto, separadas por quem responde |
 
