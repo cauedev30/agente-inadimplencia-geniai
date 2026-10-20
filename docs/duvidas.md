@@ -80,6 +80,18 @@ Qual PSP gera o Pix dinâmico com webhook de confirmação (D4)? Candidatos: Asa
 Mercado Pago ou o banco que a franquia já usa. Hoje basta receber na conta do João Pessoa Sul. Se o
 projeto expandir, o PSP precisa atender várias franquias, cada uma com a sua conta, numa integração só.
 
+**Indicação de 2026-10-20 (provável, ainda não decidido):** em conversa com o dev, a tendência é usar
+o **Pix do próprio Cartão de Todos, pelo banco deles, via integração**, sem um PSP à parte. Para fechar,
+falta responder:
+
+1. **Qual banco?**
+2. O banco tem **API Pix** com **cobrança com identificador (txid)** e **webhook de Pix recebido**? Sem
+   isso, o agente não sabe sozinho quem pagou.
+3. É um **Pix fixo de verdade** (a mesma chave ou QR para todo mundo) ou uma **cobrança gerada por
+   cliente** pela API do banco?
+4. O dinheiro cai na conta **da franquia João Pessoa Sul** ou na do **Cartão de Todos (franqueadora)**?
+   A D4 previa a conta de cada franquia.
+
 ### T2. Servidor de produção
 
 Em qual servidor o serviço roda (D1), e quem é o responsável por ele?
