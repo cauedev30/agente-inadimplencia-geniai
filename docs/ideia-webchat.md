@@ -1,9 +1,8 @@
-# ⭐ Ideia em avaliação: webchat como canal de atendimento humano
+# Webchat como canal de atendimento humano
 
-> **Status: em avaliação, com prioridade alta.** Ainda não é decisão, mas é a direção mais provável do
-> projeto, na avaliação do Cauê em 2026-10-20. Ele vai avaliar com o gestor do CDT João Pessoa Sul. Se
-> for aprovada, vira decisão em [`decisoes.md`](decisoes.md) e define o canal externo (D18) e a dúvida
-> G7.
+> **Status: aprovado em 2026-10-21 → D32.** A operação aceitou que o atendimento humano saia do
+> WhatsApp para um canal externo, com rodízio igualitário entre os atendentes. Das perguntas do fim
+> deste documento, a 1 está respondida; as outras três continuam na G7 de [`duvidas.md`](duvidas.md).
 
 ## A ideia
 

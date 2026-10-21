@@ -50,7 +50,11 @@ ser uma métrica de custo, e não só de experiência do cliente.
 | **Janela de atendimento:** segunda a sexta, das 8h às 18h; sábado, das 8h às 12h. Domingo e feriado ficam fora | D11, D16 |
 | **Fora da janela, o agente não responde nada**, porque cada mensagem custa. O que chegou fora do horário é respondido quando a janela abre, como se tivesse chegado no horário. Os atendentes também veem essas mensagens no horário deles | D16 |
 | **Toda saída do robô vai para o canal externo da franquia**, seja pelo teto ou por um gatilho do Jev | D5 |
-| ⭐ **Em avaliação:** o canal externo pode ser um **webchat** (widget do Chatwoot), em vez de outro WhatsApp. Ver [`ideia-webchat.md`](ideia-webchat.md) | — |
+| **O canal externo é um webchat** (widget do Chatwoot), em vez de outro WhatsApp, com rodízio igualitário entre os atendentes. Ver [`ideia-webchat.md`](ideia-webchat.md) | D32 |
+
+> **Pendente (2026-10-21):** esta spec ainda não absorveu as decisões D27 a D32: desconto máximo por
+> régua liberado aos poucos, troca da forma de pagamento pelo link do CTN e integração com o CTN. Elas
+> entram quando a spec for fechada.
 
 ## 5. Fora do escopo por enquanto
 

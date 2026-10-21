@@ -1,6 +1,6 @@
 # Dúvidas em aberto
 
-Atualizado em 2026-10-20. São as perguntas que faltam para fechar a spec. Elas estão separadas por quem
+Atualizado em 2026-10-21. São as perguntas que faltam para fechar a spec. Elas estão separadas por quem
 responde: **G** para o gestor da franquia, **T** para o time técnico e **C** para o Cauê.
 
 Contexto rápido: o agente cobra pelo WhatsApp os clientes inadimplentes do **Cartão de Todos João
@@ -20,9 +20,17 @@ Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes
 É a dúvida mais importante: sem ela, o agente não sabe o que pode oferecer ao cliente.
 
 1. A franquia **dá desconto** na dívida? Até quantos %? Sobre a dívida inteira ou só sobre juros e
-   multa? **Em parte (2026-10-20):** o manual da Adimplência dá um valor fixo por régua: sem desconto
-   na NR, R1 e R2; R$ 90 na R3 e na R4; R$ 75 na R5 e na R6; R$ 60 na Prévia de Desfiliado. Falta
-   confirmar se esse é **o desconto** ou **o valor final que o cliente paga**.
+   multa? **Respondida em 2026-10-21 → D29:** é o **desconto máximo**, liberado aos poucos. Continua
+   aberto:
+   - **Os degraus:** quanto liberar em cada passo e quando. Por exemplo, na R3: R$ 30, depois R$ 60,
+     depois R$ 90? Quem decide o degrau é o Jev, então a regra tem de ser fixa.
+   - **A Prévia e a R6:** o manual dava R$ 75 na R6 e R$ 60 na Prévia; a operação disse R$ 60 na R6 e não
+     falou da Prévia.
+   - **Os números:** como desconto máximo, a R3 (R$ 100,20) pode pagar só R$ 10,20, e a R6 (R$ 200,40)
+     paga no mínimo R$ 140,40. O desconto encolhe justo nas réguas altas. É isso mesmo?
+   - **O desconto depende do cartão?** Quem só desbloqueia paga o valor integral (D29). Quem paga no
+     Pix, sem cadastrar o cartão, também paga o integral?
+   - **Mais de 6 mensalidades:** qual é a regra?
 2. ~~**Aceita parcelar?** Em quantas vezes, no máximo? Tem valor mínimo de parcela?~~ **Respondida em
    2026-10-20 → D23:** não tem parcelamento.
 3. ~~**A regra muda** conforme o tempo de atraso ou o valor da dívida? Por exemplo: até 30 dias de
@@ -40,7 +48,9 @@ Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes
      teto de 3 mensagens (D8).
    - **Em aberto:** essa confirmação conta no teto ou fica fora dele? Se contar, ela pode cair na 4ª
      mensagem, que é reservada para o canal externo (D19).
-2. **Quem dá baixa na dívida:** o agente, a franquia no sistema dela, ou os dois?
+2. ~~**Quem dá baixa na dívida:** o agente, a franquia no sistema dela, ou os dois?~~ **Respondida em
+   2026-10-21 → D31:** a baixa entra na aba de mensalidades do CTN, com o agente integrado a ele. Fica
+   para o dev: como a integração escreve a baixa (T9).
 3. A franquia quer ser **avisada de cada pagamento**? Por onde: e-mail, WhatsApp, relatório?
 4. **E se o cliente recebe o Pix e não paga?** Por quanto tempo o Pix vale? Depois disso, o agente volta
    a cobrar ou o caso vai para o atendente?
@@ -49,6 +59,9 @@ Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes
 
 Domingo e feriado ficam fora do horário do robô. Quais feriados contam: só os nacionais, ou também os
 da Paraíba e os de João Pessoa?
+
+Em 2026-10-21 a operação confirmou o horário comercial, das 8h às 18h, sem falar do **sábado**. O
+sábado das 8h às 12h (D11) continua?
 
 ### G4. Como medir se deu certo
 
@@ -60,6 +73,8 @@ da Paraíba e os de João Pessoa?
 ### G5. Carteira de inadimplentes
 
 1. **De onde vem a lista** de inadimplentes: planilha, sistema da franquia, export do Cartão de Todos?
+   **Em parte (2026-10-21):** o CTN tem os clientes, as matrículas e o histórico (D31), então a lista
+   provavelmente sai dele. Falta saber se ela já vem com a régua.
 2. **Quais informações** ela tem? Nome, telefone, valor, vencimento, dias de atraso, número do contrato,
    CPF?
 3. **Com que frequência** ela é atualizada: diária, semanal, a cada campanha?
@@ -69,18 +84,20 @@ da Paraíba e os de João Pessoa?
 Qual é o **texto da primeira mensagem**, a que avisa o cliente da dívida? Ela precisa ser aprovada pela
 Meta como template antes de ser usada.
 
-**Em parte (2026-10-20) → D26:** a abertura leva o botão "Pagar com Pix", e não o Pix. O manual da
-Adimplência já tem templates por régua; falta saber se estão aprovados na Meta e se o botão "Falar com
-atendente" continua no primeiro contato.
+**Respondida em 2026-10-21 → D26 e D28:** a abertura leva o botão "Pagar com Pix", e não o Pix. A
+aprovação na Meta não é risco, e os templates do manual são só exemplo: o texto e os botões da abertura
+são desenhados pelo projeto.
 
 ### G7. Canal externo do João Pessoa Sul
 
-> ⭐ **Ideia em avaliação, com prioridade alta (2026-10-20): o atendimento humano vai para um webchat**,
-> com o cliente no widget do Chatwoot e o atendente no Chatwoot, em vez de outro WhatsApp. Pontos
-> positivos, negativos, soluções e as perguntas para o gestor em [`ideia-webchat.md`](ideia-webchat.md).
+~~Para onde a 4ª mensagem manda o cliente: qual é o **link do web chat** ou o **número de WhatsApp** da
+franquia?~~ **Respondida em 2026-10-21 → D32:** o atendimento humano vai para o **webchat**
+([`ideia-webchat.md`](ideia-webchat.md)), com rodízio igualitário entre os atendentes. Continuam
+abertas:
 
-Para onde a 4ª mensagem manda o cliente: qual é o **link do web chat** ou o **número de WhatsApp** da
-franquia?
+1. Tem **atendente de plantão** na janela, para responder o webchat em tempo real?
+2. A **confirmação pelos 3 primeiros dígitos do CPF** antes de mostrar a dívida é aceitável?
+3. Em qual **domínio** a página fica: da franquia, do Cartão de Todos ou da GeniAI?
 
 ### G8. Boleto
 
@@ -96,7 +113,9 @@ dúvida como importante em 2026-10-20.
 
 Segundo o Cauê (2026-10-20), o cartão é um dos trabalhos da implantação; falta confirmar com o gestor.
 
-1. O agente **também faz a troca**, mandando o link do CTM, ou **só cobra** pelo Pix e encerra?
+1. ~~O agente **também faz a troca**, mandando o link do CTM, ou **só cobra** pelo Pix e encerra?~~
+   **Respondida em 2026-10-21 → D30:** faz a troca, pelo link de pagamento do CTN. A conta de energia
+   (Energisa) é manual e vai para o humano.
 2. Na troca, o manual da Adimplência cobra junto **o mês que está para vencer**. Por exemplo: o cliente
    deve agosto e setembro vence na semana seguinte; na troca, paga os dois. O agente faz igual?
 3. O link do CTM serve **só para cadastrar o cartão, sem pagar**? Isso resolveria o caso de quem já
@@ -183,7 +202,8 @@ direto nele.
 2. O **link de pagamento** (G9) pode ser gerado pela API, a partir da matrícula? Há webhook quando o
    cliente paga por ele?
 3. O manual da Adimplência fala em **"CTN"** e a avaliação da operação fala em **"CTM"**. São o mesmo
-   sistema?
+   sistema? **Em parte (2026-10-21):** na reunião, a operação falou em **CTN**; "CTM" deve ser o mesmo
+   sistema, escrito errado. Confirmar.
 
 ---
 
@@ -193,3 +213,16 @@ direto nele.
 
 As decisões D1 a D6 foram recuperadas de uma sessão de 2026-10-15/16. Conferir se estão como você
 decidiu.
+
+### C2. Teto de mensagens
+
+Em 2026-10-21 a operação achou o teto de 3 + 1 (D8, D19) muito restrito e recomendou **cerca de 5
+mensagens**. Os casos simples, como a NR, fecham rápido. As réguas altas pedem mais negociação ou chegam
+com atrito com a clínica, e esses casos devem ir logo para o humano.
+
+- Pesa a favor de rever: o desconto liberado aos poucos (D29) dificilmente cabe em 3 mensagens.
+- Meio-termo possível: um **teto por régua** (3 nas baixas, 5 nas altas), mantendo a saída rápida para
+  o humano quando houver atrito. A D14 continua valendo: o teto seria o mesmo em todas as franquias.
+- Depende disso a G2.1: a confirmação de pagamento conta no teto?
+
+Até você decidir, vale a D8.
