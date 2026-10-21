@@ -1,6 +1,6 @@
 # Dúvidas em aberto
 
-Atualizado em 2026-10-19. São as perguntas que faltam para fechar a spec. Elas estão separadas por quem
+Atualizado em 2026-10-20. São as perguntas que faltam para fechar a spec. Elas estão separadas por quem
 responde: **G** para o gestor da franquia, **T** para o time técnico e **C** para o Cauê.
 
 Contexto rápido: o agente cobra pelo WhatsApp os clientes inadimplentes do **Cartão de Todos João
@@ -21,7 +21,8 @@ Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes
 
 1. A franquia **dá desconto** na dívida? Até quantos %? Sobre a dívida inteira ou só sobre juros e
    multa?
-2. **Aceita parcelar?** Em quantas vezes, no máximo? Tem valor mínimo de parcela?
+2. ~~**Aceita parcelar?** Em quantas vezes, no máximo? Tem valor mínimo de parcela?~~ **Respondida em
+   2026-10-20 → D23:** não tem parcelamento.
 3. **A regra muda** conforme o tempo de atraso ou o valor da dívida? Por exemplo: até 30 dias de
    atraso, uma condição; acima de 90, outra.
 4. Como são calculados **juros e multa** de atraso?
@@ -130,7 +131,8 @@ seção 8). **Vale essa ordem** neste projeto? O modo sombra roda com clientes r
 ### T8. As 6 ações do Jev 2
 
 As ações `INFORM_DEBT`, `SIMULATE`, `GENERATE_PIX`, `OUT_OF_SCOPE`, `NONE` e `HUMAN` **cobrem a política
-do João Pessoa Sul**, ou falta alguma (desconto à vista, por exemplo)? Depende da G1.
+do João Pessoa Sul**, ou falta alguma (desconto à vista, por exemplo)? Depende da G1. Sem parcelamento
+(D23), o `SIMULATE` e a pergunta `pediu_parcelamento` do Jev 1 perdem o uso como estão.
 
 ---
 

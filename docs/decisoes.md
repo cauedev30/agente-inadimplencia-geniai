@@ -27,6 +27,7 @@ a revisou.
 | D20 | 2026-10-19 | Sem restrição de dado no repositório enquanto ele for público, porque ele vira privado em breve |
 | D21 | 2026-10-19 | O projeto é feito pelo Cauê **junto com outro dev** |
 | D22 | 2026-10-20 | **Pix pela API Pix do banco do Cartão de Todos, via integração**, sem PSP à parte. A cobrança é **gerada por cliente**, com identificador (txid), e o banco avisa por **webhook** quando o Pix cai. Pix fixo (a mesma chave ou QR para todos) foi descartado, porque não deixa o agente saber sozinho quem pagou |
+| D23 | 2026-10-20 | **Sem parcelamento.** A franquia não parcela a dívida: o pagamento é sempre à vista |
 
 ## Análise do D7: Go × Python
 
