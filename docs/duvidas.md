@@ -36,6 +36,10 @@ Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes
 
 1. Depois que o Pix cai, o cliente recebe **uma mensagem de confirmação**? Lembrando que cada mensagem
    custa na Meta.
+   - **Posição do Cauê (2026-10-20):** a confirmação é essencial e deve ser enviada mesmo que passe do
+     teto de 3 mensagens (D8).
+   - **Em aberto:** essa confirmação conta no teto ou fica fora dele? Se contar, ela pode cair na 4ª
+     mensagem, que é reservada para o canal externo (D19).
 2. **Quem dá baixa na dívida:** o agente, a franquia no sistema dela, ou os dois?
 3. A franquia quer ser **avisada de cada pagamento**? Por onde: e-mail, WhatsApp, relatório?
 4. **E se o cliente recebe o Pix e não paga?** Por quanto tempo o Pix vale? Depois disso, o agente volta
@@ -78,6 +82,17 @@ franquia?
 
 Só o **Pix** basta, ou a franquia também quer oferecer **boleto**? Hoje o boleto não está previsto, e o
 caso iria para o atendente.
+
+### G9. Troca da forma de pagamento
+
+A Adimplência do CDT não só cobra: ela também tenta tirar o cliente do Pix mês a mês e passá-lo para o
+**pagamento recorrente** (cartão de crédito, débito ou conta de energia). O caminho principal é o
+**link do CTM**, gerado pela matrícula, em que o cliente paga e já cadastra o cartão. O Cauê marcou esta
+dúvida como importante em 2026-10-20.
+
+1. O agente **também faz a troca**, mandando o link do CTM, ou **só cobra** pelo Pix e encerra?
+2. Na troca, o manual da Adimplência cobra junto **o mês que está para vencer**. Por exemplo: o cliente
+   deve agosto e setembro vence na semana seguinte; na troca, paga os dois. O agente faz igual?
 
 ---
 
