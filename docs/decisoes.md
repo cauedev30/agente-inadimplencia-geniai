@@ -30,6 +30,7 @@ a revisou.
 | D23 | 2026-10-20 | **Sem parcelamento.** A franquia não parcela a dívida: o pagamento é sempre à vista |
 | D24 | 2026-10-20 | **A dívida é a mensalidade (R$ 33,40) vezes o número de mensalidades em aberto**, sem juros nem multa |
 | D25 | 2026-10-20 | **A carteira é dividida em réguas** pelo número de mensalidades em aberto, nesta ordem: NR, R1 (1), R2 (2), R3 (3), **Prévia de Desfiliado**, R4 (4), R5 (5) e R6 (6). É a divisão do manual da Adimplência do CDT. A régua define a condição oferecida e a abordagem |
+| D26 | 2026-10-20 | **O Pix não vai na mensagem de abertura.** A abertura leva um **botão "Pagar com Pix"**, e o Pix é gerado na hora em que o cliente toca nele. Um Pix que chega sem o cliente pedir parece golpe, e gerar na hora evita criar cobranças que vencem sem uso |
 
 ## Análise do D7: Go × Python
 

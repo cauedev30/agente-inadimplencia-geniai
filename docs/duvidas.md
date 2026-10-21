@@ -69,6 +69,10 @@ da Paraíba e os de João Pessoa?
 Qual é o **texto da primeira mensagem**, a que avisa o cliente da dívida? Ela precisa ser aprovada pela
 Meta como template antes de ser usada.
 
+**Em parte (2026-10-20) → D26:** a abertura leva o botão "Pagar com Pix", e não o Pix. O manual da
+Adimplência já tem templates por régua; falta saber se estão aprovados na Meta e se o botão "Falar com
+atendente" continua no primeiro contato.
+
 ### G7. Canal externo do João Pessoa Sul
 
 > ⭐ **Ideia em avaliação, com prioridade alta (2026-10-20): o atendimento humano vai para um webchat**,
