@@ -90,9 +90,24 @@ A Adimplência do CDT não só cobra: ela também tenta tirar o cliente do Pix m
 **link do CTM**, gerado pela matrícula, em que o cliente paga e já cadastra o cartão. O Cauê marcou esta
 dúvida como importante em 2026-10-20.
 
+Segundo o Cauê (2026-10-20), o cartão é um dos trabalhos da implantação; falta confirmar com o gestor.
+
 1. O agente **também faz a troca**, mandando o link do CTM, ou **só cobra** pelo Pix e encerra?
 2. Na troca, o manual da Adimplência cobra junto **o mês que está para vencer**. Por exemplo: o cliente
    deve agosto e setembro vence na semana seguinte; na troca, paga os dois. O agente faz igual?
+3. O link do CTM serve **só para cadastrar o cartão, sem pagar**? Isso resolveria o caso de quem já
+   pagou por Pix. A alternativa sugerida pela operação, um formulário com os dados do cartão, não deve
+   ser usada: coletar o código de segurança fora de um gateway certificado fere o PCI-DSS.
+
+### G10. Prévia de Desfiliado
+
+É a régua do último aviso antes de o cliente perder o cartão (D25). Fica entre a R3 e a R4.
+
+1. **O que coloca o cliente na Prévia?** As outras réguas seguem o número de mensalidades em aberto,
+   mas o manual não diz o critério da Prévia: dias de atraso, uma data do sistema ou outro.
+2. **A que horas sai a mensagem?** O manual dispara às 17h20, mas a janela do agente fecha às 18h
+   (D11, D16). Sobram 40 minutos para conversar; quem responder depois das 18h só recebe resposta no
+   dia seguinte, às 8h. Sugestão: antecipar para o bloco das 16h30 ou antes.
 
 ---
 
@@ -152,6 +167,19 @@ seção 8). **Vale essa ordem** neste projeto? O modo sombra roda com clientes r
 As ações `INFORM_DEBT`, `SIMULATE`, `GENERATE_PIX`, `OUT_OF_SCOPE`, `NONE` e `HUMAN` **cobrem a política
 do João Pessoa Sul**, ou falta alguma (desconto à vista, por exemplo)? Depende da G1. Sem parcelamento
 (D23), o `SIMULATE` e a pergunta `pediu_parcelamento` do Jev 1 perdem o uso como estão.
+
+### T9. CTM
+
+Pelo que o Cauê sabe em 2026-10-20, o **CTM** é o sistema de registro do Cartão de Todos, um histórico
+grande de tudo, e **tem API para consulta** ("varredura"). Ainda não se sabe se o agente vai trabalhar
+direto nele.
+
+1. O que o agente **consulta no CTM**? Matrícula, régua, débitos, se o cliente já pagou? A carteira
+   (G5) pode vir dessa varredura?
+2. O **link de pagamento** (G9) pode ser gerado pela API, a partir da matrícula? Há webhook quando o
+   cliente paga por ele?
+3. O manual da Adimplência fala em **"CTN"** e a avaliação da operação fala em **"CTM"**. São o mesmo
+   sistema?
 
 ---
 
