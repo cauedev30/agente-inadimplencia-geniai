@@ -20,12 +20,16 @@ Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes
 É a dúvida mais importante: sem ela, o agente não sabe o que pode oferecer ao cliente.
 
 1. A franquia **dá desconto** na dívida? Até quantos %? Sobre a dívida inteira ou só sobre juros e
-   multa?
+   multa? **Em parte (2026-10-20):** o manual da Adimplência dá um valor fixo por régua: sem desconto
+   na NR, R1 e R2; R$ 90 na R3 e na R4; R$ 75 na R5 e na R6; R$ 60 na Prévia de Desfiliado. Falta
+   confirmar se esse é **o desconto** ou **o valor final que o cliente paga**.
 2. ~~**Aceita parcelar?** Em quantas vezes, no máximo? Tem valor mínimo de parcela?~~ **Respondida em
    2026-10-20 → D23:** não tem parcelamento.
-3. **A regra muda** conforme o tempo de atraso ou o valor da dívida? Por exemplo: até 30 dias de
-   atraso, uma condição; acima de 90, outra.
-4. Como são calculados **juros e multa** de atraso?
+3. ~~**A regra muda** conforme o tempo de atraso ou o valor da dívida? Por exemplo: até 30 dias de
+   atraso, uma condição; acima de 90, outra.~~ **Respondida em 2026-10-20 → D25:** muda conforme a
+   régua, que segue o número de mensalidades em aberto.
+4. ~~Como são calculados **juros e multa** de atraso?~~ **Respondida em 2026-10-20 → D24:** não há juros
+   nem multa; a dívida é a mensalidade vezes o número de mensalidades em aberto.
 5. A política **fica fixa ou muda com frequência**? Se muda, quem avisa a mudança e como?
 
 ### G2. O que acontece quando o cliente paga
