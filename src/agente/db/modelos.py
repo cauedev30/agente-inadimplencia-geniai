@@ -159,6 +159,8 @@ class LaudoGravado(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     turno_id: Mapped[int] = mapped_column(ForeignKey("turno.id"), index=True)
     batch: Mapped[BatchJev] = mapped_column(_enum(BatchJev))
+    # "falso" ou o identificador do Jev real: a calibração usa só os laudos do real.
+    origem: Mapped[str] = mapped_column(String(64))
     pergunta: Mapped[str] = mapped_column(String(64))
     # Em JSON porque a resposta pode ser sim/não, nota ou escolha.
     valor: Mapped[Any] = mapped_column(JSON)

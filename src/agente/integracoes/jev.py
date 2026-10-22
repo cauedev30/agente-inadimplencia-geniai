@@ -59,6 +59,9 @@ class JevIndisponivel(RuntimeError):
 
 
 class Jev(Protocol):
+    # Quem respondeu: "falso" ou o identificador do Jev real. Separa os laudos na calibração.
+    origem: str
+
     def avaliar(self, perguntas: Sequence[Pergunta], estado: EstadoJev) -> list[Laudo]:
         """Um laudo por pergunta, na ordem das perguntas. Levanta JevIndisponivel."""
         ...
@@ -91,6 +94,10 @@ class JevComPrazo:
     def __init__(self, jev: Jev, timeout_ms: int):
         self.jev = jev
         self.timeout_ms = timeout_ms
+
+    @property
+    def origem(self) -> str:
+        return self.jev.origem
 
     def avaliar(self, perguntas: Sequence[Pergunta], estado: EstadoJev) -> list[Laudo]:
         executor = ThreadPoolExecutor(max_workers=1)
@@ -142,6 +149,7 @@ class JevFalso:
     regras: Sequence[Regra] = ()
     demora_s: float = 0.0
     falha: Exception | None = None
+    origem: str = "falso"
     chamadas: list[tuple[list[str], EstadoJev]] = field(default_factory=list)
 
     def avaliar(self, perguntas: Sequence[Pergunta], estado: EstadoJev) -> list[Laudo]:

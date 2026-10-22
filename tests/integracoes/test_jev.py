@@ -39,6 +39,9 @@ class ContratoJev:
         assert tom.valor in PERGUNTAS[1].opcoes
         assert acao.valor in PERGUNTAS[2].opcoes
 
+    def test_se_identifica_para_a_calibracao(self, jev):
+        assert isinstance(jev.origem, str) and jev.origem
+
     def test_probabilidade_e_confianca_entre_0_e_1(self, jev):
         for laudo in jev.avaliar(PERGUNTAS, ESTADO):
             assert 0 <= laudo.probabilidade <= 1
@@ -70,6 +73,9 @@ class TestJevFalso(ContratoJev):
         jev = JevFalso([responder("tom", "irritado"), responder("tom", "neutro")])
         assert jev.avaliar(PERGUNTAS, ESTADO)[1].valor == "irritado"
 
+    def test_a_origem_da_falsa_e_falso(self):
+        assert JevFalso().origem == "falso"
+
     def test_grava_as_chamadas(self):
         jev = JevFalso()
         jev.avaliar(PERGUNTAS, ESTADO)
@@ -80,6 +86,9 @@ class TestJevComPrazo(ContratoJev):
     @pytest.fixture
     def jev(self):
         return JevComPrazo(JevFalso(), timeout_ms=1000)
+
+    def test_a_origem_e_a_do_jev_envolvido(self):
+        assert JevComPrazo(JevFalso(origem="jev-teste"), timeout_ms=1000).origem == "jev-teste"
 
     def test_tempo_estourado_levanta_jev_indisponivel(self):
         jev = JevComPrazo(JevFalso(demora_s=0.5), timeout_ms=20)

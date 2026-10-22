@@ -73,6 +73,7 @@ def test_em_sombra_grava_os_laudos_e_o_que_teria_feito(sessao, ligada, politica)
     assert len(_laudos(sessao, BatchJev.JEV1)) == 13
     [jev2] = _laudos(sessao, BatchJev.JEV2)
     assert (jev2.pergunta, jev2.valor, jev2.turno_id) == ("acao", "INFORM_DEBT", turno.id)
+    assert {laudo.origem for laudo in turno.laudos} == {"falso"}
     # A cobrança fictícia não é propensa: o débito vai com o Pix integral (D34, D37).
     assert turno.acao_principal == "INFORM_DEBT"
     assert turno.acoes_anexadas == ["GENERATE_PIX"]

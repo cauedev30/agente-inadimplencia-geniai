@@ -67,6 +67,7 @@ def test_turno_grava_laudos_e_resultado(sessao, conversa):
             Laudo("tom", "neutro", 0.81, 0.75),
             Laudo("intencao_pagar", 0.6, 0.70, 0.65),
         ],
+        origem="falso",
     )
     fechar_turno(
         sessao,
@@ -89,12 +90,14 @@ def test_turno_grava_laudos_e_resultado(sessao, conversa):
     assert len(ids) == 3
     valores = {laudo.pergunta: laudo.valor for laudo in sessao.scalars(select(LaudoGravado))}
     assert valores == {"quer_retencao": False, "tom": "neutro", "intencao_pagar": 0.6}
+    # A origem separa os laudos da falsa dos do Jev real na calibração.
+    assert {laudo.origem for laudo in sessao.scalars(select(LaudoGravado))} == {"falso"}
 
 
 def test_transicao_grava_o_laudo_que_a_causou(sessao, conversa):
     turno = abrir_turno(sessao, conversa.id, [], Modo.ATIVO)
     [laudo_id] = gravar_laudos(
-        sessao, turno.id, BatchJev.JEV1, [Laudo("risco_juridico", True, 0.91, 0.80)]
+        sessao, turno.id, BatchJev.JEV1, [Laudo("risco_juridico", True, 0.91, 0.80)], "falso"
     )
 
     transicionar(

@@ -89,14 +89,18 @@ def _historico(sessao: Session, conversa_id: int) -> list[tuple[str, str]]:
     return [(mensagem.origem.value, mensagem.texto) for mensagem in mensagens]
 
 
-def _gravar_laudos(sessao: Session, turno_id: int, avaliacao: Avaliacao) -> dict:
+def _gravar_laudos(sessao: Session, turno_id: int, avaliacao: Avaliacao, origem: str) -> dict:
     """Grava os laudos do Jev 1 e do Jev 2 e devolve o id de cada um, para a auditoria."""
     ids: dict = {}
     if avaliacao.leitura is not None:
         laudos = list(avaliacao.leitura.laudos)
-        ids |= zip(laudos, gravar_laudos(sessao, turno_id, BatchJev.JEV1, laudos), strict=True)
+        ids |= zip(
+            laudos, gravar_laudos(sessao, turno_id, BatchJev.JEV1, laudos, origem), strict=True
+        )
     if avaliacao.decisao is not None:
-        [laudo_id] = gravar_laudos(sessao, turno_id, BatchJev.JEV2, [avaliacao.decisao.laudo])
+        [laudo_id] = gravar_laudos(
+            sessao, turno_id, BatchJev.JEV2, [avaliacao.decisao.laudo], origem
+        )
         ids[avaliacao.decisao.laudo] = laudo_id
     return ids
 
@@ -107,7 +111,7 @@ def _seguir(
     cobranca = conversa.cobranca
     estado = estado_jev(conversa, cobranca, _historico(sessao, conversa.id), deps.politica)
     avaliacao = avaliar(deps.jev, estado, conversa, cobranca, deps.politica)
-    ids = _gravar_laudos(sessao, turno.id, avaliacao)
+    ids = _gravar_laudos(sessao, turno.id, avaliacao, deps.jev.origem)
     resultado = ResultadoTurno.SOMBRA
     if avaliacao.motivo is not None and deps.modo is Modo.ATIVO:
         causa = avaliacao.laudo_da_causa

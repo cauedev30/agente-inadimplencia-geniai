@@ -64,12 +64,14 @@ def abrir_turno(sessao: Session, conversa_id: int, mensagens_ids: list[int], mod
 
 
 def gravar_laudos(
-    sessao: Session, turno_id: int, batch: BatchJev, laudos: list[Laudo]
+    sessao: Session, turno_id: int, batch: BatchJev, laudos: list[Laudo], origem: str
 ) -> list[int]:
+    """Grava os laudos com a origem do Jev, para a calibração separar os da falsa."""
     gravados = [
         LaudoGravado(
             turno_id=turno_id,
             batch=batch,
+            origem=origem,
             pergunta=laudo.pergunta,
             valor=laudo.valor,
             probabilidade=laudo.probabilidade,
