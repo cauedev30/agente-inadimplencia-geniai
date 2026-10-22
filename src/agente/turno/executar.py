@@ -65,7 +65,7 @@ def executar(
     *,
     objecao: bool = False,
 ) -> Numeros:
-    """Grava o degrau, a objeção na régua sem desconto, a forma enviada e o Pix pendente.
+    """Grava o degrau, a objeção na régua sem desconto, a forma enviada e o Pix ou o link pendente.
 
     Só muda os objetos: quem chama decide o flush e o commit.
     """
@@ -84,6 +84,17 @@ def executar(
     if Acao.SEND_CTN_LINK in acoes:
         link = deps.ctn.gerar_link_pagamento(
             cobranca.cliente.matricula_ctn, valor_final, cobranca.id
+        )
+        # O pagamento pelo link acha a cobrança pela referência (tarefa 6.1).
+        cobranca.pagamentos.append(
+            Pagamento(
+                forma=FormaPagamento.LINK_CTN,
+                valor_centavos=valor_final,
+                referencia=link.id_externo,
+                status=StatusPagamento.PENDENTE,
+                criado_em=agora,
+                expira_em=link.expira_em,
+            )
         )
         extras |= {"link_ctn": link.url, "forma": FormaPagamento.LINK_CTN}
     if Acao.GENERATE_PIX in acoes:

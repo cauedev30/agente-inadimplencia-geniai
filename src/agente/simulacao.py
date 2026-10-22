@@ -212,6 +212,7 @@ def _rodar_caso(
     deps: DependenciasSimulacao,
     relatorio: RelatorioSimulacao,
     chatwoot: ChatwootFalso,
+    ctn: CTNFalso,
 ) -> None:
     politica = deps.politica
     cliente = Cliente(
@@ -233,6 +234,9 @@ def _rodar_caso(
     # Uma segunda-feira às 10h, ou a próxima abertura da janela, se a política a fechar.
     agora = proxima_abertura(datetime(2026, 10, 26, 10, tzinfo=politica.janela.zona), politica)
     inicio = agora
+    ctn.clientes[cliente.matricula_ctn] = ClienteCTN(
+        cliente.matricula_ctn, cliente.nome, cliente.telefone, None
+    )
     base = Dependencias(
         # Toda conversa simulada roda no modo ativo, seja qual for a liberação do arquivo.
         politica=liberar_tudo(politica),
@@ -241,7 +245,7 @@ def _rodar_caso(
         time_humano=None,
         modo=Modo.ATIVO,
         jev=JevFalso(),
-        ctn=CTNFalso([ClienteCTN(cliente.matricula_ctn, cliente.nome, cliente.telefone, None)]),
+        ctn=ctn,
         pix=PixFalso(agora=lambda: inicio),
         redator=deps.redator or RedatorFalso(),
     )
@@ -277,8 +281,10 @@ def rodar_simulacao(casos: list[Caso], deps: DependenciasSimulacao) -> Relatorio
         with fabrica() as sessao:
             # Um Chatwoot só: o id de cada mensagem é único no banco, como no Chatwoot de verdade.
             chatwoot = ChatwootFalso()
+            # E um CTN só: a referência do link é única no banco (`pagamento.referencia`).
+            ctn = CTNFalso()
             for indice, caso in enumerate(casos, start=1):
-                _rodar_caso(sessao, indice, caso, deps, relatorio, chatwoot)
+                _rodar_caso(sessao, indice, caso, deps, relatorio, chatwoot, ctn)
     finally:
         motor.dispose()
     return relatorio
