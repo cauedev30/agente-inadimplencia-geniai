@@ -14,7 +14,8 @@ segue a mesma lógica. Onde o desenho e as decisões divergem, valem as decisõe
 - O **Jev** (TypeSafe AI) é um modelo de avaliação. Ele responde perguntas tipadas (escolha, nota ou
   sim/não) com uma probabilidade e uma confiança, e não escreve texto. Lê toda mensagem do cliente,
   define o estado da conversa e confere a resposta antes do envio.
-- O **backend** faz as contas: valor, juros, parcelas, vencimento e o Pix.
+- O **backend** faz as contas: a dívida (D24), o degrau do desconto (D35), a propensão ao cartão
+  (D36), o Pix e o link do CTN.
 - O **LLM** só redige o texto, a partir da ação já decidida e dos números já calculados. Ele não
   escolhe ação e não produz nenhum número.
 
@@ -39,7 +40,8 @@ São certezas, não probabilidades, e por isso ficam fora do Jev:
   ficam fora. Fora da janela, nada é enviado (D11, D16). O desenho dizia "seg–sáb, 08h–20h"; valem as
   decisões.
 - janela de 24h do WhatsApp e template;
-- **teto de 3 mensagens de resolução**, com a 4ª fixa (D8, D19).
+- **teto de 5 mensagens de resolução**, com a 6ª fixa: a confirmação, se o cliente pagou, ou o canal
+  externo (D33, D19). A abertura não conta. A confirmação de pagamento sai sempre, fora do teto.
 
 ## 2. Jev 1: leitura (roda em toda mensagem do cliente)
 
@@ -55,7 +57,9 @@ mesmo state (histórico, dívida, política e estado atual).
 | `contesta_divida` | bool | nega dever ou diz não ser a pessoa |
 | `terceiro` | bool | quem escreve não é o devedor |
 | `vulnerabilidade` | bool | desemprego, doença, luto, dificuldade |
-| `pediu_parcelamento` | bool | pediu explicitamente para parcelar |
+| `objecao_valor` | bool | acha caro, diz que não consegue pagar tudo ou pede desconto |
+| `atrito_clinica` | bool | reclama da clínica ou do atendimento da rede |
+| `quer_conta_energia` | bool | quer pagar na conta de energia (Energisa) |
 | `intencao_pagar` | score | nenhuma · hesitante · disposto · pronto |
 | `entendeu_proposta` | bool | entendeu o que foi oferecido |
 | `repete_sem_avancar` | bool | está em loop, repetindo o mesmo ponto |
@@ -70,7 +74,11 @@ turno, antes de redigir qualquer coisa.
 | `alega_pagamento` | ≥ 0,70 | CONCILIAÇÃO |
 | `contesta_divida` | ≥ 0,70 | CONTESTAÇÃO |
 | `vulnerabilidade` | ≥ 0,75 | CAUTELA |
+| `atrito_clinica` | ≥ 0,70 | ATRITO |
+| `quer_conta_energia` | ≥ 0,70 | ENERGISA (a troca é manual, D30) |
 | `tom` irritado ou hostil | — | TOM |
+
+Os limiares das duas perguntas novas seguem os das vizinhas e também precisam de calibração.
 
 No handoff, o agente deixa no Chatwoot uma nota privada com o laudo do Jev, uma etiqueta com o motivo,
 atribui a conversa e põe o status como aberta. O estado vira `ATENDIMENTO_HUMANO`. Com o D5, o cliente
@@ -81,9 +89,15 @@ Alegação de pagamento e contestação saem do robô por decisão de negócio: 
 
 ## 3. Estados da conversa
 
-`INICIADO` → `ENGAJADO` → `EM_NEGOCIACAO` → `AGUARDANDO_PAGAMENTO` → `ENCERRADO`, mais `EM_RISCO` e
-`ATENDIMENTO_HUMANO` (com motivo).
+`INICIADO` → `ENGAJADO` → `EM_NEGOCIACAO` → `AGUARDANDO_PAGAMENTO` → `PAGO` → `ENCERRADO`, mais
+`EM_RISCO` e `ATENDIMENTO_HUMANO` (com motivo).
 
+- **`AGUARDANDO_PAGAMENTO`:** guarda a forma enviada (Pix ou link do CTN), o valor e o degrau do
+  desconto. O Pix vale 24h (parâmetro, G2.4); sem pagamento, o agente não volta a procurar o cliente.
+  Se o cliente volta a escrever, a conversa segue dentro do teto.
+- **`PAGO`:** o webhook do banco (Pix) ou do CTN (link) confirma o pagamento. O agente registra a baixa
+  no CTN (D31) e manda a confirmação fixa, com o convite para o cartão quando couber (seção 4). Depois
+  vai para `ENCERRADO`.
 - **`EM_RISCO`:** o tom azedou ou o cliente repete a mesma coisa sem avançar. O agente encurta, para de
   propor e reconhece o incômodo. Ele tem um turno para recuperar; se o Jev não vir melhora, a conversa
   sai para o humano.
@@ -95,11 +109,15 @@ Alegação de pagamento e contestação saem do robô por decisão de negócio: 
 
 ## 4. Jev 2: decisão (a ação é um tipo)
 
+O Jev 2 escolhe **a ação principal** do turno. O Jev só responde perguntas tipadas, então não devolve
+uma lista; o que vai junto na mesma mensagem é anexado pelo código (D37).
+
 | Ação | O que faz | Probabilidade mínima |
 |---|---|---|
-| `INFORM_DEBT` | informa a dívida | ≥ 0,70 |
-| `SIMULATE` | simula parcelamento | ≥ 0,80 |
-| `GENERATE_PIX` | gera o Pix | ≥ 0,90 |
+| `INFORM_DEBT` | apresenta o débito total, sem desconto (D29) | ≥ 0,70 |
+| `OFFER_DISCOUNT` | libera o próximo degrau do desconto (D35) | ≥ 0,80 |
+| `SEND_CTN_LINK` | manda o link do CTN: paga e cadastra o cartão (D30) | ≥ 0,85 |
+| `GENERATE_PIX` | gera o Pix do valor integral (D22, D34) | ≥ 0,90 |
 | `OUT_OF_SCOPE` | fora de escopo | ≥ 0,70 |
 | `NONE` | não agir | ≥ 0,70 |
 | `HUMAN` | manda para o humano | — |
@@ -107,17 +125,30 @@ Alegação de pagamento e contestação saem do robô por decisão de negócio: 
 - Em todas, a confiança precisa ser de pelo menos 0,60. Abaixo do limiar, a conversa vai para o humano
   com o motivo `BAIXA_CONFIANCA`: o robô não chuta quando não sabe.
 - Os limiares precisam ser calibrados com dado real em português, nunca com o benchmark do fornecedor.
+  O de `SEND_CTN_LINK` é um ponto de partida, entre o desconto e o Pix.
 - **Pré-condições em código:**
-  - `SIMULATE` só se `pediu_parcelamento` for verdadeiro no Jev 1;
-  - `GENERATE_PIX` só se existir uma simulação válida na sessão;
+  - `OFFER_DISCOUNT` só se `objecao_valor` for verdadeiro no Jev 1, se a régua tiver desconto e se
+    houver um degrau seguinte. Na régua sem desconto (NR, R1, R2), a objeção recebe `INFORM_DEBT` com a
+    explicação da condição; na 2ª objeção, a conversa vai para o humano;
+  - `GENERATE_PIX` sai pelo botão "Pagar com Pix" da abertura (D26) ou quando o cliente pede o Pix;
   - `GENERATE_BOLETO` não está implementado e vai para o humano.
-- Nada de conta para o Jev: ele é fraco em aritmética e data. Pergunte "o cliente pediu parcelamento?",
-  nunca "essa parcela cabe na política?".
+- **O que vai junto, por uma tabela fixa em código (D37):**
+
+  | Ação principal | O código anexa |
+  |---|---|
+  | `INFORM_DEBT` | `SEND_CTN_LINK` se o cliente é propenso ao cartão; `GENERATE_PIX` se não é (D36) |
+  | `OFFER_DISCOUNT` | sempre `SEND_CTN_LINK`, com o valor já descontado (D34) |
+  | `SEND_CTN_LINK`, `GENERATE_PIX`, `OUT_OF_SCOPE`, `NONE` | nada |
+
+  A confirmação de pagamento não passa pelo Jev 2: é a mensagem fixa do estado `PAGO`, que leva o
+  convite para o cartão quando o cliente é propenso e pagou no Pix.
+- Nada de conta para o Jev: ele é fraco em aritmética e data. Pergunte "o cliente pediu desconto?",
+  nunca "esse desconto cabe na política?". O degrau e a propensão ao cartão são calculados no backend.
 
 ## 5. Backend calcula, LLM redige
 
-- O **backend** executa a ação dentro da política e produz os números: valor, parcelas, juros,
-  vencimento e o BR Code do Pix.
+- O **backend** executa a ação dentro da política e produz os números: a dívida (D24), o valor com o
+  degrau do desconto (D35), o link do CTN, o BR Code do Pix e o vencimento do Pix.
 - O **LLM** recebe a ação decidida, os números calculados, o tom-alvo (vindo do Jev 1), o estado e o
   histórico, e devolve só o texto. O candidato é o Groq `openai/gpt-oss-120b`, com escolha final por
   teste (D6).
@@ -128,7 +159,7 @@ Alegação de pagamento e contestação saem do robô por decisão de negócio: 
 
 | Pergunta (todas sim/não) | O que confere |
 |---|---|
-| `bate_com_acao` | o texto corresponde à ação decidida |
+| `bate_com_acao` | o texto cobre todas as ações do turno, a principal e as anexadas (D37) |
 | `valor_nao_autorizado` | afirma valor, prazo ou desconto que não veio do backend |
 | `promessa_indevida` | promete perdão, prazo extra ou algo fora da política |
 | `tom_adequado` | respeitoso, sem ameaça nem constrangimento (CDC, art. 42) |
@@ -169,3 +200,18 @@ A ordem das fases neste projeto ainda é dúvida: ver T7 em [`duvidas.md`](duvid
   direta estava em lista de espera em 2026-10-15.
 - **LGPD:** Zero Data Retention e No Training ligados em cada chamada, porque é dado financeiro
   pessoal. O uso está autorizado (D12).
+
+## 10. Integrações: interfaces com implementação falsa
+
+Os sistemas de fora entram como interfaces. Enquanto a dúvida técnica não fecha, a implementação é
+falsa: responde como o sistema real responderia, sem chamar ninguém. Trocar a falsa pela real não muda
+o resto do código.
+
+| Interface | O que oferece | Real depende de |
+|---|---|---|
+| `CTN` | consulta do cliente, da matrícula e do histórico de pagamentos (forma e data); geração do link de pagamento com o valor; registro da baixa; webhook do pagamento pelo link | T9 |
+| `PixBanco` | cobrança Pix com txid e vencimento; webhook do Pix recebido | T1 |
+| `Chatwoot` | webhook de mensagem, envio, nota privada, etiqueta, atribuição e status (Agent Bot, D1) | T3 |
+| `Disparador` | envio da abertura por template, com o botão "Pagar com Pix" (D3, D26) | T4 |
+| `Jev` | os 3 batches (leitura, decisão, validação), com o fallback da seção 9 | T5 |
+| `Redator` | o LLM que redige a partir das ações e dos números | T6 |

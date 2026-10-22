@@ -6,7 +6,7 @@
 
 ## A ideia
 
-Quando o agente não resolve em 3 mensagens (D8), a 4ª mensagem fixa (D19) manda o cliente para um
+Quando o agente não resolve em 5 mensagens (D33), a 6ª mensagem fixa (D19) manda o cliente para um
 **atendente humano**. A pergunta é por onde esse atendimento acontece.
 
 - **Outro número de WhatsApp, fora da API oficial:** descartado na avaliação do Cauê. O contexto não
@@ -21,7 +21,7 @@ porque seria construir uma tela de atendente que o Chatwoot já tem.
 ## Pontos positivos
 
 1. **Custo.** Desde 01/10/2026 cada resposta no WhatsApp custa. A negociação com o humano, que vem
-   depois da 4ª mensagem, tende a ser a parte mais longa da conversa. No webchat essas mensagens
+   depois da 6ª mensagem, tende a ser a parte mais longa da conversa. No webchat essas mensagens
    **não passam pela Meta e não custam**.
 2. **Auditoria.** Um segundo número fora da API oficial deixa a conversa num aparelho, fora do sistema,
    e corre risco de banimento. O webchat fica **dentro do Chatwoot**, na mesma conta, com o mesmo
@@ -35,10 +35,10 @@ porque seria construir uma tela de atendente que o Chatwoot já tem.
 
 ### 1. Atrito: o cliente pode não clicar
 
-Ele sai do WhatsApp e vai para o navegador. Um inadimplente que já resistiu a 3 mensagens pode
+Ele sai do WhatsApp e vai para o navegador. Um inadimplente que já resistiu a 5 mensagens pode
 simplesmente não clicar.
 
-- **Botão no lugar de link solto.** A 4ª mensagem vai como mensagem interativa com botão (*CTA URL*),
+- **Botão no lugar de link solto.** A 6ª mensagem vai como mensagem interativa com botão (*CTA URL*),
   por exemplo "Falar com um atendente". O texto continua fixo (D19). Inadimplente costuma ter medo de
   golpe, e um botão passa mais confiança que uma URL crua.
 - **Domínio conhecido.** O link abre num domínio da franquia ou da GeniAI, nunca num encurtador
@@ -54,7 +54,7 @@ simplesmente não clicar.
 O webchat não tem notificação como o WhatsApp. Se o cliente fecha a aba e o atendente responde depois,
 ele pode nunca ver. É o ponto mais fraco da ideia.
 
-- **Atender em tempo real.** A 4ª mensagem só sai dentro da janela (D16), então basta ter um
+- **Atender em tempo real.** A 6ª mensagem só sai dentro da janela (D16), então basta ter um
   **atendente de plantão** nesse horário. O canal de webchat do Chatwoot mostra o horário de
   atendimento e o tempo de resposta esperado.
 - **O link serve para voltar à conversa.** Com a validação de identidade do Chatwoot, o mesmo link

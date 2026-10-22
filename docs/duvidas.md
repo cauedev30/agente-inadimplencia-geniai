@@ -1,15 +1,18 @@
 # Dúvidas em aberto
 
-Atualizado em 2026-10-21. São as perguntas que faltam para fechar a spec. Elas estão separadas por quem
+Atualizado em 2026-10-22. São as perguntas que faltam para fechar a spec. Elas estão separadas por quem
 responde: **G** para o gestor da franquia, **T** para o time técnico e **C** para o Cauê.
 
 Contexto rápido: o agente cobra pelo WhatsApp os clientes inadimplentes do **Cartão de Todos João
-Pessoa Sul**. Ele tenta resolver o pagamento em até 3 mensagens; na 4ª, manda o cliente para o canal
-externo da franquia. O robô só fala de segunda a sexta, das 8h às 18h, e no sábado, das 8h às 12h. Mais
+Pessoa Sul**. Ele tenta resolver o pagamento em até 5 mensagens; a 6ª é fixa: confirma o pagamento ou
+manda o cliente para o canal externo da franquia (D33). O robô só fala de segunda a sexta, das 8h às 18h, e no sábado, das 8h às 12h. Mais
 em [`spec.md`](spec.md).
 
 Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes.md) e ganha aqui a marca
 **Respondida em AAAA-MM-DD → Dxx**.
+
+Enquanto não há resposta, a dúvida entra no código como parâmetro, com o **padrão** marcado aqui
+(a lista completa está na seção 4 de [`spec.md`](spec.md)).
 
 ---
 
@@ -23,14 +26,18 @@ Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes
    multa? **Respondida em 2026-10-21 → D29:** é o **desconto máximo**, liberado aos poucos. Continua
    aberto:
    - **Os degraus:** quanto liberar em cada passo e quando. Por exemplo, na R3: R$ 30, depois R$ 60,
-     depois R$ 90? Quem decide o degrau é o Jev, então a regra tem de ser fixa.
+     depois R$ 90? Quem decide o degrau é o Jev, então a regra tem de ser fixa. **Padrão (D35):** 3
+     degraus iguais até o máximo.
    - **A Prévia e a R6:** o manual dava R$ 75 na R6 e R$ 60 na Prévia; a operação disse R$ 60 na R6 e não
-     falou da Prévia.
+     falou da Prévia. **Padrão:** R$ 60 nas duas.
    - **Os números:** como desconto máximo, a R3 (R$ 100,20) pode pagar só R$ 10,20, e a R6 (R$ 200,40)
      paga no mínimo R$ 140,40. O desconto encolhe justo nas réguas altas. É isso mesmo?
-   - **O desconto depende do cartão?** Quem só desbloqueia paga o valor integral (D29). Quem paga no
-     Pix, sem cadastrar o cartão, também paga o integral?
-   - **Mais de 6 mensalidades:** qual é a regra?
+   - ~~**O desconto depende do cartão?** Quem só desbloqueia paga o valor integral (D29). Quem paga no
+     Pix, sem cadastrar o cartão, também paga o integral?~~ **Respondida pelo Cauê em 2026-10-22 →
+     D34:** sim; o desconto só vale no link do CTN, com o cartão. O gestor pode rever.
+   - **Mais de 6 mensalidades:** qual é a regra? **Padrão:** a condição da R6.
+   - **Objeção de valor nas réguas sem desconto (NR, R1, R2):** o que o agente faz? **Padrão:** explica
+     a condição; na 2ª objeção, a conversa vai para o humano.
 2. ~~**Aceita parcelar?** Em quantas vezes, no máximo? Tem valor mínimo de parcela?~~ **Respondida em
    2026-10-20 → D23:** não tem parcelamento.
 3. ~~**A regra muda** conforme o tempo de atraso ou o valor da dívida? Por exemplo: até 30 dias de
@@ -53,7 +60,8 @@ Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes
    para o dev: como a integração escreve a baixa (T9).
 3. A franquia quer ser **avisada de cada pagamento**? Por onde: e-mail, WhatsApp, relatório?
 4. **E se o cliente recebe o Pix e não paga?** Por quanto tempo o Pix vale? Depois disso, o agente volta
-   a cobrar ou o caso vai para o atendente?
+   a cobrar ou o caso vai para o atendente? **Padrão:** o Pix vale 24h, e o agente não volta a procurar
+   o cliente; se ele escrever de novo, a conversa segue dentro do teto.
 
 ### G3. Feriados
 
@@ -118,6 +126,7 @@ Segundo o Cauê (2026-10-20), o cartão é um dos trabalhos da implantação; fa
    (Energisa) é manual e vai para o humano.
 2. Na troca, o manual da Adimplência cobra junto **o mês que está para vencer**. Por exemplo: o cliente
    deve agosto e setembro vence na semana seguinte; na troca, paga os dois. O agente faz igual?
+   **Padrão:** não cobra junto; o link leva só a dívida.
 3. O link do CTM serve **só para cadastrar o cartão, sem pagar**? Isso resolveria o caso de quem já
    pagou por Pix. A alternativa sugerida pela operação, um formulário com os dados do cartão, não deve
    ser usada: coletar o código de segurança fora de um gateway certificado fere o PCI-DSS.
@@ -187,6 +196,10 @@ seção 8). **Vale essa ordem** neste projeto? O modo sombra roda com clientes r
 
 ### T8. As 6 ações do Jev 2
 
+**Respondida em 2026-10-22 → D34 a D37:** sai o `SIMULATE`; entram o `OFFER_DISCOUNT` e o
+`SEND_CTN_LINK`, e o código anexa as ações que vão junto na mesma mensagem. Ver
+[`arquitetura.md`](arquitetura.md), seção 4.
+
 As ações `INFORM_DEBT`, `SIMULATE`, `GENERATE_PIX`, `OUT_OF_SCOPE`, `NONE` e `HUMAN` **cobrem a política
 do João Pessoa Sul**, ou falta alguma (desconto à vista, por exemplo)? Depende da G1. Sem parcelamento
 (D23), o `SIMULATE` e a pergunta `pediu_parcelamento` do Jev 1 perdem o uso como estão.
@@ -204,6 +217,11 @@ direto nele.
 3. O manual da Adimplência fala em **"CTN"** e a avaliação da operação fala em **"CTM"**. São o mesmo
    sistema? **Em parte (2026-10-21):** na reunião, a operação falou em **CTN**; "CTM" deve ser o mesmo
    sistema, escrito errado. Confirmar.
+4. O CTN expõe o **histórico de pagamentos com a forma e a data** de cada um? A propensão ao cartão
+   (D36) é calculada com ele. **Padrão:** 3 meses seguidos de Pix, com tolerância de 3 dias no dia do
+   mês.
+5. O **link do CTN aceita um valor com desconto**, definido pelo agente (D34, D35)?
+6. Quem paga pelo link **já sai com a baixa no próprio CTN**, ou o agente também registra a baixa?
 
 ---
 

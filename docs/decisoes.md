@@ -18,12 +18,12 @@ a revisou.
 | D11 | 2026-10-19 | *(Revisada pela D16 na parte de fora da janela.)* **Janela de atendimento:** segunda a sexta, das 8h às 18h; sábado, das 8h às 12h. Fora dela, uma mensagem reforçaria o horário |
 | D12 | 2026-10-19 | **LGPD:** o uso do Jev com os dados dos clientes está autorizado. Zero Data Retention e No Training ligados em cada chamada |
 | D13 | 2026-10-19 | *(Corrigida pela D17.)* Uma franquia só, em teste. Cada franquia terá as suas credenciais, separadas; a divisão em várias franquias fica para quando o produto escalar |
-| D14 | 2026-10-19 | O teto de 3 mensagens vale para **todas as franquias**, sem configuração por franquia |
+| D14 | 2026-10-19 | O teto de mensagens vale para **todas as franquias**, sem configuração por franquia. *(Era o teto de 3; com a D33, vale para o teto de 5.)* |
 | D15 | 2026-10-19 | O repositório fica público por enquanto e vai virar **privado em breve** |
 | D16 | 2026-10-19 | **Fora da janela, o agente não responde nada**, porque cada mensagem custa. O que chega fora do horário é respondido quando a janela abre, como se tivesse chegado no horário. Os atendentes também veem essas mensagens no horário deles. **Domingo e feriado ficam fora da janela** |
 | D17 | 2026-10-19 | **A primeira franquia é o Cartão de Todos João Pessoa Sul, em uso real**, não teste. Se o projeto der certo, expande para outras |
 | D18 | 2026-10-19 | *(Revisada pela D32: o canal externo é o webchat.)* O canal externo é um **web chat ou outro número de WhatsApp** da franquia |
-| D19 | 2026-10-19 | **A 4ª mensagem é fixa, sem LLM e sem Jev:** *"Para o problema ser resolvido de forma mais eficaz, entre em contato conosco por esse canal de atendimento."*, com o link do canal externo |
+| D19 | 2026-10-19 | *(Com a D33, a mensagem fixa passa a ser a 6ª; o texto continua.)* **A 4ª mensagem é fixa, sem LLM e sem Jev:** *"Para o problema ser resolvido de forma mais eficaz, entre em contato conosco por esse canal de atendimento."*, com o link do canal externo |
 | D20 | 2026-10-19 | Sem restrição de dado no repositório enquanto ele for público, porque ele vira privado em breve |
 | D21 | 2026-10-19 | O projeto é feito pelo Cauê **junto com outro dev** |
 | D22 | 2026-10-20 | **Pix pela API Pix do banco do Cartão de Todos, via integração**, sem PSP à parte. A cobrança é **gerada por cliente**, com identificador (txid), e o banco avisa por **webhook** quando o Pix cai. Pix fixo (a mesma chave ou QR para todos) foi descartado, porque não deixa o agente saber sozinho quem pagou |
@@ -37,7 +37,11 @@ a revisou.
 | D30 | 2026-10-21 | **A troca da forma de pagamento é papel do agente.** Ele manda o **link de pagamento do CTN**, em que o cliente quita a dívida e já cadastra o cartão de crédito ou débito. O Pix todo mês não é uma recorrência saudável. A troca para a **conta de energia (Energisa) é manual** e vai para o humano |
 | D31 | 2026-10-21 | **O agente trabalha integrado ao CTN**, o sistema com os clientes, as matrículas e o histórico. A **baixa** do pagamento entra na aba de mensalidades do CTN |
 | D32 | 2026-10-21 | **O atendimento humano sai do WhatsApp para um canal externo**, no desenho do webchat ([`ideia-webchat.md`](ideia-webchat.md)). As conversas são distribuídas entre os atendentes em **rodízio igualitário**. Revisa a D18 |
-| D33 | 2026-10-22 | **Teto de 5 mensagens de resolução** do agente, igual em todas as franquias (D14). A **6ª mensagem é fixa, sem LLM e sem Jev**: a **confirmação de pagamento**, se o cliente pagou, ou o encaminhamento para o canal externo (texto da D19), se não pagou. A confirmação **não consome** o teto. Revisa a D8 e responde a C2 e a G2.1 |
+| D33 | 2026-10-22 | **Teto de 5 mensagens de resolução** do agente, igual em todas as franquias (D14). A **6ª mensagem é fixa, sem LLM e sem Jev**: a **confirmação de pagamento**, se o cliente pagou, ou o encaminhamento para o canal externo (texto da D19), se não pagou. A confirmação **não consome** o teto e sai sempre, mesmo depois da 6ª. A **mensagem de abertura** (template, D3) **não conta** no teto. Revisa a D8 e responde a C2 e a G2.1 |
+| D34 | 2026-10-22 | **O desconto vale só no link do CTN, com o cadastro do cartão** (D30). No **Pix**, o cliente paga o **valor integral**. Responde, pelo Cauê, a pergunta da G1.1 sobre o Pix sem cartão |
+| D35 | 2026-10-22 | Até a G1.1 fechar os degraus, o desconto sai em **3 degraus iguais** até o máximo da régua (D29). Na R3: R$ 30, R$ 60 e R$ 90. Cada objeção de valor libera o degrau seguinte. É um **parâmetro por régua**, que muda sem mexer no código |
+| D36 | 2026-10-22 | **Propensão ao cartão.** O backend calcula, pelo histórico de pagamentos do CTN, se o cliente tende a cadastrar o cartão. Exemplo: 3 meses seguidos pagando Pix no mesmo dia do mês, que já é uma recorrência. **Propenso:** o link do CTN vai primeiro, e a confirmação de pagamento já convida a cadastrar o cartão. **Não propenso:** o Pix vai primeiro, e o link com desconto só entra se ele pedir desconto. A regra é um parâmetro (número de meses, tolerância de dias). Sem histórico, o cliente conta como não propenso |
+| D37 | 2026-10-22 | **Uma mensagem pode levar mais de um assunto**, porque cada mensagem custa. Exemplo: a confirmação do Pix e, na mesma mensagem, o convite para cadastrar o cartão; ou o débito total junto com o link. O Jev 2 escolhe **a ação principal**; o **código anexa** as que vão junto, por uma tabela fixa ([`arquitetura.md`](arquitetura.md), seção 4). O LLM redige uma mensagem só |
 
 ## Análise do D7: Go × Python
 
