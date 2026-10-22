@@ -6,12 +6,17 @@ from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Config(BaseSettings):
+class ConfigPolitica(BaseSettings):
+    """Só o caminho da política, para os comandos que não usam o banco (`agente simular`)."""
+
     model_config = SettingsConfigDict(env_prefix="AGENTE_", env_file=".env", extra="ignore")
 
+    politica_path: Path = Path("politica.toml")
+
+
+class Config(ConfigPolitica):
     database_url: str
     modo: Literal["sombra", "ativo"] = "sombra"
-    politica_path: Path = Path("politica.toml")
     log_level: str = "INFO"
 
     # Chatwoot (T3). Vazios até a conta, a inbox e o token do Agent Bot existirem.

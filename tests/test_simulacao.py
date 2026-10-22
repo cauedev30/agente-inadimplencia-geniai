@@ -153,3 +153,11 @@ def test_comando_simular_com_divergencia_sai_com_1(tmp_path, capsys):
     caminho = _yaml(tmp_path, CASO_R3.replace("[SEND_CTN_LINK]", "[]"))
     assert main(["simular", str(caminho), "--politica", str(RAIZ / "politica.toml")]) == 1
     assert "anexos" in capsys.readouterr().out
+
+
+def test_comando_simular_le_a_politica_como_o_config(tmp_path, monkeypatch, capsys):
+    # Fora da pasta do repo, vale o AGENTE_POLITICA_PATH, como nos outros comandos.
+    monkeypatch.setenv("AGENTE_POLITICA_PATH", str(RAIZ / "politica.toml"))
+    monkeypatch.chdir(tmp_path)
+    assert main(["simular", str(CONVERSAS)]) == 0
+    assert "15 casos" in capsys.readouterr().out

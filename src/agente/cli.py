@@ -9,7 +9,7 @@ from pathlib import Path
 
 from agente.abertura.disparar import disparar_aberturas
 from agente.carteira.importar import importar_carteira
-from agente.config import carregar_config
+from agente.config import ConfigPolitica, carregar_config
 from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
@@ -60,7 +60,7 @@ def _disparar(argumentos: argparse.Namespace) -> int:
 
 
 def _simular(argumentos: argparse.Namespace) -> int:
-    politica = carregar_politica(argumentos.politica)
+    politica = carregar_politica(argumentos.politica or ConfigPolitica().politica_path)
     # Até a T10, não há Jev real: a falsa responde o gabarito de cada turno.
     print("Jev falso: o relatório testa o encanamento, não calibra os limiares (T10).")
     casos = carregar_casos(argumentos.caminho)
@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     disparar.set_defaults(rodar=_disparar)
     simular = comandos.add_parser("simular", help="roda as conversas simuladas de uma pasta")
     simular.add_argument("caminho", type=Path)
-    simular.add_argument("--politica", type=Path, default=Path("politica.toml"))
+    simular.add_argument("--politica", type=Path, help="padrão: AGENTE_POLITICA_PATH")
     simular.set_defaults(rodar=_simular)
     argumentos = parser.parse_args(argv)
     return argumentos.rodar(argumentos)
