@@ -37,13 +37,17 @@ class Pergunta:
 
 @dataclass(frozen=True)
 class EstadoJev:
-    """O que o Jev lê: o histórico (origem, texto), a régua, a dívida, o estado e a oferta atual."""
+    """O que o Jev lê: o histórico (origem, texto), a régua, a dívida, o estado e a oferta atual.
+
+    O Jev 2 e o Jev 3 leem também a leitura do Jev 1 do mesmo turno.
+    """
 
     historico: tuple[tuple[str, str], ...]
     regua: Regua
     divida_centavos: int
     estado_conversa: EstadoConversa
     oferta_atual: Oferta | None
+    leitura: tuple[Laudo, ...] = ()
 
 
 class JevIndisponivel(RuntimeError):
