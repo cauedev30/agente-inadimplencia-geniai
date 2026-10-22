@@ -29,6 +29,11 @@ class TxidRepetido(ValueError):
     """O banco já tem uma cobrança com este txid."""
 
 
+class PixIndisponivel(Exception):
+    """O banco não respondeu (fora do ar, prazo estourado ou erro 5xx). Toda implementação do
+    `PixBanco` levanta esta exceção nessa falha; o turno a trata como integração fora do ar."""
+
+
 class PixBanco(Protocol):
     def criar_cobranca(
         self, txid: str, valor_centavos: int, validade: timedelta, devedor_nome: str
@@ -47,10 +52,17 @@ class PixFalso:
         self._agora = agora
         self.cobrancas: dict[str, CobrancaPix] = {}
         self.pagos: set[str] = set()
+        # Liga a falha do banco: toda chamada levanta PixIndisponivel.
+        self.fora_do_ar = False
+
+    def _exigir_no_ar(self) -> None:
+        if self.fora_do_ar:
+            raise PixIndisponivel("Pix fora do ar (simulado)")
 
     def criar_cobranca(
         self, txid: str, valor_centavos: int, validade: timedelta, devedor_nome: str
     ) -> CobrancaPix:
+        self._exigir_no_ar()
         if valor_centavos <= 0:
             raise ValueError(f"o valor do Pix tem de ser positivo, veio {valor_centavos}")
         if txid in self.cobrancas:
@@ -65,6 +77,7 @@ class PixFalso:
         return cobranca
 
     def consultar(self, txid: str) -> StatusPix:
+        self._exigir_no_ar()
         if txid in self.pagos:
             return StatusPix.PAGO
         if self._agora() > self.cobrancas[txid].expira_em:

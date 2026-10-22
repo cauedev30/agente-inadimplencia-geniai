@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from agente.integracoes.ctn import ClienteCTN, ClienteNaoEncontrado, CTNFalso
+from agente.integracoes.ctn import ClienteCTN, ClienteNaoEncontrado, CTNFalso, CTNIndisponivel
 from agente.tipos import FormaHistorico, PagamentoHistorico
 
 PAGO_EM = datetime(2026, 10, 22, 15, tzinfo=UTC)
@@ -56,8 +56,34 @@ class ContratoCTN:
         assert primeira is True
         assert repetida is False
 
+    # A implementação real define a fixture `ctn_fora_do_ar_e_matricula`: o CTN sem resposta (rede
+    # caída, prazo estourado ou 5xx). A falha tem de sair como CTNIndisponivel, que o turno trata.
+    @pytest.mark.parametrize(
+        "chamada",
+        [
+            lambda ctn, m: ctn.consultar_cliente(m),
+            lambda ctn, m: ctn.historico_pagamentos(m, meses=12),
+            lambda ctn, m: ctn.gerar_link_pagamento(m, valor_centavos=7020, cobranca_id=1),
+            lambda ctn, m: ctn.gerar_link_cadastro_cartao(m),
+            lambda ctn, m: ctn.registrar_baixa(m, 10020, PAGO_EM, referencia="ref-1"),
+        ],
+        ids=["cliente", "historico", "link", "cartao", "baixa"],
+    )
+    def test_com_o_ctn_fora_do_ar_a_falha_sai_como_indisponivel(
+        self, ctn_fora_do_ar_e_matricula, chamada
+    ):
+        ctn, matricula = ctn_fora_do_ar_e_matricula
+        with pytest.raises(CTNIndisponivel):
+            chamada(ctn, matricula)
+
 
 class TestCTNFalso(ContratoCTN):
+    @pytest.fixture
+    def ctn_fora_do_ar_e_matricula(self, ctn_e_matricula):
+        ctn, matricula = ctn_e_matricula
+        ctn.fora_do_ar = True
+        return ctn, matricula
+
     @pytest.fixture
     def ctn_e_matricula(self):
         cliente = ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", cpf=None)

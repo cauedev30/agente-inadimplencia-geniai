@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from agente.integracoes.pix import PixFalso, StatusPix, TxidRepetido, gerar_txid
+from agente.integracoes.pix import PixFalso, PixIndisponivel, StatusPix, TxidRepetido, gerar_txid
 
 VALIDADE = timedelta(hours=24)
 
@@ -34,6 +34,18 @@ class ContratoPix:
         with pytest.raises(ValueError, match="valor"):
             pix.criar_cobranca(gerar_txid(4), 0, VALIDADE, devedor_nome="Cliente Fictício")
 
+    # A implementação real define a fixture `pix_fora_do_ar`: o banco sem resposta (rede caída,
+    # prazo estourado ou 5xx). A falha tem de sair como PixIndisponivel, que o turno trata.
+    def test_criar_cobranca_com_o_banco_fora_do_ar(self, pix_fora_do_ar):
+        with pytest.raises(PixIndisponivel):
+            pix_fora_do_ar.criar_cobranca(
+                gerar_txid(7), 3340, VALIDADE, devedor_nome="Cliente Fictício"
+            )
+
+    def test_consultar_com_o_banco_fora_do_ar(self, pix_fora_do_ar):
+        with pytest.raises(PixIndisponivel):
+            pix_fora_do_ar.consultar(gerar_txid(8))
+
 
 class TestPixFalso(ContratoPix):
     @pytest.fixture
@@ -43,6 +55,17 @@ class TestPixFalso(ContratoPix):
     @pytest.fixture
     def pix(self, relogio):
         return PixFalso(agora=lambda: relogio["agora"])
+
+    @pytest.fixture
+    def pix_fora_do_ar(self, pix):
+        pix.fora_do_ar = True
+        return pix
+
+    def test_volta_a_responder_quando_o_banco_volta(self, pix_fora_do_ar):
+        pix_fora_do_ar.fora_do_ar = False
+        txid = gerar_txid(9)
+        pix_fora_do_ar.criar_cobranca(txid, 3340, VALIDADE, devedor_nome="Cliente Fictício")
+        assert pix_fora_do_ar.consultar(txid) is StatusPix.PENDENTE
 
     def test_simular_pagamento(self, pix):
         txid = gerar_txid(5)
