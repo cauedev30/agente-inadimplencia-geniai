@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from agente.api.principal import montar_app, montar_dependencias
 from agente.config import Config
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
+from agente.integracoes.jev import JevComPrazo, JevFalso
 from agente.tipos import Modo
 
 from ..conftest import RAIZ
@@ -34,6 +35,22 @@ def test_com_chatwoot_configurado_usa_a_real():
 def test_modo_ativo_sem_chatwoot_real_e_recusado():
     with pytest.raises(ValueError, match="Chatwoot"):
         montar_dependencias(_config(modo="ativo"))
+
+
+def test_ate_a_t10_o_jev_e_o_falso_com_o_prazo_da_politica(caplog):
+    deps = montar_dependencias(_config())
+    assert isinstance(deps.jev, JevComPrazo)
+    assert isinstance(deps.jev.jev, JevFalso)
+    assert deps.jev.timeout_ms == deps.politica.jev_timeout_ms
+    assert "Jev" in caplog.text and "T10" in caplog.text
+
+
+def test_modo_ativo_sem_jev_real_e_recusado():
+    config = _config(
+        modo="ativo", chatwoot_url="https://chatwoot.invalid", chatwoot_conta=7, chatwoot_token="t"
+    )
+    with pytest.raises(ValueError, match="Jev"):
+        montar_dependencias(config)
 
 
 def test_app_de_producao_responde_a_saude():

@@ -89,16 +89,16 @@ class JevComPrazo:
     """Erro, demora acima do prazo ou laudo fora do contrato viram JevIndisponivel."""
 
     def __init__(self, jev: Jev, timeout_ms: int):
-        self._jev = jev
-        self._timeout_ms = timeout_ms
+        self.jev = jev
+        self.timeout_ms = timeout_ms
 
     def avaliar(self, perguntas: Sequence[Pergunta], estado: EstadoJev) -> list[Laudo]:
         executor = ThreadPoolExecutor(max_workers=1)
-        futuro = executor.submit(self._jev.avaliar, perguntas, estado)
+        futuro = executor.submit(self.jev.avaliar, perguntas, estado)
         try:
-            laudos = futuro.result(timeout=self._timeout_ms / 1000)
+            laudos = futuro.result(timeout=self.timeout_ms / 1000)
         except TempoEsgotado:
-            raise JevIndisponivel(f"o Jev passou de {self._timeout_ms} ms") from None
+            raise JevIndisponivel(f"o Jev passou de {self.timeout_ms} ms") from None
         except JevIndisponivel:
             raise
         except Exception as erro:

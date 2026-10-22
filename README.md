@@ -49,8 +49,9 @@ uv run agente disparar --campanha outubro                 # dispara as aberturas
 
 ## Deploy
 
-O serviço roda em modo sombra até o Chatwoot (T3) e o servidor (T2) estarem definidos: lê e grava
-tudo, sem enviar nada.
+O serviço roda em modo sombra até o Chatwoot (T3), o Jev real (T10) e o servidor (T2) estarem
+definidos: lê, grava os laudos do Jev e o que o turno teria feito, sem enviar nada. Até a T10, o
+modo ativo é recusado.
 
 ```bash
 docker build -t agente-inadimplencia .

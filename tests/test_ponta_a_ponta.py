@@ -13,6 +13,7 @@ from agente.db.modelos import Base, Cliente, Cobranca, Conversa
 from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.disparador import DisparadorFalso
+from agente.integracoes.jev import JevFalso
 from agente.politica import Regua
 from agente.tipos import EstadoConversa, Modo, OrigemMensagem
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
@@ -52,7 +53,9 @@ def ambiente(politica):
         )
         sessao.commit()
     chatwoot = ChatwootFalso()
-    deps = Dependencias(politica, chatwoot, DisparadorFalso(), time_humano=4, modo=Modo.ATIVO)
+    deps = Dependencias(
+        politica, chatwoot, DisparadorFalso(), time_humano=4, modo=Modo.ATIVO, jev=JevFalso()
+    )
     relogio = Relogio(SEGUNDA_10H)
     config = Config(database_url="sqlite://", webhook_segredo="s3gredo")
     app = criar_app(

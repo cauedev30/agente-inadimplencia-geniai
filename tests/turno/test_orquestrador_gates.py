@@ -1,4 +1,4 @@
-"""O orquestrador aplicando os gates (tarefa 3.6). O Jev entra nele na etapa 4."""
+"""O orquestrador aplicando os gates (tarefa 3.6). O Jev está em test_orquestrador_sombra."""
 
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -10,6 +10,7 @@ from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Conversa, Mensagem, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.disparador import DisparadorFalso
+from agente.integracoes.jev import JevFalso
 from agente.tipos import EstadoConversa, Modo, MotivoHumano, OrigemMensagem, ResultadoTurno
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.fila import mensagens_pendentes
@@ -28,6 +29,7 @@ def deps(politica):
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=Modo.ATIVO,
+        jev=JevFalso(),
     )
 
 
@@ -101,7 +103,7 @@ def test_caminho_livre_grava_o_turno_e_consome_a_rajada(sessao, ligada, deps):
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    # Sem o Jev (etapa 4), o turno só é gravado.
+    # A ação do Jev fica gravada; o envio é da tarefa 5.3.
     assert resultado is ResultadoTurno.SOMBRA
     turno = sessao.scalars(select(Turno)).one()
     assert len(turno.mensagens_ids) == 1
