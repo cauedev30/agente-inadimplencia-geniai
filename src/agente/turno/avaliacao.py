@@ -10,7 +10,7 @@ from agente.db.modelos import Cobranca, Conversa
 from agente.dominio.desconto import Oferta, proxima_oferta, valor_com_desconto
 from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
 from agente.politica import Politica
-from agente.tipos import Laudo, MotivoHumano
+from agente.tipos import BatchJev, Laudo, MotivoHumano
 from agente.turno.acoes import Acao, Decisao, autorizar
 from agente.turno.jev1 import PERGUNTA_DO_GATILHO, LeituraJev1, gatilho_de_saida, ler
 from agente.turno.jev2 import decidir
@@ -33,17 +33,17 @@ class Avaliacao:
         return self.acao.value if self.acao is not None else f"HUMAN:{self.motivo.value}"
 
     @property
-    def laudo_da_causa(self) -> Laudo | None:
-        """O laudo que levou ao humano, para a nota e a transição (auditoria)."""
+    def causa(self) -> tuple[BatchJev, Laudo] | None:
+        """O laudo que levou ao humano, com o batch, para a nota e a transição (auditoria)."""
         if self.motivo is None or self.leitura is None:
             return None
         if self.motivo is MotivoHumano.OBJECAO_SEM_DESCONTO:
-            return self.leitura.laudo("objecao_valor")
+            return BatchJev.JEV1, self.leitura.laudo("objecao_valor")
         if self.decisao is not None:
-            return self.decisao.laudo
+            return BatchJev.JEV2, self.decisao.laudo
         # Sem decisão, só o gatilho do Jev 1 tem laudo; o Jev 2 indisponível, não.
         pergunta = PERGUNTA_DO_GATILHO.get(self.motivo)
-        return self.leitura.laudo(pergunta) if pergunta is not None else None
+        return (BatchJev.JEV1, self.leitura.laudo(pergunta)) if pergunta is not None else None
 
 
 def oferta_no_degrau(cobranca: Cobranca, degrau: int, politica: Politica) -> Oferta | None:

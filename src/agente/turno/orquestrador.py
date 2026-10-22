@@ -91,19 +91,19 @@ def _historico(sessao: Session, conversa_id: int) -> list[tuple[str, str]]:
     return [(mensagem.origem.value, mensagem.texto) for mensagem in mensagens]
 
 
-def _gravar_laudos(sessao: Session, turno_id: int, avaliacao: Avaliacao, origem: str) -> dict:
-    """Grava os laudos do Jev 1 e do Jev 2 e devolve o id de cada um, para a auditoria."""
-    ids: dict = {}
+def _gravar_laudos(
+    sessao: Session, turno_id: int, avaliacao: Avaliacao, origem: str
+) -> dict[tuple[BatchJev, str], int]:
+    """Grava os laudos do Jev 1 e do Jev 2; devolve o id de cada um por (batch, pergunta)."""
+    lotes = []
     if avaliacao.leitura is not None:
-        laudos = list(avaliacao.leitura.laudos)
-        ids |= zip(
-            laudos, gravar_laudos(sessao, turno_id, BatchJev.JEV1, laudos, origem), strict=True
-        )
+        lotes.append((BatchJev.JEV1, list(avaliacao.leitura.laudos)))
     if avaliacao.decisao is not None:
-        [laudo_id] = gravar_laudos(
-            sessao, turno_id, BatchJev.JEV2, [avaliacao.decisao.laudo], origem
-        )
-        ids[avaliacao.decisao.laudo] = laudo_id
+        lotes.append((BatchJev.JEV2, [avaliacao.decisao.laudo]))
+    ids = {}
+    for batch, laudos in lotes:
+        gravados = gravar_laudos(sessao, turno_id, batch, laudos, origem)
+        ids |= {(batch, laudo.pergunta): i for laudo, i in zip(laudos, gravados, strict=True)}
     return ids
 
 
@@ -116,17 +116,20 @@ def _seguir(
     ids = _gravar_laudos(sessao, turno.id, avaliacao, deps.jev.origem)
     resultado = ResultadoTurno.SOMBRA
     if avaliacao.motivo is not None and deps.modo is Modo.ATIVO:
-        causa = avaliacao.laudo_da_causa
+        laudos, laudo_id = [], None
+        if avaliacao.causa is not None:
+            batch, laudo = avaliacao.causa
+            laudos, laudo_id = [laudo], ids[(batch, laudo.pergunta)]
         fazer_handoff(
             sessao,
             deps.chatwoot,
             conversa,
             avaliacao.motivo,
-            [causa] if causa is not None else [],
+            laudos,
             deps.politica,
             deps.time_humano,
             agora,
-            laudo_id=ids.get(causa),
+            laudo_id=laudo_id,
         )
         resultado = ResultadoTurno.HANDOFF
     fechar_turno(
