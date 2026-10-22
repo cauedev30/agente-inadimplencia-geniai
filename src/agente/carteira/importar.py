@@ -1,7 +1,6 @@
 """Importa a carteira de um CSV (D2): cliente, régua, dívida e propensão ao cartão."""
 
 import csv
-import re
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,6 +11,7 @@ from sqlalchemy.orm import Session
 from agente.db.modelos import Cliente, Cobranca
 from agente.dominio.divida import calcular_divida, classificar_regua
 from agente.dominio.propensao import eh_propenso
+from agente.dominio.telefone import normalizar_telefone
 from agente.integracoes.ctn import CTN, ClienteNaoEncontrado
 from agente.politica import Politica, Regua
 from agente.tipos import StatusCobranca
@@ -35,18 +35,6 @@ class _Linha:
 
 class _LinhaInvalida(ValueError):
     pass
-
-
-def normalizar_telefone(bruto: str) -> str | None:
-    """Telefone brasileiro em E.164 (+55, DDD e número), ou None se não for um."""
-    if bruto.strip().startswith("+") and not bruto.strip().startswith("+55"):
-        return None
-    digitos = re.sub(r"\D", "", bruto)
-    if len(digitos) in (12, 13) and digitos.startswith("55"):
-        digitos = digitos[2:]
-    if len(digitos) not in (10, 11):
-        return None
-    return f"+55{digitos}"
 
 
 def _sem_acento(texto: str) -> str:

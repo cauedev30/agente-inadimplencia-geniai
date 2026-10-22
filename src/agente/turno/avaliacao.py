@@ -24,6 +24,9 @@ from agente.turno.jev1 import (
 )
 from agente.turno.jev2 import decidir
 
+# O prefixo da ação principal do turno cujo texto não saiu: nada do que ela fez ficou valendo.
+NAO_EXECUTADA = "NAO_EXECUTADA:"
+
 
 @dataclass(frozen=True)
 class Avaliacao:
@@ -40,6 +43,11 @@ class Avaliacao:
     def rotulo(self) -> str:
         """O que o turno grava como ação principal: a ação ou `HUMAN:<motivo>`."""
         return self.acao.value if self.acao is not None else f"HUMAN:{self.motivo.value}"
+
+    @property
+    def rotulo_nao_executado(self) -> str:
+        """A ação decidida cujo texto não saiu: o backend desfez o que ela tinha feito."""
+        return f"{NAO_EXECUTADA}{self.rotulo}"
 
     @property
     def causa(self) -> tuple[BatchJev, Laudo] | None:

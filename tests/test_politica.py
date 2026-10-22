@@ -103,3 +103,19 @@ def test_a_espera_maxima_menor_que_a_inicial_e_recusada(tmp_path):
     )
     with pytest.raises(PoliticaInvalida, match="integracao_espera_maxima_segundos"):
         carregar_politica(caminho)
+
+
+def test_telefones_da_equipe_sao_normalizados(tmp_path):
+    caminho = _arquivo_com(
+        tmp_path,
+        "telefones_equipe = []",
+        'telefones_equipe = ["(83) 90000-0001", "+5583900000002"]',
+    )
+    assert carregar_politica(caminho).telefones_equipe == {"+5583900000001", "+5583900000002"}
+
+
+@pytest.mark.parametrize("telefone", ["123", "", "+1 202 555 0100"])
+def test_telefone_da_equipe_invalido_e_recusado(tmp_path, telefone):
+    caminho = _arquivo_com(tmp_path, "telefones_equipe = []", f'telefones_equipe = ["{telefone}"]')
+    with pytest.raises(PoliticaInvalida, match="telefones_equipe"):
+        carregar_politica(caminho)

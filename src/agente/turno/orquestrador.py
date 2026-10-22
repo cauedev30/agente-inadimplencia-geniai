@@ -46,7 +46,7 @@ from agente.tipos import (
 from agente.turno.acoes import Acao
 from agente.turno.avaliacao import Avaliacao, avaliar, estado_jev, numeros_previstos
 from agente.turno.catalogo import TEXTO_RESPOSTA_SEGURA
-from agente.turno.executar import executar, proximo_estado
+from agente.turno.executar import contar_objecao, executar, proximo_estado
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import (
     Adiar,
@@ -161,21 +161,21 @@ def _fechar(
     agora: datetime,
     texto_enviado: str | None = None,
     redacao: dict | None = None,
+    rotulo: str | None = None,
 ) -> ResultadoTurno:
+    rotulo = rotulo or avaliacao.rotulo
     fechar_turno(
         sessao,
         turno.id,
         resultado,
-        acao_principal=avaliacao.rotulo,
+        acao_principal=rotulo,
         acoes_anexadas=[acao.value for acao in avaliacao.anexos],
         numeros=numeros,
         texto_enviado=texto_enviado,
         redacao=redacao,
         momento=agora,
     )
-    log.info(
-        "turno %s da conversa %s: %s, %s", turno.id, turno.conversa_id, avaliacao.rotulo, resultado
-    )
+    log.info("turno %s da conversa %s: %s, %s", turno.id, turno.conversa_id, rotulo, resultado)
     return resultado
 
 
@@ -358,15 +358,21 @@ def _agir(
         laudo_id = reprovados[0][1] if reprovados else None
         _handoff(sessao, conversa, MotivoHumano.VALIDACAO, deps, agora, laudos, laudo_id)
         saida, resultado = "HANDOFF", ResultadoTurno.HANDOFF
+    if redacao.texto is None:
+        # O savepoint desfez a ação: o turno não registra degrau, link nem Pix que não valem.
+        numeros_gravados, rotulo = {"executado": False}, avaliacao.rotulo_nao_executado
+    else:
+        numeros_gravados, rotulo = numeros.como_dict(), None
     return _fechar(
         sessao,
         turno,
         resultado,
         avaliacao,
-        numeros.como_dict(),
+        numeros_gravados,
         agora,
         texto_enviado=texto,
         redacao=redacao.como_dict(saida),
+        rotulo=rotulo,
     )
 
 
@@ -390,7 +396,9 @@ def _seguir(
         erro = {"erro": avaliacao.erro} if avaliacao.erro else {}
         return _fechar(sessao, turno, ResultadoTurno.HANDOFF, avaliacao, erro, agora)
     if avaliacao.acao is Acao.NONE:
-        # Não agir: nada é redigido nem enviado.
+        # Não agir: nada é redigido nem enviado, mas a objeção respondida com NONE também conta.
+        if avaliacao.leitura.sim("objecao_valor"):
+            contar_objecao(conversa, cobranca, deps.politica)
         destino = proximo_estado(conversa.estado, None, avaliacao.em_risco)
         _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
         return _fechar(sessao, turno, ResultadoTurno.SEM_ENVIO, avaliacao, {}, agora)

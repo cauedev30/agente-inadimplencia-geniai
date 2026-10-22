@@ -141,6 +141,8 @@ class RedatorGroq:
         self._cliente.close()
 
     def redigir(self, pedido: PedidoRedacao) -> str:
+        # Uma chamada que falha não deixa o uso da anterior para a comparação somar de novo.
+        self.ultimo_uso = None
         corpo = {
             "model": self.modelo,
             "messages": montar_mensagens(pedido),
@@ -190,6 +192,7 @@ class RedatorFalso:
     _usadas: int = field(default=0, init=False, repr=False)
 
     def redigir(self, pedido: PedidoRedacao) -> str:
+        self.ultimo_uso = None
         if self.registrar:
             self.pedidos.append(pedido)
         if self.demora_s:

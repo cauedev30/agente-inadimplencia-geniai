@@ -7,14 +7,29 @@ import pytest
 import respx
 
 from agente.cli import main
-from agente.comparacao import Candidato, comparar_redatores, formatar_comparacao, ler_candidato
-from agente.integracoes.redator import RedatorFalso, Uso
+from agente.comparacao import (
+    Candidato,
+    _Medidor,
+    comparar_redatores,
+    formatar_comparacao,
+    ler_candidato,
+)
+from agente.integracoes.redator import PedidoRedacao, RedatorFalso, RedatorIndisponivel, Uso
 from agente.simulacao import DependenciasSimulacao, carregar_casos
 
 from .conftest import RAIZ
 
 CONVERSAS = RAIZ / "tests" / "conversas"
 POLITICA = str(RAIZ / "politica.toml")
+PEDIDO = PedidoRedacao(
+    acoes=("INFORM_DEBT",),
+    marcadores=("divida",),
+    tom_alvo="cordial",
+    estado="ENGAJADO",
+    historico=(),
+    nome_cliente="Ana",
+    reprovadas_antes=None,
+)
 
 
 @pytest.fixture
@@ -131,3 +146,14 @@ def test_comando_compara_os_modelos_do_groq(monkeypatch, capsys, tmp_path):
     assert "groq:openai/gpt-oss-120b" in saida and "groq:outro-modelo" in saida
     modelos = {json.loads(c.request.content)["model"] for c in rota.calls}
     assert modelos == {"openai/gpt-oss-120b", "outro-modelo"}
+
+
+def test_a_chamada_que_falha_nao_soma_os_tokens_da_anterior():
+    medidor = _Medidor(RedatorFalso(uso=Uso(10, 5)))
+    medidor.redigir(PEDIDO)
+    medidor.redator.falha = RedatorIndisponivel("fora")
+
+    with pytest.raises(RedatorIndisponivel):
+        medidor.redigir(PEDIDO)
+
+    assert (medidor.chamadas, medidor.uso) == (2, [Uso(10, 5)])

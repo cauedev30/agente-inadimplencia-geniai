@@ -50,6 +50,12 @@ class Numeros:
         return {nome: valor for nome, valor in dados.items() if valor is not None}
 
 
+def contar_objecao(conversa: Conversa, cobranca: Cobranca, politica: Politica) -> None:
+    """A objeção respondida na régua sem desconto conta: a que chega ao limite vai ao humano."""
+    if politica.reguas[cobranca.regua].desconto_max_centavos == 0:
+        conversa.objecoes_sem_desconto += 1
+
+
 def executar(
     acoes: list[Acao],
     cobranca: Cobranca,
@@ -65,9 +71,8 @@ def executar(
     """
     politica = deps.politica
     regua, divida = cobranca.regua, cobranca.divida_centavos
-    if objecao and politica.reguas[regua].desconto_max_centavos == 0:
-        # A objeção respondida na régua sem desconto conta: a que chega ao limite vai ao humano.
-        conversa.objecoes_sem_desconto += 1
+    if objecao:
+        contar_objecao(conversa, cobranca, politica)
     if Acao.OFFER_DISCOUNT in acoes:
         oferta = proxima_oferta(regua, divida, conversa.degrau_atual, politica)
         if oferta is None:

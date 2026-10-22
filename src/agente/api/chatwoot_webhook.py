@@ -9,10 +9,10 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from agente.carteira.importar import normalizar_telefone
 from agente.config import Config
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Cliente, Cobranca, Conversa
+from agente.dominio.telefone import normalizar_telefone
 from agente.politica import Politica
 from agente.tipos import OrigemMensagem, StatusCobranca
 from agente.turno.fila import agendar_turno

@@ -162,3 +162,16 @@ def test_o_config_em_sombra_forca_a_sombra_em_tudo(sessao, ligada, politica):
 
     assert (resultado, turno.modo) == (ResultadoTurno.SOMBRA, Modo.SOMBRA)
     assert deps.chatwoot.chamadas == []
+
+
+def test_os_telefones_do_piloto_sao_normalizados_ao_carregar(tmp_path):
+    piloto = _politica_com(
+        tmp_path, 'liberacao = { modo = "piloto", telefones = ["+55 83 90000-0001"] }'
+    )
+    assert piloto.liberacao.telefones == frozenset({EQUIPE})
+
+
+@pytest.mark.parametrize("telefone", ["8390000", "+1 202 555 0100", ""])
+def test_telefone_invalido_no_piloto_e_recusado(tmp_path, telefone):
+    with pytest.raises(PoliticaInvalida, match="telefones"):
+        _politica_com(tmp_path, f'liberacao = {{ modo = "piloto", telefones = ["{telefone}"] }}')

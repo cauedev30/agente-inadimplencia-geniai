@@ -34,6 +34,7 @@ from agente.integracoes.redator import Redator, RedatorFalso
 from agente.politica import Politica, Regua
 from agente.tipos import BatchJev, EstadoConversa, Modo, MotivoHumano, OrigemMensagem
 from agente.turno.acoes import Acao
+from agente.turno.avaliacao import NAO_EXECUTADA
 from agente.turno.jev1 import PERGUNTAS_JEV1
 from agente.turno.jev2 import PERGUNTAS_JEV2
 from agente.turno.jev3 import aprovar_tudo
@@ -181,7 +182,8 @@ def _conferir(
         relatorio.por_pergunta[nome].contar(respostas.get(nome) == valor)
 
     esperado = turno.esperado
-    rotulo = str(gravado.acao_principal)
+    # O turno cujo texto não saiu grava a ação decidida com o prefixo: a decisão do Jev 2 vale.
+    rotulo = str(gravado.acao_principal).removeprefix(NAO_EXECUTADA)
     acertou_acao = rotulo == esperado.rotulo
     acertou_anexos = gravado.acoes_anexadas == esperado.anexos
     relatorio.por_acao[esperado.rotulo].contar(acertou_acao and acertou_anexos)

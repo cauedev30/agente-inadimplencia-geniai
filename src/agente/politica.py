@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from agente.dominio.telefone import normalizar_telefone
+
 
 class Regua(StrEnum):
     NR = "NR"
@@ -27,6 +29,14 @@ Limiar = Annotated[float, Field(ge=0, le=1)]
 
 class _Imutavel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+def _em_e164(telefones: frozenset[str]) -> frozenset[str]:
+    """Os telefones em E.164, como a carteira e o webhook os guardam; o inválido recusa."""
+    normalizados = {normalizar_telefone(telefone) for telefone in telefones}
+    if None in normalizados:
+        raise ValueError("telefone inválido: use o DDD e o número, com ou sem +55")
+    return frozenset(normalizados)
 
 
 class ReguaParametros(_Imutavel):
@@ -101,6 +111,8 @@ class LiberacaoPiloto(_Imutavel):
     modo: Literal["piloto"]
     telefones: frozenset[str] = Field(min_length=1)
 
+    _normalizar = field_validator("telefones")(_em_e164)
+
 
 class LiberacaoPercentual(_Imutavel):
     """Uma parte da carteira no modo ativo; 100 é a carteira toda (T7)."""
@@ -146,6 +158,8 @@ class Politica(_Imutavel):
     def _liberacao_em_texto(cls, valor):
         # `liberacao = "sombra"` é o atalho de `liberacao = { modo = "sombra" }`.
         return {"modo": valor} if isinstance(valor, str) else valor
+
+    _normalizar_equipe = field_validator("telefones_equipe")(_em_e164)
 
     @model_validator(mode="after")
     def _espera_maxima_nao_menor_que_a_inicial(self):

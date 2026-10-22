@@ -170,3 +170,28 @@ def test_a_falsa_so_guarda_os_pedidos_quando_o_teste_liga():
     registrando = RedatorFalso(registrar=True)
     registrando.redigir(PEDIDO)
     assert registrando.pedidos == [PEDIDO]
+
+
+def test_a_falsa_zera_o_uso_da_chamada_que_falha():
+    falsa = RedatorFalso(uso=Uso(10, 5))
+    falsa.redigir(PEDIDO)
+    falsa.falha = RedatorIndisponivel("fora")
+
+    with pytest.raises(RedatorIndisponivel):
+        falsa.redigir(PEDIDO)
+
+    assert falsa.ultimo_uso is None
+
+
+@respx.mock
+def test_o_groq_zera_o_uso_da_chamada_que_falha(groq):
+    rota = respx.post(f"{URL}/chat/completions")
+    rota.mock(return_value=_resposta())
+    groq.redigir(PEDIDO)
+    assert groq.ultimo_uso == Uso(120, 30)
+
+    rota.mock(return_value=httpx.Response(503))
+    with pytest.raises(RedatorIndisponivel):
+        groq.redigir(PEDIDO)
+
+    assert groq.ultimo_uso is None

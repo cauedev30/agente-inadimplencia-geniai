@@ -16,6 +16,7 @@ from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevFalso, JevIndisponivel, responder
 from agente.integracoes.pix import PixFalso
 from agente.integracoes.redator import RedatorFalso, RedatorIndisponivel
+from agente.politica import Regua
 from agente.simulacao import DependenciasSimulacao, carregar_casos, rodar_simulacao
 from agente.tipos import (
     BatchJev,
@@ -353,3 +354,70 @@ def test_os_roteiros_da_46_passam_em_modo_ativo_com_as_falsas(politica):
     acoes = [t.esperado.acao for caso in casos for t in caso.turnos if t.esperado.acao]
     assert len(relatorio.textos) == sum(acao.value != "NONE" for acao in acoes)
     assert all("{" not in texto for texto in relatorio.textos)
+
+
+def test_none_numa_objecao_sem_desconto_tambem_conta_para_o_humano(
+    sessao, ligada, cliente, politica
+):
+    ligada.cobranca.regua = Regua.NR
+    deps = _deps(politica, [responder("objecao_valor", True), responder("acao", "NONE")])
+
+    assert cliente("tá caro", deps) is ResultadoTurno.SEM_ENVIO
+    assert ligada.objecoes_sem_desconto == 1
+
+    # A objeção seguinte chega ao limite da política: vai para o humano, sem redigir.
+    assert cliente("tá caro mesmo", deps) is ResultadoTurno.HANDOFF
+    assert ligada.motivo_humano is MotivoHumano.OBJECAO_SEM_DESCONTO
+
+
+@pytest.mark.parametrize(
+    ("regua", "objecao"), [(Regua.NR, False), (Regua.R3, True), (Regua.R3, False)]
+)
+def test_none_sem_objecao_ou_na_regua_com_desconto_nao_conta(
+    sessao, ligada, cliente, politica, regua, objecao
+):
+    ligada.cobranca.regua = regua
+    deps = _deps(politica, [responder("objecao_valor", objecao), responder("acao", "NONE")])
+
+    assert cliente("ok, vi aqui", deps) is ResultadoTurno.SEM_ENVIO
+
+    assert ligada.objecoes_sem_desconto == 0
+
+
+def _desfeito(sessao, deps, cliente, texto="quanto eu devo?"):
+    cliente(texto, deps)
+    turno = _turno(sessao)
+    assert turno.numeros == {"executado": False}
+    assert turno.acao_principal == "NAO_EXECUTADA:INFORM_DEBT"
+    return turno
+
+
+def test_a_resposta_segura_nao_registra_o_que_o_savepoint_desfez(sessao, ligada, cliente, politica):
+    turno = _desfeito(sessao, _deps(politica, REPROVA_TOM), cliente)
+
+    assert turno.redacao["saida"] == "RESPOSTA_SEGURA"
+    assert turno.texto_enviado == TEXTO_RESPOSTA_SEGURA
+    assert sessao.scalars(select(Pagamento)).all() == []
+
+
+def test_o_handoff_da_validacao_nao_registra_o_que_o_savepoint_desfez(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica, REPROVA_TOM)
+    cliente("quanto eu devo?", deps)
+
+    turno = _desfeito(sessao, deps, cliente, "e aí?")
+
+    assert (turno.resultado, turno.redacao["saida"]) == (ResultadoTurno.HANDOFF, "HANDOFF")
+
+
+def test_o_handoff_do_redator_fora_nao_registra_o_que_o_savepoint_desfez(
+    sessao, ligada, cliente, politica
+):
+    redator = RedatorFalso(falha=RedatorIndisponivel("o LLM respondeu 503"))
+
+    turno = _desfeito(sessao, _deps(politica, redator=redator), cliente)
+
+    assert turno.resultado is ResultadoTurno.HANDOFF
+    # O que o Jev decidiu continua nos laudos; o turno diz só que nada foi executado.
+    assert turno.acoes_anexadas == ["GENERATE_PIX"]
