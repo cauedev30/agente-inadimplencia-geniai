@@ -223,6 +223,18 @@ direto nele.
 5. O **link do CTN aceita um valor com desconto**, definido pelo agente (D34, D35)?
 6. Quem paga pelo link **já sai com a baixa no próprio CTN**, ou o agente também registra a baixa?
 
+### T10. Jev a partir do Python
+
+O acesso ao Jev é pela Vercel AI Gateway, com o `experimental_evaluate` do AI SDK 7, que é TypeScript
+(arquitetura, seção 9). O serviço é em Python (D7). **Como o Python chama o Jev:** por HTTP direto ao
+gateway, se ele expuser o endpoint de avaliação, ou por um serviço mínimo em Node ao lado? Até
+responder, o Jev entra como interface falsa (arquitetura, seção 10).
+
+### T11. Transcrição de áudio
+
+O cliente pode mandar áudio de até 2 min (arquitetura, seção 1), mas o Jev lê texto. **Qual serviço
+transcreve?** **Padrão até lá:** o agente responde pedindo a mensagem em texto.
+
 ---
 
 ## Para o Cauê
@@ -246,3 +258,9 @@ com atrito com a clínica, e esses casos devem ir logo para o humano.
 - Depende disso a G2.1: a confirmação de pagamento conta no teto?
 
 ~~Até você decidir, vale a D8.~~
+
+### C3. Turno adiado que passa das 24h do WhatsApp
+
+A mensagem que chega fora da janela é respondida quando a janela abre (D16). Uma mensagem de sábado
+às 12h30 só seria respondida na segunda às 8h, e aí a janela de 24h do WhatsApp já fechou: só pode
+sair um template. **Padrão até você decidir:** um template de retomada pelo disparador, fora do teto.
