@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, time, timedelta
 
 import pytest
 
@@ -78,4 +78,28 @@ def test_valor_invalido_diz_o_campo(tmp_path, original, novo, campo):
 def test_regua_faltando_e_recusada(tmp_path):
     caminho = _arquivo_com(tmp_path, "[reguas.R5]", "[reguas.R5_FORA]")
     with pytest.raises(PoliticaInvalida, match="reguas"):
+        carregar_politica(caminho)
+
+
+def test_integracao_fora_tentativas_e_esperas_padrao(politica):
+    assert politica.integracao_tentativas == 3
+    assert [politica.espera_integracao(n) for n in (1, 2, 3, 4)] == [
+        timedelta(seconds=60),
+        timedelta(seconds=120),
+        timedelta(seconds=240),
+        timedelta(seconds=480),
+    ]
+
+
+def test_a_espera_da_integracao_nao_passa_do_teto(politica):
+    assert politica.espera_integracao(50) == timedelta(seconds=3600)
+
+
+def test_a_espera_maxima_menor_que_a_inicial_e_recusada(tmp_path):
+    caminho = _arquivo_com(
+        tmp_path,
+        "integracao_espera_maxima_segundos = 3600",
+        "integracao_espera_maxima_segundos = 30",
+    )
+    with pytest.raises(PoliticaInvalida, match="integracao_espera_maxima_segundos"):
         carregar_politica(caminho)

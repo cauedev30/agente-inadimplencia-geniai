@@ -22,6 +22,7 @@ from agente.db.historico import (
     transicionar,
 )
 from agente.db.modelos import Conversa, Mensagem, Turno
+from agente.dominio.janela import dentro_da_janela, proxima_abertura
 from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, CTNFalso
 from agente.integracoes.disparador import Disparador
@@ -37,6 +38,7 @@ from agente.tipos import (
     MotivoHumano,
     OrigemMensagem,
     ResultadoTurno,
+    StatusCobranca,
     TipoFixa,
 )
 from agente.turno.acoes import Acao
@@ -328,13 +330,95 @@ def _seguir(
     return _agir(sessao, conversa, turno, avaliacao, estado, historico, deps, ids, agora)
 
 
-def processar_turno(
-    sessao: Session, conversa_id: int, agora: datetime, deps: Dependencias
+def _desistir(
+    sessao: Session, conversa: Conversa, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
+    """Esgotadas as tentativas com a integração fora, a conversa sai para o humano, uma vez só."""
+    if not dentro_da_janela(agora, deps.politica):
+        # O handoff manda a mensagem do canal externo: só dentro da janela (D16).
+        agendar_turno(sessao, conversa.id, proxima_abertura(agora, deps.politica))
+        return ResultadoTurno.ADIADO
+    mensagens = tomar_turno(sessao, conversa.id)
+    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
+    turno.humano_na_conversa = humano_na_conversa(conversa)
+    if not humano_na_conversa(conversa) and conversa.cobranca.status is StatusCobranca.ATIVA:
+        _handoff(sessao, conversa, MotivoHumano.INTEGRACAO_INDISPONIVEL, deps, agora)
+    conversa.falhas_turno = 0
+    fechar_turno(
+        sessao,
+        turno.id,
+        ResultadoTurno.HANDOFF,
+        redacao={"saida": "HANDOFF", "erro": MotivoHumano.INTEGRACAO_INDISPONIVEL.value},
+        momento=agora,
+    )
+    return ResultadoTurno.HANDOFF
+
+
+def _registrar_falha(
+    sessao: Session,
+    conversa_id: int,
+    erro: Exception,
+    deps: Dependencias,
+    agora: datetime,
+    *,
+    desistindo: bool,
+) -> ResultadoTurno:
+    """Conta a tentativa que falhou, agenda a próxima com espera maior ou passa ao humano.
+
+    Chega aqui com o turno já desfeito. Só o tipo do erro é gravado: a mensagem pode trazer URL ou
+    matrícula.
+    """
     conversa = sessao.get_one(Conversa, conversa_id)
-    if deps.modo is Modo.ATIVO:
-        # O modo ativo vale só para a conversa liberada no politica.toml (tarefa 5.5).
-        deps = replace(deps, modo=modo_da_conversa(conversa.cobranca, deps.politica))
+    conversa.falhas_turno += 1
+    mensagens = mensagens_pendentes(sessao, conversa_id)
+    turno = abrir_turno(sessao, conversa_id, [m.id for m in mensagens], deps.modo)
+    turno.humano_na_conversa = humano_na_conversa(conversa)
+    fechar_turno(
+        sessao,
+        turno.id,
+        ResultadoTurno.ERRO,
+        redacao={"erro": type(erro).__name__, "tentativa": conversa.falhas_turno},
+        momento=agora,
+    )
+    if not desistindo and conversa.falhas_turno >= deps.politica.integracao_tentativas:
+        try:
+            with sessao.begin_nested():
+                return _desistir(sessao, conversa, deps, agora)
+        except Exception:
+            log.exception("o handoff da conversa %s também falhou", conversa_id)
+    conversa.turno_em = agora + deps.politica.espera_integracao(conversa.falhas_turno)
+    sessao.flush()
+    return ResultadoTurno.ERRO
+
+
+def _turno_ativo(
+    sessao: Session, conversa: Conversa, agora: datetime, deps: Dependencias
+) -> ResultadoTurno:
+    """O turno ativo com as integrações no ar: se uma falha, o turno inteiro é desfeito.
+
+    A conversa conta as falhas seguidas e espera mais a cada uma. Depois de
+    `integracao_tentativas`, o turno nem roda: sai um handoff só (arquitetura, seção 9).
+    """
+    desistindo = conversa.falhas_turno >= deps.politica.integracao_tentativas
+    try:
+        with sessao.begin_nested():
+            if desistindo:
+                resultado = _desistir(sessao, conversa, deps, agora)
+            else:
+                resultado = _rodar_turno(sessao, conversa, agora, deps)
+    except Exception as erro:
+        log.exception("o turno da conversa %s falhou", conversa.id)
+        return _registrar_falha(sessao, conversa.id, erro, deps, agora, desistindo=desistindo)
+    if conversa.falhas_turno and resultado is not ResultadoTurno.ADIADO:
+        conversa.falhas_turno = 0
+        sessao.flush()
+    return resultado
+
+
+def _rodar_turno(
+    sessao: Session, conversa: Conversa, agora: datetime, deps: Dependencias
+) -> ResultadoTurno:
+    conversa_id = conversa.id
     gate = avaliar_gates(
         conversa,
         mensagens_pendentes(sessao, conversa_id),
@@ -373,6 +457,18 @@ def processar_turno(
         return fechar(ResultadoTurno.IGNORADO)
     # A confirmação de pagamento não sai dos gates do turno (tarefa 6.1).
     return fechar(ResultadoTurno.SOMBRA)
+
+
+def processar_turno(
+    sessao: Session, conversa_id: int, agora: datetime, deps: Dependencias
+) -> ResultadoTurno:
+    conversa = sessao.get_one(Conversa, conversa_id)
+    if deps.modo is Modo.ATIVO:
+        # O modo ativo vale só para a conversa liberada no politica.toml (tarefa 5.5).
+        deps = replace(deps, modo=modo_da_conversa(conversa.cobranca, deps.politica))
+    if deps.modo is Modo.ATIVO:
+        return _turno_ativo(sessao, conversa, agora, deps)
+    return _rodar_turno(sessao, conversa, agora, deps)
 
 
 def criar_processador(deps: Dependencias) -> Callable[[Session, int, datetime], None]:

@@ -1,7 +1,7 @@
 """Carrega e valida o politica.toml: todos os parâmetros de negócio do agente."""
 
 import tomllib
-from datetime import date, time
+from datetime import date, time, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Literal
@@ -124,6 +124,9 @@ class Politica(_Imutavel):
     rajada_segundos: int = Field(ge=0)
     audio_max_segundos: int = Field(ge=1)
     jev_timeout_ms: int = Field(ge=1)
+    integracao_tentativas: int = Field(ge=1)
+    integracao_espera_segundos: int = Field(ge=1)
+    integracao_espera_maxima_segundos: int = Field(ge=1)
     link_canal_externo: str
     template_abertura: str = Field(min_length=1)
     template_retomada: str = Field(min_length=1)
@@ -143,6 +146,17 @@ class Politica(_Imutavel):
     def _liberacao_em_texto(cls, valor):
         # `liberacao = "sombra"` é o atalho de `liberacao = { modo = "sombra" }`.
         return {"modo": valor} if isinstance(valor, str) else valor
+
+    @model_validator(mode="after")
+    def _espera_maxima_nao_menor_que_a_inicial(self):
+        if self.integracao_espera_maxima_segundos < self.integracao_espera_segundos:
+            raise ValueError("integracao_espera_maxima_segundos: menor que a espera inicial")
+        return self
+
+    def espera_integracao(self, falhas: int) -> timedelta:
+        """A espera depois da `falhas`-ésima falha seguida: dobra a cada uma, até o teto."""
+        segundos = self.integracao_espera_segundos * 2 ** max(falhas - 1, 0)
+        return timedelta(seconds=min(segundos, self.integracao_espera_maxima_segundos))
 
     @field_validator("reguas")
     @classmethod
