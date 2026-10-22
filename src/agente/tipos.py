@@ -66,8 +66,11 @@ class MotivoHumano(StrEnum):
     ATRITO = "ATRITO"
     ENERGISA = "ENERGISA"
     TOM = "TOM"
+    # EM_RISCO sem melhora no turno de recuperação (arquitetura, seção 3).
+    SEM_MELHORA = "SEM_MELHORA"
     BAIXA_CONFIANCA = "BAIXA_CONFIANCA"
     JEV_INDISPONIVEL = "JEV_INDISPONIVEL"
+    REDATOR_INDISPONIVEL = "REDATOR_INDISPONIVEL"
     VALIDACAO = "VALIDACAO"
     OBJECAO_SEM_DESCONTO = "OBJECAO_SEM_DESCONTO"
     BOLETO = "BOLETO"
@@ -118,6 +121,8 @@ class ResultadoTurno(StrEnum):
     ADIADO = "ADIADO"
     IGNORADO = "IGNORADO"
     SOMBRA = "SOMBRA"
+    # O Jev 2 decidiu não agir (NONE): o turno roda e nada sai.
+    SEM_ENVIO = "SEM_ENVIO"
     ERRO = "ERRO"
 
 

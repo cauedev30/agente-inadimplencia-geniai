@@ -103,12 +103,12 @@ def test_caminho_livre_grava_o_turno_e_consome_a_rajada(sessao, ligada, deps):
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    # A ação do Jev fica gravada; o envio é da tarefa 5.3.
-    assert resultado is ResultadoTurno.SOMBRA
+    # O turno segue até o envio (o Jev falso sem regras reprova o texto: sai a resposta segura).
+    assert resultado is ResultadoTurno.ENVIADO
     turno = sessao.scalars(select(Turno)).one()
     assert len(turno.mensagens_ids) == 1
     assert mensagens_pendentes(sessao, ligada.id) == []
-    assert deps.chatwoot.chamadas == []
+    assert len(deps.chatwoot.enviadas(555)) == 1
 
 
 def test_humano_na_conversa_e_ignorado(sessao, ligada, deps):

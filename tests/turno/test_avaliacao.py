@@ -47,3 +47,20 @@ def test_baixa_confianca_aponta_o_laudo_do_jev2(politica):
     avaliacao = _avaliar(politica, JevFalso([responder("acao", "GENERATE_PIX", 0.80, 0.9)]))
     assert avaliacao.motivo is MotivoHumano.BAIXA_CONFIANCA
     assert avaliacao.causa == (BatchJev.JEV2, Laudo("acao", "GENERATE_PIX", 0.80, 0.9))
+
+
+def test_em_risco_sem_melhora_vai_ao_humano_com_o_laudo_do_risco(politica):
+    cobranca = Cobranca(regua=Regua.R3, divida_centavos=10020, propenso_cartao=False)
+    conversa = Conversa(estado=EstadoConversa.EM_RISCO, degrau_atual=0, objecoes_sem_desconto=0)
+    jev = JevFalso([responder("repete_sem_avancar", True, 0.81, 0.7)])
+
+    avaliacao = avaliar(jev, ESTADO, conversa, cobranca, politica)
+
+    assert (avaliacao.motivo, avaliacao.decisao) == (MotivoHumano.SEM_MELHORA, None)
+    assert avaliacao.causa == (BatchJev.JEV1, Laudo("repete_sem_avancar", True, 0.81, 0.7))
+
+
+def test_fora_do_risco_o_mesmo_sinal_so_marca_o_turno(politica):
+    avaliacao = _avaliar(politica, JevFalso([responder("tom", "impaciente")]))
+    assert avaliacao.motivo is None
+    assert avaliacao.em_risco is True

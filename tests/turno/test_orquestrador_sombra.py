@@ -238,7 +238,7 @@ def test_ativo_o_humano_na_conversa_barra_o_jev(sessao, ligada, politica):
     assert _turno(sessao).humano_na_conversa is True
 
 
-# Modo ativo: a saída para o humano acontece, e o backend executa a ação; o envio é da 5.3.
+# Modo ativo: a saída para o humano. O turno ativo completo está em test_orquestrador_ativo.
 
 
 def test_ativo_o_gatilho_faz_o_handoff_com_o_laudo_da_causa(sessao, ligada, politica):
@@ -309,18 +309,6 @@ def test_ativo_a_baixa_confianca_do_jev2_vai_para_o_humano(sessao, ligada, polit
     assert ligada.motivo_humano is MotivoHumano.BAIXA_CONFIANCA
     transicao = sessao.scalars(select(Transicao)).one()
     assert sessao.get(LaudoGravado, transicao.laudo_id).batch is BatchJev.JEV2
-
-
-def test_ativo_a_acao_e_executada_sem_envio(sessao, ligada, politica):
-    deps = _deps(politica, Modo.ATIVO, OBJECAO)
-    _cliente(sessao, ligada, "tá caro")
-
-    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    assert resultado is ResultadoTurno.SOMBRA
-    assert deps.chatwoot.chamadas == []
-    assert _turno(sessao).acao_principal == "OFFER_DISCOUNT"
-    assert [valor for _, valor, _ in deps.ctn.links.values()] == [7020]
 
 
 # Pronto quando: o serviço da tarefa 3.7 grava o laudo de toda rajada real.

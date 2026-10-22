@@ -5,16 +5,21 @@ desconhecido, sem valor no turno ou faltando o de uma ação é recusado com `Re
 """
 
 import re
+from dataclasses import dataclass, field, replace
 
 from agente.dominio.dinheiro import formatar_reais
-from agente.integracoes.redator import PedidoRedacao
+from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
+from agente.integracoes.redator import PedidoRedacao, Redator, RedatorIndisponivel
 from agente.politica import Politica, Regua
-from agente.tipos import EstadoConversa
+from agente.tipos import EstadoConversa, Laudo, MotivoHumano
 from agente.turno.acoes import Acao
 from agente.turno.executar import Numeros
 from agente.turno.jev1 import LeituraJev1
+from agente.turno.jev3 import validar
 
 _MARCADOR = re.compile(r"\{([a-z_]+)\}")
+# Reprovou: o LLM reescreve uma vez, sabendo o que reprovou (seção 6).
+TENTATIVAS = 2
 _DIGITO = re.compile(r"\d")
 
 
@@ -126,3 +131,66 @@ def montar_pedido(
         marcadores_opcionais=tuple(opcionais),
         objecao_sem_desconto=leitura.sim("objecao_valor") and sem_desconto,
     )
+
+
+@dataclass(frozen=True)
+class Tentativa:
+    """Um texto do LLM, com os marcadores, e o que reprovou. Sem reprovadas, passou."""
+
+    texto: str
+    reprovadas: list[str]
+    # Os laudos do Jev 3; vazios quando a interpolação recusou o texto antes dele.
+    laudos: tuple[Laudo, ...] = ()
+
+
+@dataclass
+class Redacao:
+    """O resultado: o texto final aprovado ou, sem ele, o motivo de ir para o humano."""
+
+    tentativas: list[Tentativa] = field(default_factory=list)
+    texto: str | None = None
+    # Com o Jev ou o LLM fora, o turno vai para o humano (seção 9).
+    motivo: MotivoHumano | None = None
+    erro: str | None = None
+
+    def como_dict(self, saida: str) -> dict:
+        """Para o `turno.redacao`: as tentativas, o erro e o que saiu."""
+        dados: dict = {
+            "tentativas": [{"texto": t.texto, "reprovadas": t.reprovadas} for t in self.tentativas],
+            "saida": saida,
+        }
+        if self.erro is not None:
+            dados["erro"] = self.erro
+        return dados
+
+
+def redigir_validado(
+    redator: Redator, jev: Jev, pedido: PedidoRedacao, numeros: Numeros, estado: EstadoJev
+) -> Redacao:
+    """Redige, interpola e valida no Jev 3, com uma reescrita. Não grava nem envia nada."""
+    redacao = Redacao()
+    reprovadas: list[str] = []
+    for _ in range(TENTATIVAS):
+        try:
+            texto = redator.redigir(replace(pedido, reprovadas_antes=tuple(reprovadas) or None))
+        except RedatorIndisponivel as erro:
+            redacao.motivo, redacao.erro = MotivoHumano.REDATOR_INDISPONIVEL, str(erro)
+            return redacao
+        try:
+            final = interpolar(texto, numeros)
+        except RedacaoInvalida as erro:
+            # O texto que não interpola nem chega ao Jev 3.
+            reprovadas = erro.motivos
+            redacao.tentativas.append(Tentativa(texto, reprovadas))
+            continue
+        try:
+            validacao = validar(jev, final, list(numeros.acoes), numeros.como_dict(), estado)
+        except JevIndisponivel as erro:
+            redacao.motivo, redacao.erro = MotivoHumano.JEV_INDISPONIVEL, str(erro)
+            return redacao
+        redacao.tentativas.append(Tentativa(texto, validacao.reprovadas, validacao.laudos))
+        if validacao.aprovado:
+            redacao.texto = final
+            return redacao
+        reprovadas = validacao.reprovadas
+    return redacao

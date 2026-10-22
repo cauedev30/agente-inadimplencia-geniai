@@ -93,6 +93,7 @@ def fechar_turno(
     acoes_anexadas: list[str] | None = None,
     numeros: dict | None = None,
     texto_enviado: str | None = None,
+    redacao: dict | None = None,
     momento: datetime | None = None,
 ) -> None:
     turno = sessao.get_one(Turno, turno_id)
@@ -101,6 +102,7 @@ def fechar_turno(
     turno.acoes_anexadas = list(acoes_anexadas or [])
     turno.numeros = dict(numeros or {})
     turno.texto_enviado = texto_enviado
+    turno.redacao = dict(redacao or {})
     turno.fechado_em = momento or datetime.now(UTC)
     sessao.flush()
 

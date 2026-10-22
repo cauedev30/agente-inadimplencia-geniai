@@ -1,5 +1,7 @@
 """A avaliação do turno: Jev 1, gatilhos de saída, Jev 2 e as regras de ação (tarefas 4.2 e 4.3).
 
+A conversa EM_RISCO tem um turno para recuperar: sem melhora, vai para o humano (seção 3).
+
 Não grava nem envia nada: o orquestrador grava o resultado, e a simulação compara com o esperado.
 Com o Jev indisponível, o turno vai para o humano, nunca para o robô sem avaliação (seção 9).
 """
@@ -10,9 +12,16 @@ from agente.db.modelos import Cobranca, Conversa
 from agente.dominio.desconto import Oferta, proxima_oferta, valor_com_desconto
 from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
 from agente.politica import Politica
-from agente.tipos import BatchJev, Laudo, MotivoHumano
+from agente.tipos import BatchJev, EstadoConversa, Laudo, MotivoHumano
 from agente.turno.acoes import Acao, Decisao, autorizar
-from agente.turno.jev1 import PERGUNTA_DO_GATILHO, LeituraJev1, gatilho_de_saida, ler
+from agente.turno.jev1 import (
+    PERGUNTA_DO_GATILHO,
+    LeituraJev1,
+    em_risco,
+    gatilho_de_saida,
+    laudo_do_risco,
+    ler,
+)
 from agente.turno.jev2 import decidir
 
 
@@ -39,11 +48,17 @@ class Avaliacao:
             return None
         if self.motivo is MotivoHumano.OBJECAO_SEM_DESCONTO:
             return BatchJev.JEV1, self.leitura.laudo("objecao_valor")
+        if self.motivo is MotivoHumano.SEM_MELHORA:
+            return BatchJev.JEV1, laudo_do_risco(self.leitura)
         if self.decisao is not None:
             return BatchJev.JEV2, self.decisao.laudo
         # Sem decisão, só o gatilho do Jev 1 tem laudo; o Jev 2 indisponível, não.
         pergunta = PERGUNTA_DO_GATILHO.get(self.motivo)
         return (BatchJev.JEV1, self.leitura.laudo(pergunta)) if pergunta is not None else None
+
+    @property
+    def em_risco(self) -> bool:
+        return self.leitura is not None and em_risco(self.leitura)
 
 
 def oferta_no_degrau(cobranca: Cobranca, degrau: int, politica: Politica) -> Oferta | None:
@@ -78,6 +93,9 @@ def avaliar(
         if gatilho is not None:
             # Na saída, o robô se cala no mesmo turno: o Jev 2 nem roda.
             return Avaliacao(leitura, None, None, [], gatilho)
+        if conversa.estado is EstadoConversa.EM_RISCO and em_risco(leitura):
+            # O turno de recuperação não melhorou: sai para o humano, sem decidir nem redigir.
+            return Avaliacao(leitura, None, None, [], MotivoHumano.SEM_MELHORA)
         decisao = decidir(jev, estado, leitura)
     except JevIndisponivel as erro:
         return Avaliacao(leitura, None, None, [], MotivoHumano.JEV_INDISPONIVEL, str(erro))

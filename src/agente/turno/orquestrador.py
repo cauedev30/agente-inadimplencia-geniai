@@ -1,8 +1,8 @@
-"""O turno de uma conversa: os gates, o Jev 1, o Jev 2, as regras de ação e o backend.
+"""O turno de uma conversa: gates, Jev 1, Jev 2, backend, LLM, Jev 3 e envio (arquitetura).
 
 Em modo sombra, nada é enviado e o estado não muda: o turno só grava os laudos e o que teria feito
-(arquitetura, seção 8), mesmo com um humano na conversa (T7). No modo ativo, a saída para o humano
-já acontece e o backend executa as ações; o envio é da tarefa 5.3.
+(arquitetura, seção 8), mesmo com um humano na conversa (T7). No modo ativo, o turno executa as
+ações, redige, valida, envia e muda o estado, ou sai para o humano.
 """
 
 import logging
@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from agente.db.historico import (
@@ -24,21 +24,24 @@ from agente.db.modelos import Conversa, Mensagem, Turno
 from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, CTNFalso
 from agente.integracoes.disparador import Disparador
-from agente.integracoes.jev import Jev
+from agente.integracoes.jev import EstadoJev, Jev
 from agente.integracoes.pix import PixBanco, PixFalso
 from agente.integracoes.redator import Redator, RedatorFalso
 from agente.politica import Politica
 from agente.tipos import (
     BatchJev,
     EstadoConversa,
+    Laudo,
     Modo,
     MotivoHumano,
     OrigemMensagem,
     ResultadoTurno,
     TipoFixa,
 )
+from agente.turno.acoes import Acao
 from agente.turno.avaliacao import Avaliacao, avaliar, estado_jev, numeros_previstos
-from agente.turno.executar import executar
+from agente.turno.catalogo import TEXTO_RESPOSTA_SEGURA
+from agente.turno.executar import executar, proximo_estado
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import (
     Adiar,
@@ -52,6 +55,8 @@ from agente.turno.gates import (
     humano_na_conversa,
 )
 from agente.turno.handoff import fazer_handoff
+from agente.turno.jev1 import laudo_do_risco
+from agente.turno.redacao import Redacao, montar_pedido, redigir_validado
 
 log = logging.getLogger(__name__)
 
@@ -124,59 +129,31 @@ def _gravar_laudos(
     return ids
 
 
-def _agir(
+def _gravar_jev3(
+    sessao: Session, turno_id: int, redacao: Redacao, origem: str
+) -> list[tuple[Laudo, int]]:
+    """Grava os laudos de cada tentativa; devolve os que reprovaram a última, com o id."""
+    reprovados = []
+    for tentativa in redacao.tentativas:
+        gravados = gravar_laudos(sessao, turno_id, BatchJev.JEV3, list(tentativa.laudos), origem)
+        reprovados = [
+            (laudo, laudo_id)
+            for laudo, laudo_id in zip(tentativa.laudos, gravados, strict=True)
+            if laudo.pergunta in tentativa.reprovadas
+        ]
+    return reprovados
+
+
+def _fechar(
     sessao: Session,
-    conversa: Conversa,
+    turno: Turno,
+    resultado: ResultadoTurno,
     avaliacao: Avaliacao,
-    deps: Dependencias,
-    laudo_id: int,
+    numeros: dict,
     agora: datetime,
-) -> dict:
-    """O backend executa a ação autorizada; com link ou Pix, a conversa aguarda o pagamento."""
-    numeros = executar(
-        [avaliacao.acao, *avaliacao.anexos],
-        conversa.cobranca,
-        conversa,
-        deps,
-        agora,
-        objecao=avaliacao.leitura.sim("objecao_valor"),
-    )
-    if numeros.forma is not None and conversa.estado is not EstadoConversa.AGUARDANDO_PAGAMENTO:
-        transicionar(
-            sessao, conversa, EstadoConversa.AGUARDANDO_PAGAMENTO, None, laudo_id, momento=agora
-        )
-    return numeros.como_dict()
-
-
-def _seguir(
-    sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
+    texto_enviado: str | None = None,
+    redacao: dict | None = None,
 ) -> ResultadoTurno:
-    cobranca = conversa.cobranca
-    estado = estado_jev(conversa, cobranca, _historico(sessao, conversa.id), deps.politica)
-    avaliacao = avaliar(deps.jev, estado, conversa, cobranca, deps.politica)
-    ids = _gravar_laudos(sessao, turno.id, avaliacao, deps.jev.origem)
-    resultado = ResultadoTurno.SOMBRA
-    if avaliacao.motivo is None and deps.modo is Modo.ATIVO:
-        numeros = _agir(sessao, conversa, avaliacao, deps, ids[(BatchJev.JEV2, "acao")], agora)
-    else:
-        numeros = numeros_previstos(avaliacao, conversa, cobranca, deps.politica)
-    if avaliacao.motivo is not None and deps.modo is Modo.ATIVO:
-        laudos, laudo_id = [], None
-        if avaliacao.causa is not None:
-            batch, laudo = avaliacao.causa
-            laudos, laudo_id = [laudo], ids[(batch, laudo.pergunta)]
-        fazer_handoff(
-            sessao,
-            deps.chatwoot,
-            conversa,
-            avaliacao.motivo,
-            laudos,
-            deps.politica,
-            deps.time_humano,
-            agora,
-            laudo_id=laudo_id,
-        )
-        resultado = ResultadoTurno.HANDOFF
     fechar_turno(
         sessao,
         turno.id,
@@ -184,10 +161,169 @@ def _seguir(
         acao_principal=avaliacao.rotulo,
         acoes_anexadas=[acao.value for acao in avaliacao.anexos],
         numeros=numeros,
+        texto_enviado=texto_enviado,
+        redacao=redacao,
         momento=agora,
     )
-    log.info("turno %s da conversa %s: %s", turno.id, conversa.id, avaliacao.rotulo)
+    log.info(
+        "turno %s da conversa %s: %s, %s", turno.id, turno.conversa_id, avaliacao.rotulo, resultado
+    )
     return resultado
+
+
+def _handoff(
+    sessao: Session,
+    conversa: Conversa,
+    motivo: MotivoHumano,
+    deps: Dependencias,
+    agora: datetime,
+    laudos: list[Laudo] | None = None,
+    laudo_id: int | None = None,
+) -> None:
+    fazer_handoff(
+        sessao,
+        deps.chatwoot,
+        conversa,
+        motivo,
+        laudos or [],
+        deps.politica,
+        deps.time_humano,
+        agora,
+        laudo_id=laudo_id,
+    )
+
+
+def _enviar(
+    sessao: Session, conversa: Conversa, texto: str, deps: Dependencias, agora: datetime
+) -> None:
+    """Envia a mensagem do agente. Ela conta no teto (D33)."""
+    if conversa.chatwoot_conversa_id is None:
+        raise ValueError(f"a conversa {conversa.id} não está ligada a uma conversa do Chatwoot")
+    chatwoot_id = deps.chatwoot.enviar_mensagem(conversa.chatwoot_conversa_id, texto)
+    registrar_mensagem(sessao, conversa.id, OrigemMensagem.AGENTE, texto, chatwoot_id, True, agora)
+
+
+def _ja_saiu_resposta_segura(sessao: Session, conversa_id: int) -> bool:
+    consulta = select(
+        exists().where(
+            Mensagem.conversa_id == conversa_id,
+            Mensagem.origem == OrigemMensagem.AGENTE,
+            Mensagem.texto == TEXTO_RESPOSTA_SEGURA,
+        )
+    )
+    return bool(sessao.scalar(consulta))
+
+
+def _laudo_da_transicao(avaliacao: Avaliacao, ids: dict[tuple[BatchJev, str], int]) -> int:
+    """O risco aponta o laudo do Jev 1 que o causou; o resto, a decisão do Jev 2 (auditoria)."""
+    if avaliacao.em_risco:
+        return ids[(BatchJev.JEV1, laudo_do_risco(avaliacao.leitura).pergunta)]
+    return ids[(BatchJev.JEV2, "acao")]
+
+
+def _mudar_estado(
+    sessao: Session, conversa: Conversa, para: EstadoConversa, laudo_id: int, agora: datetime
+) -> None:
+    if para is not conversa.estado:
+        transicionar(sessao, conversa, para, None, laudo_id, momento=agora)
+
+
+def _agir(
+    sessao: Session,
+    conversa: Conversa,
+    turno: Turno,
+    avaliacao: Avaliacao,
+    estado: EstadoJev,
+    historico: list[tuple[str, str]],
+    deps: Dependencias,
+    ids: dict[tuple[BatchJev, str], int],
+    agora: datetime,
+) -> ResultadoTurno:
+    """O backend executa, o LLM redige, o Jev 3 valida e o texto sai (tarefa 5.3)."""
+    cobranca = conversa.cobranca
+    # O que o backend grava só vale se o texto com os números sair.
+    ponto = sessao.begin_nested()
+    numeros = executar(
+        [avaliacao.acao, *avaliacao.anexos],
+        cobranca,
+        conversa,
+        deps,
+        agora,
+        objecao=avaliacao.leitura.sim("objecao_valor"),
+    )
+    destino = proximo_estado(conversa.estado, numeros.forma, avaliacao.em_risco)
+    pedido = montar_pedido(
+        numeros,
+        avaliacao.leitura,
+        cobranca.regua,
+        cobranca.cliente.nome,
+        destino,
+        historico,
+        deps.politica,
+    )
+    redacao = redigir_validado(deps.redator, deps.jev, pedido, numeros, estado)
+    if redacao.texto is None:
+        # O degrau, a objeção, a forma e o Pix pendente voltam atrás.
+        ponto.rollback()
+    else:
+        ponto.commit()
+    reprovados = _gravar_jev3(sessao, turno.id, redacao, deps.jev.origem)
+
+    texto = redacao.texto
+    if texto is not None:
+        _enviar(sessao, conversa, texto, deps, agora)
+        _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
+        saida, resultado = "LLM", ResultadoTurno.ENVIADO
+    elif redacao.motivo is not None:
+        _handoff(sessao, conversa, redacao.motivo, deps, agora)
+        saida, resultado = "HANDOFF", ResultadoTurno.HANDOFF
+    elif not _ja_saiu_resposta_segura(sessao, conversa.id):
+        # Reprovou duas vezes: a resposta segura do catálogo, uma vez por conversa (seção 6).
+        texto = TEXTO_RESPOSTA_SEGURA
+        _enviar(sessao, conversa, texto, deps, agora)
+        saida, resultado = "RESPOSTA_SEGURA", ResultadoTurno.ENVIADO
+    else:
+        laudos = [laudo for laudo, _ in reprovados]
+        laudo_id = reprovados[0][1] if reprovados else None
+        _handoff(sessao, conversa, MotivoHumano.VALIDACAO, deps, agora, laudos, laudo_id)
+        saida, resultado = "HANDOFF", ResultadoTurno.HANDOFF
+    return _fechar(
+        sessao,
+        turno,
+        resultado,
+        avaliacao,
+        numeros.como_dict(),
+        agora,
+        texto_enviado=texto,
+        redacao=redacao.como_dict(saida),
+    )
+
+
+def _seguir(
+    sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
+) -> ResultadoTurno:
+    cobranca = conversa.cobranca
+    historico = _historico(sessao, conversa.id)
+    estado = estado_jev(conversa, cobranca, historico, deps.politica)
+    avaliacao = avaliar(deps.jev, estado, conversa, cobranca, deps.politica)
+    ids = _gravar_laudos(sessao, turno.id, avaliacao, deps.jev.origem)
+    if deps.modo is Modo.SOMBRA:
+        previstos = numeros_previstos(avaliacao, conversa, cobranca, deps.politica)
+        return _fechar(sessao, turno, ResultadoTurno.SOMBRA, avaliacao, previstos, agora)
+    if avaliacao.motivo is not None:
+        laudos, laudo_id = [], None
+        if avaliacao.causa is not None:
+            batch, laudo = avaliacao.causa
+            laudos, laudo_id = [laudo], ids[(batch, laudo.pergunta)]
+        _handoff(sessao, conversa, avaliacao.motivo, deps, agora, laudos, laudo_id)
+        erro = {"erro": avaliacao.erro} if avaliacao.erro else {}
+        return _fechar(sessao, turno, ResultadoTurno.HANDOFF, avaliacao, erro, agora)
+    if avaliacao.acao is Acao.NONE:
+        # Não agir: nada é redigido nem enviado.
+        destino = proximo_estado(conversa.estado, None, avaliacao.em_risco)
+        _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
+        return _fechar(sessao, turno, ResultadoTurno.SEM_ENVIO, avaliacao, {}, agora)
+    return _agir(sessao, conversa, turno, avaliacao, estado, historico, deps, ids, agora)
 
 
 def processar_turno(
@@ -222,16 +358,7 @@ def processar_turno(
     if deps.modo is Modo.SOMBRA:
         return fechar(ResultadoTurno.SOMBRA)
     if isinstance(gate, Fixa) and gate.tipo is TipoFixa.CANAL_EXTERNO:
-        fazer_handoff(
-            sessao,
-            deps.chatwoot,
-            conversa,
-            MotivoHumano.TETO,
-            [],
-            deps.politica,
-            deps.time_humano,
-            agora,
-        )
+        _handoff(sessao, conversa, MotivoHumano.TETO, deps, agora)
         return fechar(ResultadoTurno.FIXA)
     if isinstance(gate, Retomar):
         _retomar(sessao, conversa, deps, agora)

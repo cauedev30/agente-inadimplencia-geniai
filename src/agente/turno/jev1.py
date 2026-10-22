@@ -12,6 +12,8 @@ from agente.tipos import Laudo, MotivoHumano
 
 TONS = ("cordial", "neutro", "impaciente", "irritado", "hostil")
 TONS_DE_SAIDA = frozenset({"irritado", "hostil"})
+# O tom que azedou sem chegar à saída: a conversa fica EM_RISCO (seção 3).
+TONS_DE_RISCO = frozenset({"impaciente"})
 INTENCOES = ("nenhuma", "hesitante", "disposto", "pronto")
 
 PERGUNTAS_JEV1 = (
@@ -65,6 +67,18 @@ class LeituraJev1:
 
 def ler(jev: Jev, estado: EstadoJev) -> LeituraJev1:
     return LeituraJev1(tuple(jev.avaliar(PERGUNTAS_JEV1, estado)))
+
+
+def em_risco(leitura: LeituraJev1) -> bool:
+    """O tom azedou ou o cliente repete a mesma coisa sem avançar (arquitetura, seção 3)."""
+    return leitura.tom in TONS_DE_RISCO or leitura.sim("repete_sem_avancar")
+
+
+def laudo_do_risco(leitura: LeituraJev1) -> Laudo:
+    """O laudo que pôs a conversa em risco, para a transição (auditoria)."""
+    if leitura.sim("repete_sem_avancar"):
+        return leitura.laudo("repete_sem_avancar")
+    return leitura.laudo("tom")
 
 
 def gatilho_de_saida(leitura: LeituraJev1, politica: Politica) -> MotivoHumano | None:

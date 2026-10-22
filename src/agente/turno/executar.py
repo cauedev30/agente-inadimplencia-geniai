@@ -13,7 +13,7 @@ from agente.dominio.desconto import proxima_oferta, valor_com_desconto
 from agente.integracoes.ctn import CTN
 from agente.integracoes.pix import PixBanco, gerar_txid
 from agente.politica import Politica
-from agente.tipos import FormaPagamento, StatusPagamento
+from agente.tipos import EstadoConversa, FormaPagamento, StatusPagamento
 from agente.turno.acoes import Acao
 
 
@@ -116,3 +116,20 @@ def executar(
         valor_final_centavos=valor_final,
         **extras,
     )
+
+
+def proximo_estado(
+    atual: EstadoConversa, forma: FormaPagamento | None, em_risco: bool
+) -> EstadoConversa:
+    """O estado depois do turno enviado (seção 3).
+
+    A conversa em risco fica EM_RISCO, com um turno para recuperar; com link ou Pix, ela aguarda o
+    pagamento, com a forma; a que só começou ou se recuperou fica engajada.
+    """
+    if em_risco:
+        return EstadoConversa.EM_RISCO
+    if forma is not None:
+        return EstadoConversa.AGUARDANDO_PAGAMENTO
+    if atual in (EstadoConversa.INICIADO, EstadoConversa.EM_RISCO):
+        return EstadoConversa.ENGAJADO
+    return atual

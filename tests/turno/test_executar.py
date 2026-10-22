@@ -24,7 +24,8 @@ from agente.tipos import (
     StatusPagamento,
 )
 from agente.turno.acoes import Acao
-from agente.turno.executar import executar
+from agente.turno.executar import executar, proximo_estado
+from agente.turno.jev3 import aprovar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
 from .test_orquestrador_gates import SEGUNDA_10H
@@ -43,7 +44,7 @@ def _deps(politica, modo=Modo.ATIVO, regras=()):
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=modo,
-        jev=JevFalso(list(regras)),
+        jev=JevFalso([*regras, *aprovar_tudo()]),
         ctn=_ctn(),
         pix=PixFalso(agora=lambda: AGORA),
     )
@@ -174,7 +175,8 @@ def test_os_numeros_viram_json_para_o_turno(conversa, politica):
     assert "link_ctn" not in dados
 
 
-# No turno ativo, o executar roda; em sombra, não.
+# No turno ativo, o executar roda; em sombra, não. O turno completo está em
+# test_orquestrador_ativo.
 
 
 @pytest.fixture
@@ -233,3 +235,24 @@ def test_em_sombra_o_executar_nao_roda(sessao, ligada, politica):
     assert deps.ctn.links == {} and deps.pix.cobrancas == {}
     assert (ligada.degrau_atual, ligada.estado) == (0, EstadoConversa.INICIADO)
     assert sessao.scalars(select(Pagamento)).all() == []
+
+
+@pytest.mark.parametrize(
+    ("atual", "forma", "risco", "esperado"),
+    [
+        (EstadoConversa.INICIADO, None, False, EstadoConversa.ENGAJADO),
+        (EstadoConversa.INICIADO, FormaPagamento.PIX, False, EstadoConversa.AGUARDANDO_PAGAMENTO),
+        (
+            EstadoConversa.ENGAJADO,
+            FormaPagamento.LINK_CTN,
+            False,
+            EstadoConversa.AGUARDANDO_PAGAMENTO,
+        ),
+        (EstadoConversa.AGUARDANDO_PAGAMENTO, None, False, EstadoConversa.AGUARDANDO_PAGAMENTO),
+        (EstadoConversa.EM_RISCO, None, False, EstadoConversa.ENGAJADO),
+        (EstadoConversa.EM_RISCO, FormaPagamento.PIX, False, EstadoConversa.AGUARDANDO_PAGAMENTO),
+        (EstadoConversa.AGUARDANDO_PAGAMENTO, FormaPagamento.PIX, True, EstadoConversa.EM_RISCO),
+    ],
+)
+def test_o_estado_depois_do_turno(atual, forma, risco, esperado):
+    assert proximo_estado(atual, forma, risco) is esperado

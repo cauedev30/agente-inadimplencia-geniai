@@ -15,6 +15,13 @@ TEXTO_CANAL_EXTERNO = (
 )
 
 
+# A resposta segura do turno em que o Jev 3 reprovou o LLM duas vezes (seção 6). Sem número nem
+# promessa: provisória, como as confirmações (D28).
+TEXTO_RESPOSTA_SEGURA = (
+    "Desculpe, não consegui te responder direito agora. Pode me contar de novo o que você precisa?"
+)
+
+
 @dataclass(frozen=True)
 class DadosFixa:
     nome: str
