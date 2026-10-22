@@ -10,6 +10,7 @@ from agente.politica import Regua
 from agente.tipos import (
     BatchJev,
     EstadoConversa,
+    EstadoEnvio,
     FormaPagamento,
     Modo,
     MotivoHumano,
@@ -128,6 +129,8 @@ class Mensagem(Base):
     chatwoot_message_id: Mapped[str | None] = mapped_column(String(64), unique=True)
     conta_no_teto: Mapped[bool]
     momento: Mapped[datetime]
+    # A mensagem do agente é gravada PENDENTE antes de ir ao Chatwoot e vira ENVIADA quando sai.
+    envio: Mapped[EstadoEnvio] = mapped_column(_enum(EstadoEnvio), default=EstadoEnvio.ENVIADA)
     # Os anexos como vieram do Chatwoot: [{"tipo": "audio"}, ...]. Os gates conferem o tipo.
     anexos: Mapped[list[Any]] = mapped_column(default=list)
 

@@ -13,12 +13,18 @@ from agente.tipos import Botao
 
 Status = Literal["open", "pending", "resolved"]
 _STATUS = ("open", "pending", "resolved")
+# O message_type de uma mensagem enviada ao cliente, na API do Chatwoot (0 é a que chegou).
+_SAIDA = 1
 
 
 class Chatwoot(Protocol):
     def enviar_mensagem(
         self, conversa_id: int, texto: str, botoes: Sequence[Botao] | None = None
     ) -> str: ...
+
+    def mensagens_do_agente(self, conversa_id: int) -> list[tuple[str, str]]:
+        """O id e o texto das últimas mensagens que o agente mandou ao cliente (sem as notas)."""
+        ...
 
     def nota_privada(self, conversa_id: int, texto: str) -> None: ...
 
@@ -77,6 +83,16 @@ class ChatwootHttp:
             }
         return str(self._post(conversa_id, "messages", corpo)["id"])
 
+    def mensagens_do_agente(self, conversa_id: int) -> list[tuple[str, str]]:
+        resposta = self._cliente.get(f"/conversations/{conversa_id}/messages")
+        resposta.raise_for_status()
+        return [
+            (str(mensagem["id"]), mensagem.get("content") or "")
+            for mensagem in resposta.json().get("payload", [])
+            # message_type 1 é a mensagem que saiu; a nota privada também sai, mas com private.
+            if mensagem.get("message_type") == _SAIDA and not mensagem.get("private")
+        ]
+
     def nota_privada(self, conversa_id: int, texto: str) -> None:
         corpo = {"content": texto, "message_type": "outgoing", "private": True}
         self._post(conversa_id, "messages", corpo)
@@ -109,6 +125,13 @@ class ChatwootFalso:
     ) -> str:
         self.chamadas.append(("enviar_mensagem", conversa_id, texto, list(botoes or [])))
         return f"falso-{len(self.chamadas)}"
+
+    def mensagens_do_agente(self, conversa_id: int) -> list[tuple[str, str]]:
+        return [
+            (f"falso-{posicao}", chamada[2])
+            for posicao, chamada in enumerate(self.chamadas, 1)
+            if chamada[0] == "enviar_mensagem" and chamada[1] == conversa_id
+        ]
 
     def nota_privada(self, conversa_id: int, texto: str) -> None:
         self.chamadas.append(("nota_privada", conversa_id, texto))

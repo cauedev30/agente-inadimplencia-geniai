@@ -13,6 +13,7 @@ from agente.db.modelos import Conversa, LaudoGravado, Mensagem, Transicao, Turno
 from agente.tipos import (
     BatchJev,
     EstadoConversa,
+    EstadoEnvio,
     Laudo,
     Modo,
     MotivoHumano,
@@ -30,6 +31,7 @@ def registrar_mensagem(
     conta_no_teto: bool,
     momento: datetime,
     anexos: list[dict] | None = None,
+    envio: EstadoEnvio = EstadoEnvio.ENVIADA,
 ) -> Mensagem | None:
     """Grava a mensagem. Devolve None quando o chatwoot_message_id já existe (dedupe)."""
     mensagem = Mensagem(
@@ -40,6 +42,7 @@ def registrar_mensagem(
         conta_no_teto=conta_no_teto,
         momento=momento,
         anexos=list(anexos or []),
+        envio=envio,
     )
     try:
         with sessao.begin_nested():

@@ -331,10 +331,14 @@ def test_em_risco_o_agente_encurta_e_tem_um_turno_para_recuperar(sessao, ligada,
 
 
 def test_em_risco_o_cliente_que_melhora_segue_com_o_robo(sessao, ligada, cliente, politica):
-    cliente("de novo isso?", _deps(politica, [responder("repete_sem_avancar", True)]))
+    primeiro = _deps(politica, [responder("repete_sem_avancar", True)])
+    cliente("de novo isso?", primeiro)
     assert ligada.estado is EstadoConversa.EM_RISCO
 
-    assert cliente("tá bom, me manda", _deps(politica)) is ResultadoTurno.ENVIADO
+    # O mesmo Chatwoot: o id de cada mensagem é único.
+    segundo = _deps(politica)
+    segundo.chatwoot = primeiro.chatwoot
+    assert cliente("tá bom, me manda", segundo) is ResultadoTurno.ENVIADO
 
     assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
 

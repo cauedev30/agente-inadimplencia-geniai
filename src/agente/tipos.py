@@ -93,6 +93,14 @@ class OrigemMensagem(StrEnum):
     ABERTURA = "ABERTURA"
 
 
+class EstadoEnvio(StrEnum):
+    """Onde está a mensagem do agente: gravada, confirmada no Chatwoot ou descartada."""
+
+    PENDENTE = "PENDENTE"
+    ENVIADA = "ENVIADA"
+    DESCARTADA = "DESCARTADA"
+
+
 class StatusCobranca(StrEnum):
     ATIVA = "ATIVA"
     PAGA = "PAGA"

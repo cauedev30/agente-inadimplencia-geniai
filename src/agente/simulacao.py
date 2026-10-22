@@ -209,6 +209,7 @@ def _rodar_caso(
     caso: Caso,
     deps: DependenciasSimulacao,
     relatorio: RelatorioSimulacao,
+    chatwoot: ChatwootFalso,
 ) -> None:
     politica = deps.politica
     cliente = Cliente(
@@ -233,7 +234,7 @@ def _rodar_caso(
     base = Dependencias(
         # Toda conversa simulada roda no modo ativo, seja qual for a liberação do arquivo.
         politica=liberar_tudo(politica),
-        chatwoot=ChatwootFalso(),
+        chatwoot=chatwoot,
         disparador=DisparadorFalso(),
         time_humano=None,
         modo=Modo.ATIVO,
@@ -272,8 +273,10 @@ def rodar_simulacao(casos: list[Caso], deps: DependenciasSimulacao) -> Relatorio
     Base.metadata.create_all(motor)
     try:
         with fabrica() as sessao:
+            # Um Chatwoot só: o id de cada mensagem é único no banco, como no Chatwoot de verdade.
+            chatwoot = ChatwootFalso()
             for indice, caso in enumerate(casos, start=1):
-                _rodar_caso(sessao, indice, caso, deps, relatorio)
+                _rodar_caso(sessao, indice, caso, deps, relatorio, chatwoot)
     finally:
         motor.dispose()
     return relatorio

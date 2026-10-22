@@ -2,8 +2,9 @@
 
 Em modo sombra, nada é enviado e o estado não muda: o turno só grava os laudos e o que teria feito
 (arquitetura, seção 8), mesmo com um humano na conversa (T7). No modo ativo, o turno executa as
-ações, redige, valida, envia e muda o estado, ou sai para o humano. O AGENTE_MODO em sombra força a
-sombra em tudo; no ativo, a `liberacao` do politica.toml decide cada conversa.
+ações, redige, valida, grava a mensagem, muda o estado e só então a envia (o envio é o último
+efeito e é confirmado depois), ou sai para o humano. O AGENTE_MODO em sombra força a sombra em
+tudo; no ativo, a `liberacao` do politica.toml decide cada conversa.
 """
 
 import logging
@@ -33,6 +34,7 @@ from agente.politica import Politica
 from agente.tipos import (
     BatchJev,
     EstadoConversa,
+    EstadoEnvio,
     Laudo,
     Modo,
     MotivoHumano,
@@ -112,7 +114,9 @@ def _reiniciar(sessao: Session, conversa: Conversa) -> None:
 
 def _historico(sessao: Session, conversa_id: int) -> list[tuple[str, str]]:
     mensagens = sessao.scalars(
-        select(Mensagem).where(Mensagem.conversa_id == conversa_id).order_by(Mensagem.id)
+        select(Mensagem)
+        .where(Mensagem.conversa_id == conversa_id, Mensagem.envio != EstadoEnvio.DESCARTADA)
+        .order_by(Mensagem.id)
     )
     return [(mensagem.origem.value, mensagem.texto) for mensagem in mensagens]
 
@@ -197,14 +201,76 @@ def _handoff(
     )
 
 
-def _enviar(
-    sessao: Session, conversa: Conversa, texto: str, deps: Dependencias, agora: datetime
-) -> None:
-    """Envia a mensagem do agente. Ela conta no teto (D33)."""
+def _gravar_envio(sessao: Session, conversa: Conversa, texto: str, agora: datetime) -> None:
+    """Grava a intenção de enviar a mensagem do agente. Ela já conta no teto (D33).
+
+    O Chatwoot só a recebe depois, em `_despachar`, quando o turno já está gravado.
+    """
     if conversa.chatwoot_conversa_id is None:
         raise ValueError(f"a conversa {conversa.id} não está ligada a uma conversa do Chatwoot")
-    chatwoot_id = deps.chatwoot.enviar_mensagem(conversa.chatwoot_conversa_id, texto)
-    registrar_mensagem(sessao, conversa.id, OrigemMensagem.AGENTE, texto, chatwoot_id, True, agora)
+    registrar_mensagem(
+        sessao,
+        conversa.id,
+        OrigemMensagem.AGENTE,
+        texto,
+        None,
+        True,
+        agora,
+        envio=EstadoEnvio.PENDENTE,
+    )
+
+
+def _envio_pendente(sessao: Session, conversa_id: int) -> Mensagem | None:
+    consulta = select(Mensagem).where(
+        Mensagem.conversa_id == conversa_id,
+        Mensagem.origem == OrigemMensagem.AGENTE,
+        Mensagem.envio == EstadoEnvio.PENDENTE,
+    )
+    return sessao.scalars(consulta.order_by(Mensagem.id)).first()
+
+
+def _entregue(
+    sessao: Session, conversa: Conversa, mensagem: Mensagem, deps: Dependencias
+) -> str | None:
+    """O id da mensagem no Chatwoot, se ela já foi entregue (a resposta do envio se perdeu).
+
+    Só vale a de mesmo texto que o banco ainda não conhece: o mesmo texto já saiu em outro turno.
+    """
+    conhecidas = set(
+        sessao.scalars(
+            select(Mensagem.chatwoot_message_id).where(Mensagem.chatwoot_message_id.is_not(None))
+        )
+    )
+    for chatwoot_id, texto in deps.chatwoot.mensagens_do_agente(conversa.chatwoot_conversa_id):
+        if chatwoot_id not in conhecidas and texto.strip() == mensagem.texto.strip():
+            return chatwoot_id
+    return None
+
+
+def _confirmar(sessao: Session, mensagem: Mensagem, chatwoot_id: str) -> None:
+    mensagem.chatwoot_message_id = chatwoot_id
+    mensagem.envio = EstadoEnvio.ENVIADA
+    sessao.flush()
+
+
+def _descartar(sessao: Session, mensagem: Mensagem) -> None:
+    """A mensagem nunca saiu e não vai mais sair: deixa de contar no teto."""
+    mensagem.envio = EstadoEnvio.DESCARTADA
+    mensagem.conta_no_teto = False
+    sessao.flush()
+
+
+def _despachar(
+    sessao: Session, conversa: Conversa, mensagem: Mensagem, deps: Dependencias, *, reenvio: bool
+) -> None:
+    """Manda ao Chatwoot a mensagem gravada: o último efeito externo do turno.
+
+    No reenvio, a tentativa anterior pode ter entregue e perdido a resposta: confere antes.
+    """
+    chatwoot_id = _entregue(sessao, conversa, mensagem, deps) if reenvio else None
+    if chatwoot_id is None:
+        chatwoot_id = deps.chatwoot.enviar_mensagem(conversa.chatwoot_conversa_id, mensagem.texto)
+    _confirmar(sessao, mensagem, chatwoot_id)
 
 
 def _ja_saiu_resposta_segura(sessao: Session, conversa_id: int) -> bool:
@@ -213,6 +279,7 @@ def _ja_saiu_resposta_segura(sessao: Session, conversa_id: int) -> bool:
             Mensagem.conversa_id == conversa_id,
             Mensagem.origem == OrigemMensagem.AGENTE,
             Mensagem.texto == TEXTO_RESPOSTA_SEGURA,
+            Mensagem.envio != EstadoEnvio.DESCARTADA,
         )
     )
     return bool(sessao.scalar(consulta))
@@ -243,7 +310,7 @@ def _agir(
     ids: dict[tuple[BatchJev, str], int],
     agora: datetime,
 ) -> ResultadoTurno:
-    """O backend executa, o LLM redige, o Jev 3 valida e o texto sai (tarefa 5.3)."""
+    """O backend executa, o LLM redige, o Jev 3 valida e o texto fica gravado para sair (5.3)."""
     cobranca = conversa.cobranca
     # O que o backend grava só vale se o texto com os números sair.
     ponto = sessao.begin_nested()
@@ -275,7 +342,7 @@ def _agir(
 
     texto = redacao.texto
     if texto is not None:
-        _enviar(sessao, conversa, texto, deps, agora)
+        _gravar_envio(sessao, conversa, texto, agora)
         _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
         saida, resultado = "LLM", ResultadoTurno.ENVIADO
     elif redacao.motivo is not None:
@@ -284,7 +351,7 @@ def _agir(
     elif not _ja_saiu_resposta_segura(sessao, conversa.id):
         # Reprovou duas vezes: a resposta segura do catálogo, uma vez por conversa (seção 6).
         texto = TEXTO_RESPOSTA_SEGURA
-        _enviar(sessao, conversa, texto, deps, agora)
+        _gravar_envio(sessao, conversa, texto, agora)
         saida, resultado = "RESPOSTA_SEGURA", ResultadoTurno.ENVIADO
     else:
         laudos = [laudo for laudo, _ in reprovados]
@@ -338,6 +405,14 @@ def _desistir(
         # O handoff manda a mensagem do canal externo: só dentro da janela (D16).
         agendar_turno(sessao, conversa.id, proxima_abertura(agora, deps.politica))
         return ResultadoTurno.ADIADO
+    pendente = _envio_pendente(sessao, conversa.id)
+    if pendente is not None:
+        # Que não se perca o que chegou a sair: confere o Chatwoot antes de descartar.
+        chatwoot_id = _entregue(sessao, conversa, pendente, deps)
+        if chatwoot_id is None:
+            _descartar(sessao, pendente)
+        else:
+            _confirmar(sessao, pendente, chatwoot_id)
     mensagens = tomar_turno(sessao, conversa.id)
     turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
     turno.humano_na_conversa = humano_na_conversa(conversa)
@@ -391,6 +466,56 @@ def _registrar_falha(
     return ResultadoTurno.ERRO
 
 
+def _limpar_retorno(
+    sessao: Session, conversa: Conversa, agora: datetime, retorno: datetime | None
+) -> None:
+    """Tira da fila o retorno que já cumpriu o papel; o que o cliente agendou depois fica.
+
+    Se o cliente escreveu na espera, o turno dele roda logo em seguida.
+    """
+    if conversa.turno_em is None:
+        return
+    if conversa.turno_em == retorno or conversa.turno_em <= agora:
+        conversa.turno_em = agora if mensagens_pendentes(sessao, conversa.id) else None
+
+
+def _entregar(
+    sessao: Session,
+    conversa: Conversa,
+    mensagem: Mensagem,
+    deps: Dependencias,
+    agora: datetime,
+    *,
+    reenvio: bool,
+    retorno: datetime | None,
+) -> ResultadoTurno:
+    """Despacha a mensagem gravada. A falha conta como uma tentativa e fica para a próxima."""
+    try:
+        _despachar(sessao, conversa, mensagem, deps, reenvio=reenvio)
+    except Exception as erro:
+        log.exception("o envio da conversa %s falhou", conversa.id)
+        return _registrar_falha(sessao, conversa.id, erro, deps, agora, desistindo=False)
+    conversa.falhas_turno = 0
+    _limpar_retorno(sessao, conversa, agora, retorno)
+    sessao.flush()
+    return ResultadoTurno.ENVIADO
+
+
+def _retomar_envio(
+    sessao: Session, conversa: Conversa, mensagem: Mensagem, deps: Dependencias, agora: datetime
+) -> ResultadoTurno:
+    """Um turno anterior gravou a mensagem e não a confirmou: refaz só o envio, não o turno."""
+    if humano_na_conversa(conversa) or conversa.cobranca.status is not StatusCobranca.ATIVA:
+        # O humano assumiu ou a cobrança fechou na espera: o texto não sai mais.
+        _descartar(sessao, mensagem)
+        _limpar_retorno(sessao, conversa, agora, None)
+        return ResultadoTurno.IGNORADO
+    if not dentro_da_janela(agora, deps.politica):
+        agendar_turno(sessao, conversa.id, proxima_abertura(agora, deps.politica))
+        return ResultadoTurno.ADIADO
+    return _entregar(sessao, conversa, mensagem, deps, agora, reenvio=True, retorno=None)
+
+
 def _turno_ativo(
     sessao: Session, conversa: Conversa, agora: datetime, deps: Dependencias
 ) -> ResultadoTurno:
@@ -398,8 +523,13 @@ def _turno_ativo(
 
     A conversa conta as falhas seguidas e espera mais a cada uma. Depois de
     `integracao_tentativas`, o turno nem roda: sai um handoff só (arquitetura, seção 9).
+    O envio ao Chatwoot é o último passo: o turno é gravado e confirmado antes, com a mensagem
+    PENDENTE, e o retorno agendado cobre o processo que cair no meio.
     """
     desistindo = conversa.falhas_turno >= deps.politica.integracao_tentativas
+    pendente = _envio_pendente(sessao, conversa.id)
+    if pendente is not None and not desistindo:
+        return _retomar_envio(sessao, conversa, pendente, deps, agora)
     try:
         with sessao.begin_nested():
             if desistindo:
@@ -409,10 +539,16 @@ def _turno_ativo(
     except Exception as erro:
         log.exception("o turno da conversa %s falhou", conversa.id)
         return _registrar_falha(sessao, conversa.id, erro, deps, agora, desistindo=desistindo)
-    if conversa.falhas_turno and resultado is not ResultadoTurno.ADIADO:
-        conversa.falhas_turno = 0
-        sessao.flush()
-    return resultado
+    pendente = _envio_pendente(sessao, conversa.id)
+    if pendente is None:
+        if conversa.falhas_turno and resultado is not ResultadoTurno.ADIADO:
+            conversa.falhas_turno = 0
+            sessao.flush()
+        return resultado
+    retorno = agora + deps.politica.espera_integracao(1)
+    conversa.turno_em = retorno
+    sessao.commit()
+    return _entregar(sessao, conversa, pendente, deps, agora, reenvio=False, retorno=retorno)
 
 
 def _rodar_turno(

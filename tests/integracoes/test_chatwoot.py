@@ -121,3 +121,48 @@ def test_falsa_grava_as_chamadas_em_ordem():
         "etiquetar",
     ]
     assert falsa.enviadas(42) == ["Olá"]
+
+
+@respx.mock
+def test_mensagens_do_agente_ficam_so_com_as_que_o_cliente_recebeu(chatwoot):
+    rota = respx.get(f"{BASE}/messages").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "payload": [
+                    {"id": 1, "content": "Oi, quanto devo?", "message_type": 0, "private": False},
+                    {
+                        "id": 2,
+                        "content": "O valor é R$ 100,20",
+                        "message_type": 1,
+                        "private": False,
+                    },
+                    {"id": 3, "content": "laudo do Jev", "message_type": 1, "private": True},
+                    {"id": 4, "content": "Atribuída ao time", "message_type": 2, "private": False},
+                    {"id": 5, "content": None, "message_type": 1, "private": False},
+                ]
+            },
+        )
+    )
+
+    assert chatwoot.mensagens_do_agente(42) == [("2", "O valor é R$ 100,20"), ("5", "")]
+    assert rota.calls.last.request.headers["api_access_token"] == "segredo"
+
+
+@respx.mock
+def test_erro_ao_listar_as_mensagens_vira_excecao(chatwoot):
+    respx.get(f"{BASE}/messages").mock(return_value=httpx.Response(503))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        chatwoot.mensagens_do_agente(42)
+
+
+def test_falsa_lista_as_mensagens_do_agente_com_o_id_que_devolveu():
+    falsa = ChatwootFalso()
+    falsa.enviar_mensagem(42, "Olá")
+    falsa.nota_privada(42, "laudo")
+    id_outra = falsa.enviar_mensagem(43, "Outra conversa")
+    id_segunda = falsa.enviar_mensagem(42, "Tudo bem?")
+
+    assert falsa.mensagens_do_agente(42) == [("falso-1", "Olá"), (id_segunda, "Tudo bem?")]
+    assert falsa.mensagens_do_agente(43) == [(id_outra, "Outra conversa")]
