@@ -6,7 +6,7 @@ envolve qualquer Jev com o `jev_timeout_ms` e o contrato (arquitetura, seção 9
 """
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as TempoEsgotado
 from dataclasses import dataclass, field
@@ -39,7 +39,8 @@ class Pergunta:
 class EstadoJev:
     """O que o Jev lê: o histórico (origem, texto), a régua, a dívida, o estado e a oferta atual.
 
-    O Jev 2 e o Jev 3 leem também a leitura do Jev 1 do mesmo turno.
+    O Jev 2 lê também a leitura do Jev 1 do mesmo turno; o Jev 3, o texto candidato, as ações do
+    turno e os números do backend.
     """
 
     historico: tuple[tuple[str, str], ...]
@@ -48,6 +49,9 @@ class EstadoJev:
     estado_conversa: EstadoConversa
     oferta_atual: Oferta | None
     leitura: tuple[Laudo, ...] = ()
+    texto_candidato: str | None = None
+    acoes_do_turno: tuple[str, ...] = ()
+    numeros: Mapping[str, object] = field(default_factory=dict)
 
 
 class JevIndisponivel(RuntimeError):
