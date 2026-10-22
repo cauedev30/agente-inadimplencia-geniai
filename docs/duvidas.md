@@ -38,6 +38,9 @@ Enquanto não há resposta, a dúvida entra no código como parâmetro, com o **
    - **Mais de 6 mensalidades:** qual é a regra? **Padrão:** a condição da R6.
    - **Objeção de valor nas réguas sem desconto (NR, R1, R2):** o que o agente faz? **Padrão:** explica
      a condição; na 2ª objeção, a conversa vai para o humano.
+   - **Degraus esgotados:** o cliente objeta de novo depois do último degrau (a 4ª objeção na R3). O
+     que o agente faz? **Padrão (2026-10-22):** a conversa vai para o humano, como na NR. A outra saída
+     seria repetir a última oferta.
 2. ~~**Aceita parcelar?** Em quantas vezes, no máximo? Tem valor mínimo de parcela?~~ **Respondida em
    2026-10-20 → D23:** não tem parcelamento.
 3. ~~**A regra muda** conforme o tempo de atraso ou o valor da dívida? Por exemplo: até 30 dias de
@@ -193,6 +196,11 @@ quem aprova o resultado?
 
 O desenho prevê banco → modo sombra → Jev 3 → Jev 1 → Jev 2 (ver [`arquitetura.md`](arquitetura.md),
 seção 8). **Vale essa ordem** neste projeto? O modo sombra roda com clientes reais do João Pessoa Sul?
+
+**Padrão (2026-10-22):** a sombra roda nas conversas reais do João Pessoa Sul, só lendo, **também
+enquanto um atendente responde**: o turno grava os laudos e o que o agente teria feito, marcado como
+"humano na conversa", para comparar com o que o atendente fez. Os laudos do Jev falso ficam marcados
+como tal e não entram na calibração.
 
 ### T8. As 6 ações do Jev 2
 
