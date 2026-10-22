@@ -1,10 +1,12 @@
 """Marcadores e interpolação: o LLM escreve `{valor_final}`, e o backend preenche (seção 5).
 
-Um número errado não tem por onde entrar: o texto do LLM com dígito, com R$, com marcador
-desconhecido, sem valor no turno ou faltando o de uma ação é recusado com `RedacaoInvalida`.
+Um número errado não tem por onde entrar: o texto do LLM com dígito, com R$, com valor ou prazo por
+extenso, com link próprio, com marcador desconhecido, sem valor no turno ou faltando o de uma ação é
+recusado com `RedacaoInvalida`.
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass, field, replace
 
 from agente.dominio.dinheiro import formatar_reais
@@ -21,6 +23,29 @@ _MARCADOR = re.compile(r"\{([a-z_]+)\}")
 # Reprovou: o LLM reescreve uma vez, sabendo o que reprovou (seção 6).
 TENTATIVAS = 2
 _DIGITO = re.compile(r"\d")
+
+# Valor e prazo por extenso (sem acento, em minúsculas). "um"/"uma" ficam de fora das palavras
+# soltas, porque "um abraço" é só artigo: só contam colados a uma palavra de dinheiro ou de prazo.
+_NUMERAIS = (
+    "zero|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|catorze|quatorze"
+    "|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta|quarenta|cinquenta|sessenta"
+    "|setenta|oitenta|noventa|cem|cento|duzentos|duzentas|trezentos|trezentas|quatrocentos"
+    "|quatrocentas|quinhentos|quinhentas|seiscentos|seiscentas|setecentos|setecentas"
+    "|oitocentos|oitocentas|novecentos|novecentas"
+)
+_DINHEIRO_E_PRAZO = (
+    "real|reais|centavos?|por cento|mil|dias?|mes|meses|semanas?|anos?|horas?|parcelas?"
+    "|mensalidades?"
+)
+_POR_EXTENSO = re.compile(
+    rf"\b(?:{_NUMERAIS}|reais|real|centavos?|por cento|mil|milhao|milhoes)\b"
+    rf"|%|\b(?:um|uma)\s+(?:{_DINHEIRO_E_PRAZO})\b"
+)
+# Todo link vem do backend, em `{link_ctn}`: sobra "http", "www" e domínio solto.
+_LINK = re.compile(
+    r"\bhttps?\b|\bwww\b|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|br|io|app|me|co|ly|link"
+    r"|info|biz|gov|edu|xyz|site|online|dev|invalid|example)\b"
+)
 
 
 # Todo marcador que o LLM pode usar. O valor de cada um vem do backend, em `valores`.
@@ -86,12 +111,21 @@ def marcadores_do_turno(numeros: Numeros) -> tuple[list[str], list[str]]:
     return obrigatorios, opcionais
 
 
+def _sem_acento(texto: str) -> str:
+    return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
+
+
 def interpolar(texto: str, numeros: Numeros) -> str:
     """Troca os marcadores pelos números do backend, formatados em pt-BR."""
     motivos = []
     fora = _MARCADOR.sub("", texto)
     if _DIGITO.search(fora) or "R$" in fora:
         motivos.append("valor_em_digitos")
+    simples = _sem_acento(fora).lower()
+    if _POR_EXTENSO.search(simples):
+        motivos.append("valor_por_extenso")
+    if _LINK.search(simples):
+        motivos.append("link_nao_autorizado")
     if "{" in fora or "}" in fora:
         motivos.append("marcador_malformado")
     usados = _MARCADOR.findall(texto)

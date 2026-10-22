@@ -100,6 +100,69 @@ def test_qualquer_valor_escrito_pelo_llm_e_barrado(texto):
         interpolar(texto, _numeros(Acao.INFORM_DEBT))
 
 
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Fica setenta reais: {divida}",
+        "Fica setenta Reais: {divida}",
+        "Fica R$ {divida}, com dez por cento a menos",
+        "Tem 10% a menos: {divida}",
+        "Paga em trinta dias: {divida}",
+        "Paga em três dias: {divida}",  # o acento não escapa
+        "São duzentos e cinquenta: {divida}",
+        "Pague em um dia: {divida}",  # o um que indica quantidade
+        "Fica por mil e quinhentos: {divida}",
+        "Sobram cinquenta centavos: {divida}",
+    ],
+)
+def test_valor_e_prazo_por_extenso_sao_barrados(texto):
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar(texto, _numeros(Acao.INFORM_DEBT))
+    assert "valor_por_extenso" in erro.value.motivos
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Pague em www.exemplo.com/pagar. {divida}",
+        "Pague em exemplo.com.br. {divida}",
+        "Pague em HTTP://exemplo/pagar {divida}",
+        "Pague em https://pagamento-falso.example/x {divida}",
+        "Pague em pagamento.net {divida}",
+    ],
+)
+def test_link_ou_dominio_inventado_e_barrado(texto):
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar(texto, _numeros(Acao.INFORM_DEBT))
+    assert "link_nao_autorizado" in erro.value.motivos
+
+
+def test_os_motivos_novos_se_somam_aos_antigos():
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar("Fica setenta reais em www.x.com", _numeros(Acao.INFORM_DEBT))
+    assert erro.value.motivos == [
+        "valor_por_extenso",
+        "link_nao_autorizado",
+        "marcador_faltando:divida",
+    ]
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Um abraço!",
+        "Oi, Maria! Tenha uma ótima tarde.",
+        "Tenho um desconto para você.",
+        "Bom dia! Uma boa notícia para você.",
+        "Entendo o seu incômodo, e obrigado pelo retorno.",
+        "Tudo bem. Vamos resolver isso por aqui.",
+    ],
+)
+def test_o_texto_normal_passa(texto):
+    numeros = _numeros(Acao.INFORM_DEBT, Acao.OFFER_DISCOUNT, Acao.SEND_CTN_LINK, degrau=1)
+    assert interpolar(f"{texto} {{divida}} {{valor_final}} {{link_ctn}}", numeros)
+
+
 def test_falta_o_marcador_do_link_quando_ha_send_ctn_link():
     numeros = _numeros(Acao.INFORM_DEBT, Acao.SEND_CTN_LINK)
     with pytest.raises(RedacaoInvalida) as erro:
