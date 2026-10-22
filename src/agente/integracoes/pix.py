@@ -1,0 +1,77 @@
+"""Interface do Pix dinâmico do banco do Cartão de Todos (D22).
+
+A implementação real depende da T1 (tarefa 6.4). Até lá, o sistema roda com o PixFalso.
+"""
+
+import secrets
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
+from typing import Protocol
+
+
+class StatusPix(StrEnum):
+    PENDENTE = "PENDENTE"
+    PAGO = "PAGO"
+    EXPIRADO = "EXPIRADO"
+
+
+@dataclass(frozen=True)
+class CobrancaPix:
+    txid: str
+    valor_centavos: int
+    br_code: str
+    expira_em: datetime
+
+
+class TxidRepetido(ValueError):
+    """O banco já tem uma cobrança com este txid."""
+
+
+class PixBanco(Protocol):
+    def criar_cobranca(
+        self, txid: str, valor_centavos: int, validade: timedelta, devedor_nome: str
+    ) -> CobrancaPix: ...
+
+    def consultar(self, txid: str) -> StatusPix: ...
+
+
+def gerar_txid(cobranca_id: int) -> str:
+    """Um txid novo a cada Pix: 33 caracteres alfanuméricos (o Bacen aceita de 26 a 35)."""
+    return f"agi{cobranca_id:010d}{secrets.token_hex(10)}"
+
+
+class PixFalso:
+    def __init__(self, agora: Callable[[], datetime] = lambda: datetime.now(UTC)):
+        self._agora = agora
+        self.cobrancas: dict[str, CobrancaPix] = {}
+        self.pagos: set[str] = set()
+
+    def criar_cobranca(
+        self, txid: str, valor_centavos: int, validade: timedelta, devedor_nome: str
+    ) -> CobrancaPix:
+        if valor_centavos <= 0:
+            raise ValueError(f"o valor do Pix tem de ser positivo, veio {valor_centavos}")
+        if txid in self.cobrancas:
+            raise TxidRepetido(txid)
+        cobranca = CobrancaPix(
+            txid=txid,
+            valor_centavos=valor_centavos,
+            br_code=f"00020126FALSO{txid}{valor_centavos}",
+            expira_em=self._agora() + validade,
+        )
+        self.cobrancas[txid] = cobranca
+        return cobranca
+
+    def consultar(self, txid: str) -> StatusPix:
+        if txid in self.pagos:
+            return StatusPix.PAGO
+        if self._agora() > self.cobrancas[txid].expira_em:
+            return StatusPix.EXPIRADO
+        return StatusPix.PENDENTE
+
+    def simular_pagamento(self, txid: str) -> None:
+        if txid not in self.cobrancas:
+            raise KeyError(f"não há cobrança com o txid {txid}")
+        self.pagos.add(txid)
