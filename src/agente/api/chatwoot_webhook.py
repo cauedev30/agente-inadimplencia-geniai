@@ -16,6 +16,7 @@ from agente.db.modelos import Cliente, Cobranca, Conversa
 from agente.politica import Politica
 from agente.tipos import OrigemMensagem, StatusCobranca
 from agente.turno.fila import agendar_turno
+from agente.turno.handoff import devolver_ao_robo
 
 
 @dataclass(frozen=True)
@@ -82,10 +83,26 @@ def _conversa_do_cliente(sessao: Session, evento: EventoMensagem) -> Conversa | 
     return conversa
 
 
+def _status_mudou(sessao: Session, dados: dict, agora: datetime) -> str:
+    """O atendente marcou a conversa como Pendente: o robô reassume (arquitetura, seção 3)."""
+    if dados.get("status") != "pending":
+        return "ignorado"
+    conversa = sessao.scalar(
+        select(Conversa).where(Conversa.chatwoot_conversa_id == int(dados.get("id", 0)))
+    )
+    if conversa is None:
+        return "ignorado"
+    devolver_ao_robo(sessao, conversa, agora)
+    sessao.commit()
+    return "devolvida"
+
+
 def receber_evento(
     sessao: Session, dados: dict, politica: Politica, config: Config, agora: datetime
 ) -> str:
-    """Trata o evento. Devolve: agendado, repetida, humano, sem_cobranca ou ignorado."""
+    """Trata o evento. Devolve: agendado, repetida, humano, devolvida, sem_cobranca ou ignorado."""
+    if dados.get("event") == "conversation_status_changed":
+        return _status_mudou(sessao, dados, agora)
     evento = ler_evento(dados)
     if evento is None or _de_outro_lugar(evento, config) or evento.privada:
         return "ignorado"

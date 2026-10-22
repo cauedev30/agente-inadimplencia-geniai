@@ -239,3 +239,22 @@ def test_trabalhador_roda_os_vencidos_e_uma_falha_nao_para_os_outros(fabrica, po
     with fabrica() as sessao:
         # O que falhou continua na fila para o próximo ciclo.
         assert turnos_vencidos(sessao, AGORA + timedelta(seconds=1)) == [ids[0]]
+
+
+def test_pendente_no_chatwoot_devolve_a_conversa_ao_robo(cliente_http, fabrica):
+    _postar(cliente_http, _evento())
+    with fabrica() as sessao:
+        conversa = sessao.scalars(select(Conversa)).one()
+        conversa.human_owned = True
+        sessao.commit()
+    evento = {"event": "conversation_status_changed", "id": 555, "status": "pending"}
+
+    assert _postar(cliente_http, evento).json() == {"resultado": "devolvida"}
+    with fabrica() as sessao:
+        assert sessao.scalars(select(Conversa)).one().human_owned is False
+
+
+def test_outro_status_nao_devolve(cliente_http):
+    _postar(cliente_http, _evento())
+    evento = {"event": "conversation_status_changed", "id": 555, "status": "resolved"}
+    assert _postar(cliente_http, evento).json() == {"resultado": "ignorado"}
