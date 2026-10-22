@@ -105,7 +105,10 @@ class Conversa(Base):
     degrau_atual: Mapped[int] = mapped_column(default=0)
     objecoes_sem_desconto: Mapped[int] = mapped_column(default=0)
     forma_enviada: Mapped[FormaPagamento | None] = mapped_column(_enum(FormaPagamento))
+    # Quando o próximo turno roda: a rajada empurra para frente a cada mensagem (tarefa 3.4).
     turno_em: Mapped[datetime | None] = mapped_column(index=True)
+    # A última mensagem do cliente que um turno já consumiu.
+    ultima_tomada_id: Mapped[int | None]
     criada_em: Mapped[datetime] = mapped_column(default=_agora)
 
     cobranca: Mapped[Cobranca] = relationship(back_populates="conversas")
@@ -123,6 +126,8 @@ class Mensagem(Base):
     chatwoot_message_id: Mapped[str | None] = mapped_column(String(64), unique=True)
     conta_no_teto: Mapped[bool]
     momento: Mapped[datetime]
+    # Os anexos como vieram do Chatwoot: [{"tipo": "audio"}, ...]. Os gates conferem o tipo.
+    anexos: Mapped[list[Any]] = mapped_column(default=list)
 
     conversa: Mapped[Conversa] = relationship(back_populates="mensagens")
 

@@ -29,6 +29,7 @@ def registrar_mensagem(
     chatwoot_message_id: str | None,
     conta_no_teto: bool,
     momento: datetime,
+    anexos: list[dict] | None = None,
 ) -> Mensagem | None:
     """Grava a mensagem. Devolve None quando o chatwoot_message_id já existe (dedupe)."""
     mensagem = Mensagem(
@@ -38,6 +39,7 @@ def registrar_mensagem(
         chatwoot_message_id=chatwoot_message_id,
         conta_no_teto=conta_no_teto,
         momento=momento,
+        anexos=list(anexos or []),
     )
     try:
         with sessao.begin_nested():

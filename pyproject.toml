@@ -35,6 +35,8 @@ packages = ["src/agente"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# O aviso pede o httpx2, que o FastAPI ainda não exige.
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
 
 [tool.ruff]
 line-length = 100
