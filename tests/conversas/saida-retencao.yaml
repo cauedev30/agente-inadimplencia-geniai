@@ -1,0 +1,8 @@
+nome: Quer cancelar o cartão
+regua: R5
+mensalidades: 5
+propenso: false
+turnos:
+  - cliente: Quero cancelar o meu Cartão de Todos.
+    perguntas: {quer_retencao: true}
+    esperado: {gatilho: RETENCAO}

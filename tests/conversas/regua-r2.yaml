@@ -1,0 +1,9 @@
+nome: R2, não propenso, objeção sem desconto na régua
+regua: R2
+mensalidades: 2
+propenso: false
+turnos:
+  - cliente: Tá muito caro, não tem um desconto?
+    perguntas: {objecao_valor: true, acao: OFFER_DISCOUNT}
+    # Na régua sem desconto, a 1ª objeção recebe o débito com a explicação.
+    esperado: {acao: INFORM_DEBT, anexos: [GENERATE_PIX]}

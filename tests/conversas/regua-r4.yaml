@@ -1,0 +1,8 @@
+nome: R4, não propenso, pede o link do cartão
+regua: R4
+mensalidades: 4
+propenso: false
+turnos:
+  - cliente: Me manda o link para eu pagar no cartão.
+    perguntas: {intencao_pagar: pronto, acao: SEND_CTN_LINK}
+    esperado: {acao: SEND_CTN_LINK, anexos: []}

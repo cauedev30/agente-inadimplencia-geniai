@@ -1,0 +1,11 @@
+nome: R1, propenso, quer pagar e pede o Pix
+regua: R1
+mensalidades: 1
+propenso: true
+turnos:
+  - cliente: Quero resolver isso hoje, como eu pago?
+    perguntas: {tom: cordial, intencao_pagar: pronto, acao: INFORM_DEBT}
+    esperado: {acao: INFORM_DEBT, anexos: [SEND_CTN_LINK]}
+  - cliente: Prefiro pagar no Pix, pode mandar?
+    perguntas: {intencao_pagar: pronto, acao: GENERATE_PIX}
+    esperado: {acao: GENERATE_PIX, anexos: []}

@@ -1,4 +1,6 @@
-"""Comandos do agente: `agente importar` (a carteira) e `agente disparar` (as aberturas)."""
+"""Comandos do agente: `agente importar` (a carteira), `agente disparar` (as aberturas) e
+`agente simular` (as conversas simuladas).
+"""
 
 import argparse
 import sys
@@ -12,6 +14,12 @@ from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.politica import carregar_politica
+from agente.simulacao import (
+    DependenciasSimulacao,
+    carregar_casos,
+    formatar_relatorio,
+    rodar_simulacao,
+)
 
 
 def _importar(argumentos: argparse.Namespace) -> int:
@@ -51,6 +59,16 @@ def _disparar(argumentos: argparse.Namespace) -> int:
     return 0
 
 
+def _simular(argumentos: argparse.Namespace) -> int:
+    politica = carregar_politica(argumentos.politica)
+    # Até a T10, não há Jev real: a falsa responde o gabarito de cada turno.
+    print("Jev falso: o relatório testa o encanamento, não calibra os limiares (T10).")
+    casos = carregar_casos(argumentos.caminho)
+    relatorio = rodar_simulacao(casos, DependenciasSimulacao(politica))
+    print(formatar_relatorio(relatorio))
+    return 1 if relatorio.divergencias else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # O console do Windows não usa UTF-8 por padrão e quebra os acentos.
     if hasattr(sys.stdout, "reconfigure"):
@@ -64,6 +82,10 @@ def main(argv: list[str] | None = None) -> int:
     disparar = comandos.add_parser("disparar", help="dispara as aberturas da campanha")
     disparar.add_argument("--campanha", required=True)
     disparar.set_defaults(rodar=_disparar)
+    simular = comandos.add_parser("simular", help="roda as conversas simuladas de uma pasta")
+    simular.add_argument("caminho", type=Path)
+    simular.add_argument("--politica", type=Path, default=Path("politica.toml"))
+    simular.set_defaults(rodar=_simular)
     argumentos = parser.parse_args(argv)
     return argumentos.rodar(argumentos)
 

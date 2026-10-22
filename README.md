@@ -8,7 +8,7 @@ A primeira franquia é o **Cartão de Todos João Pessoa Sul**.
 
 ## Status
 
-**Em implementação: etapas 1 a 3 prontas, com o serviço em modo sombra.** A spec está fechada para começar ([`docs/spec.md`](docs/spec.md)).
+**Em implementação: etapas 1 a 4 prontas, com o serviço em modo sombra.** A spec está fechada para começar ([`docs/spec.md`](docs/spec.md)).
 As decisões estão em [`docs/decisoes.md`](docs/decisoes.md), e as perguntas em aberto, cada uma com o
 padrão usado até a resposta, em [`docs/duvidas.md`](docs/duvidas.md).
 
@@ -45,6 +45,7 @@ Comandos do agente (com `AGENTE_DATABASE_URL` definido e o banco migrado por `uv
 ```bash
 uv run agente importar carteira.csv --campanha outubro   # importa a carteira
 uv run agente disparar --campanha outubro                 # dispara as aberturas (disparador falso até a T4)
+uv run agente simular tests/conversas                     # roda as conversas simuladas (Jev falso até a T10)
 ```
 
 ## Deploy

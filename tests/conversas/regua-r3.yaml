@@ -1,0 +1,11 @@
+nome: R3, propenso, pergunta a dívida e pede desconto
+regua: R3
+mensalidades: 3
+propenso: true
+turnos:
+  - cliente: Bom dia, quanto eu estou devendo?
+    perguntas: {tom: cordial, acao: INFORM_DEBT}
+    esperado: {acao: INFORM_DEBT, anexos: [SEND_CTN_LINK]}
+  - cliente: Consegue fazer um valor melhor?
+    perguntas: {objecao_valor: true, acao: OFFER_DISCOUNT}
+    esperado: {acao: OFFER_DISCOUNT, anexos: [SEND_CTN_LINK]}

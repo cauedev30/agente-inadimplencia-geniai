@@ -1,0 +1,8 @@
+nome: Ameaça de Procon
+regua: R4
+mensalidades: 4
+propenso: false
+turnos:
+  - cliente: Isso é cobrança indevida, vou procurar o Procon.
+    perguntas: {risco_juridico: true}
+    esperado: {gatilho: JURIDICO}

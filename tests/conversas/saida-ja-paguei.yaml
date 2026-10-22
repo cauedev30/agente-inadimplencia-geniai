@@ -1,0 +1,8 @@
+nome: Diz que já pagou
+regua: R1
+mensalidades: 1
+propenso: true
+turnos:
+  - cliente: Eu já paguei essa mensalidade semana passada.
+    perguntas: {alega_pagamento: true}
+    esperado: {gatilho: CONCILIACAO}

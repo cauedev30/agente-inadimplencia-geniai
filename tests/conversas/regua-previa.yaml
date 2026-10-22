@@ -1,0 +1,8 @@
+nome: Prévia de Desfiliado, não propenso, não consegue pagar tudo
+regua: PREVIA
+mensalidades: 4
+propenso: false
+turnos:
+  - cliente: Não consigo pagar tudo de uma vez.
+    perguntas: {objecao_valor: true, intencao_pagar: hesitante, acao: OFFER_DISCOUNT}
+    esperado: {acao: OFFER_DISCOUNT, anexos: [SEND_CTN_LINK]}
