@@ -10,6 +10,9 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.14",
     "tzdata>=2026.5",
+    "httpx>=0.28.1",
+    "fastapi>=0.160.0",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [project.scripts]
@@ -18,6 +21,7 @@ agente = "agente.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8.3",
+    "respx>=0.23.1",
     "ruff>=0.8",
 ]
 

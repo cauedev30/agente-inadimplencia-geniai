@@ -3,6 +3,16 @@
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
+from typing import Literal
+
+
+@dataclass(frozen=True)
+class Botao:
+    """Um botão do WhatsApp: de resposta (volta como mensagem) ou de link."""
+
+    tipo: Literal["resposta", "url"]
+    texto: str
+    valor: str
 
 
 class FormaHistorico(StrEnum):
