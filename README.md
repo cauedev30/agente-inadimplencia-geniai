@@ -8,9 +8,9 @@ A primeira franquia é o **Cartão de Todos João Pessoa Sul**.
 
 ## Status
 
-**Em especificação.** Ainda não há código. As decisões já tomadas estão em
-[`docs/decisoes.md`](docs/decisoes.md). As perguntas que faltam responder para fechar a spec estão em
-[`docs/duvidas.md`](docs/duvidas.md).
+**Em implementação, etapa 1 (base).** A spec está fechada para começar ([`docs/spec.md`](docs/spec.md)).
+As decisões estão em [`docs/decisoes.md`](docs/decisoes.md), e as perguntas em aberto, cada uma com o
+padrão usado até a resposta, em [`docs/duvidas.md`](docs/duvidas.md).
 
 ## Documentação
 
@@ -25,5 +25,17 @@ A primeira franquia é o **Cartão de Todos João Pessoa Sul**.
 
 ## Stack
 
-Python (decisão D7). O código vai entrar neste repositório depois que a spec fechar e o plano de
-implementação for aprovado.
+Python 3.12 (D7), com [uv](https://docs.astral.sh/uv/), SQLAlchemy 2, Alembic, pydantic, pytest e
+ruff.
+
+## Como rodar
+
+```bash
+uv sync                      # instala as dependências no .venv
+cp .env.example .env         # e preencha
+uv run pytest                # testes
+uv run ruff check .          # lint
+uv run ruff format --check . # formatação
+```
+
+No Windows sem o `uv` no PATH, use `python -m uv` no lugar de `uv`.
