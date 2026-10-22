@@ -1,11 +1,18 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
 from agente.db.historico import mensagens_no_teto, transicionar
-from agente.db.modelos import Mensagem
+from agente.db.modelos import Mensagem, Pagamento
 from agente.integracoes.chatwoot import ChatwootFalso
-from agente.tipos import EstadoConversa, Laudo, MotivoHumano, OrigemMensagem
+from agente.tipos import (
+    EstadoConversa,
+    FormaPagamento,
+    Laudo,
+    MotivoHumano,
+    OrigemMensagem,
+    StatusPagamento,
+)
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.handoff import devolver_ao_robo, fazer_handoff
 
@@ -69,3 +76,36 @@ def test_pendente_devolve_ao_robo_no_estado_de_antes(sessao, conversa, politica)
     assert conversa.estado is EstadoConversa.EM_NEGOCIACAO
     assert conversa.human_owned is False
     assert conversa.motivo_humano is None
+
+
+def _pix_pendente(conversa):
+    pagamento = Pagamento(
+        forma=FormaPagamento.PIX,
+        valor_centavos=conversa.cobranca.divida_centavos,
+        referencia="tx-1",
+        status=StatusPagamento.PENDENTE,
+        criado_em=AGORA,
+        expira_em=AGORA + timedelta(hours=24),
+    )
+    conversa.cobranca.pagamentos.append(pagamento)
+    return pagamento
+
+
+def test_por_padrao_o_handoff_deixa_o_pix_pendente_valendo(sessao, conversa, politica):
+    assert politica.handoff_expira_pix is False
+    pix = _pix_pendente(conversa)
+
+    _handoff(sessao, conversa, politica, ChatwootFalso())
+
+    assert pix.status is StatusPagamento.PENDENTE
+
+
+def test_com_handoff_expira_pix_o_handoff_expira_o_pendente(sessao, conversa, politica):
+    pix = _pix_pendente(conversa)
+    pago = _pix_pendente(conversa)
+    pago.referencia, pago.status = "tx-2", StatusPagamento.PAGO
+    politica = politica.model_copy(update={"handoff_expira_pix": True})
+
+    _handoff(sessao, conversa, politica, ChatwootFalso())
+
+    assert (pix.status, pago.status) == (StatusPagamento.EXPIRADO, StatusPagamento.PAGO)

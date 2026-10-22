@@ -5,6 +5,7 @@ mensalidade_centavos = 3340          # D24
 teto_resolucao = 5                   # D33: 5 mensagens de resolução; a 6ª é fixa
 regua_acima_de_6 = "R6"              # padrão (G1.1): mais de 6 mensalidades usam a condição da R6
 pix_validade_horas = 24              # padrão (G2.4)
+handoff_expira_pix = false           # padrão: o Pix pendente continua valendo depois do handoff; true o expira
 objecoes_sem_desconto_ate_humano = 2 # padrão (G1.1): na régua sem desconto, a 2ª objeção vai ao humano
 confianca_minima = 0.60              # arquitetura, seção 4
 rajada_segundos = 7                  # espera para juntar as mensagens em rajada

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from agente.db.historico import registrar_mensagem, transicionar
 from agente.db.modelos import Conversa, Transicao
 from agente.integracoes.chatwoot import Chatwoot
+from agente.pagamento.expirar import expirar_pendentes
 from agente.politica import Politica
 from agente.tipos import EstadoConversa, Laudo, MotivoHumano, OrigemMensagem, TipoFixa
 from agente.turno.catalogo import DadosFixa, mensagem_fixa
@@ -63,6 +64,8 @@ def fazer_handoff(
     transicionar(
         sessao, conversa, EstadoConversa.ATENDIMENTO_HUMANO, motivo, laudo_id, momento=agora
     )
+    if politica.handoff_expira_pix:
+        expirar_pendentes(conversa.cobranca)
     dados = DadosFixa(
         nome=conversa.cobranca.cliente.nome,
         valor_centavos=None,

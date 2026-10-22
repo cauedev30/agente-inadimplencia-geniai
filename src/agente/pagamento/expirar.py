@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from agente.db.modelos import Pagamento
+from agente.db.modelos import Cobranca, Pagamento
 from agente.tipos import FormaPagamento, StatusPagamento
 
 
@@ -27,3 +27,13 @@ def expirar_pix(sessao: Session, agora: datetime) -> int:
         pagamento.status = StatusPagamento.EXPIRADO
     sessao.flush()
     return len(vencidos)
+
+
+def expirar_pendentes(cobranca: Cobranca) -> int:
+    """Expira os Pix pendentes da cobrança, de uma vez (o handoff com `handoff_expira_pix`)."""
+    expirados = 0
+    for pagamento in cobranca.pagamentos:
+        if pagamento.forma is FormaPagamento.PIX and pagamento.status is StatusPagamento.PENDENTE:
+            pagamento.status = StatusPagamento.EXPIRADO
+            expirados += 1
+    return expirados

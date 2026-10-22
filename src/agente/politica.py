@@ -131,6 +131,8 @@ class Politica(_Imutavel):
     teto_resolucao: int = Field(ge=1)
     regua_acima_de_6: Regua
     pix_validade_horas: int = Field(ge=1)
+    # O handoff expira o Pix pendente? Padrão não: o Pix continua valendo e o pagamento conta.
+    handoff_expira_pix: bool = False
     objecoes_sem_desconto_ate_humano: int = Field(ge=1)
     confianca_minima: Limiar
     rajada_segundos: int = Field(ge=0)
