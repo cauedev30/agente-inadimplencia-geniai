@@ -42,6 +42,7 @@ def test_ate_a_t10_o_jev_e_o_falso_com_o_prazo_da_politica(caplog):
     assert isinstance(deps.jev, JevComPrazo)
     assert isinstance(deps.jev.jev, JevFalso)
     assert deps.jev.timeout_ms == deps.politica.jev_timeout_ms
+    assert deps.jev.jev.registrar is False
     assert "Jev" in caplog.text and "T10" in caplog.text
 
 

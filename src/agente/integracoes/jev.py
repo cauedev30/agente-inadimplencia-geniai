@@ -144,16 +144,22 @@ def laudo_neutro(pergunta: Pergunta) -> Laudo:
 
 @dataclass
 class JevFalso:
-    """Responde pelas regras escritas no teste; a primeira regra que responde vence."""
+    """Responde pelas regras escritas no teste; a primeira regra que responde vence.
+
+    Só grava as chamadas com `registrar`, que é coisa de teste: em produção, o estado traz o
+    histórico do cliente, e a falsa não pode acumular dado pessoal na memória.
+    """
 
     regras: Sequence[Regra] = ()
     demora_s: float = 0.0
     falha: Exception | None = None
     origem: str = "falso"
+    registrar: bool = False
     chamadas: list[tuple[list[str], EstadoJev]] = field(default_factory=list)
 
     def avaliar(self, perguntas: Sequence[Pergunta], estado: EstadoJev) -> list[Laudo]:
-        self.chamadas.append(([pergunta.nome for pergunta in perguntas], estado))
+        if self.registrar:
+            self.chamadas.append(([pergunta.nome for pergunta in perguntas], estado))
         if self.demora_s:
             time.sleep(self.demora_s)
         if self.falha is not None:

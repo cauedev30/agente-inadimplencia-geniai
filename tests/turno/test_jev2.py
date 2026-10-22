@@ -27,7 +27,7 @@ def test_decidir_devolve_a_acao_com_probabilidade_e_confianca():
 
 
 def test_o_jev2_le_o_estado_com_a_leitura_do_jev1():
-    jev = JevFalso([responder("objecao_valor", True)])
+    jev = JevFalso([responder("objecao_valor", True)], registrar=True)
     leitura = ler(jev, ESTADO)
 
     decidir(jev, ESTADO, leitura)

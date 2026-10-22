@@ -76,10 +76,16 @@ class TestJevFalso(ContratoJev):
     def test_a_origem_da_falsa_e_falso(self):
         assert JevFalso().origem == "falso"
 
-    def test_grava_as_chamadas(self):
-        jev = JevFalso()
+    def test_grava_as_chamadas_so_quando_o_teste_liga(self):
+        jev = JevFalso(registrar=True)
         jev.avaliar(PERGUNTAS, ESTADO)
         assert jev.chamadas == [(["risco_juridico", "tom", "acao"], ESTADO)]
+
+    def test_por_padrao_nao_guarda_o_historico_do_cliente(self):
+        # Em produção, a falsa não pode acumular dado pessoal na memória.
+        jev = JevFalso()
+        jev.avaliar(PERGUNTAS, ESTADO)
+        assert jev.chamadas == []
 
 
 class TestJevComPrazo(ContratoJev):

@@ -39,7 +39,7 @@ def _deps(politica, modo=Modo.SOMBRA, regras=(), jev=None):
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=modo,
-        jev=jev or JevFalso(list(regras)),
+        jev=jev or JevFalso(list(regras), registrar=True),
     )
 
 

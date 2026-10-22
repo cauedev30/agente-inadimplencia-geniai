@@ -79,7 +79,7 @@ def test_reprovadas_lista_todas_na_ordem_das_perguntas():
 
 
 def test_o_jev3_le_o_texto_as_acoes_e_os_numeros():
-    jev = JevFalso(_aprovadas())
+    jev = JevFalso(_aprovadas(), registrar=True)
     validar(jev, TEXTO, ACOES, NUMEROS, ESTADO)
     _, estado = jev.chamadas[-1]
     assert estado.texto_candidato == TEXTO
