@@ -12,7 +12,7 @@ a revisou.
 | D5 | 2026-10-15 | Toda saída do robô, seja pelo teto ou por gatilho do Jev, manda o cliente para o **canal externo da franquia** |
 | D6 | 2026-10-15 | O LLM de redação é **escolhido por teste**. Candidato: Groq `gpt-oss-120b` |
 | D7 | 2026-10-19 | **Stack em Python**, mesmo com outros projetos da GeniAI em Go. O Go entra só se surgir gargalo, porque tende a render mais com muitos clientes ao mesmo tempo. Ver a análise abaixo |
-| D8 | 2026-10-19 | **Teto de 3 mensagens de resolução** do agente. Na 4ª, o cliente é encaminhado para o canal externo. *(Em 2026-10-21 a operação recomendou cerca de 5; a revisão é do Cauê, na C2.)* |
+| D8 | 2026-10-19 | **Teto de 3 mensagens de resolução** do agente. Na 4ª, o cliente é encaminhado para o canal externo. *(Em 2026-10-21 a operação recomendou cerca de 5; revisada pela D33: teto de 5.)* |
 | D9 | 2026-10-19 | Repositório: este, `cauedev30/agente-inadimplencia-geniai` |
 | D10 | 2026-10-19 | *(Revisada pela D21.)* Repositório público por enquanto; só o Cauê trabalha nele |
 | D11 | 2026-10-19 | *(Revisada pela D16 na parte de fora da janela.)* **Janela de atendimento:** segunda a sexta, das 8h às 18h; sábado, das 8h às 12h. Fora dela, uma mensagem reforçaria o horário |
@@ -37,6 +37,7 @@ a revisou.
 | D30 | 2026-10-21 | **A troca da forma de pagamento é papel do agente.** Ele manda o **link de pagamento do CTN**, em que o cliente quita a dívida e já cadastra o cartão de crédito ou débito. O Pix todo mês não é uma recorrência saudável. A troca para a **conta de energia (Energisa) é manual** e vai para o humano |
 | D31 | 2026-10-21 | **O agente trabalha integrado ao CTN**, o sistema com os clientes, as matrículas e o histórico. A **baixa** do pagamento entra na aba de mensalidades do CTN |
 | D32 | 2026-10-21 | **O atendimento humano sai do WhatsApp para um canal externo**, no desenho do webchat ([`ideia-webchat.md`](ideia-webchat.md)). As conversas são distribuídas entre os atendentes em **rodízio igualitário**. Revisa a D18 |
+| D33 | 2026-10-22 | **Teto de 5 mensagens de resolução** do agente, igual em todas as franquias (D14). A **6ª mensagem é fixa, sem LLM e sem Jev**: a **confirmação de pagamento**, se o cliente pagou, ou o encaminhamento para o canal externo (texto da D19), se não pagou. A confirmação **não consome** o teto. Revisa a D8 e responde a C2 e a G2.1 |
 
 ## Análise do D7: Go × Python
 

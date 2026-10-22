@@ -46,8 +46,8 @@ Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes
    custa na Meta.
    - **Posição do Cauê (2026-10-20):** a confirmação é essencial e deve ser enviada mesmo que passe do
      teto de 3 mensagens (D8).
-   - **Em aberto:** essa confirmação conta no teto ou fica fora dele? Se contar, ela pode cair na 4ª
-     mensagem, que é reservada para o canal externo (D19).
+   - ~~**Em aberto:** essa confirmação conta no teto ou fica fora dele?~~ **Respondida em 2026-10-22 →
+     D33:** fica fora do teto de 5; ela é a 6ª mensagem fixa quando o cliente pagou.
 2. ~~**Quem dá baixa na dívida:** o agente, a franquia no sistema dela, ou os dois?~~ **Respondida em
    2026-10-21 → D31:** a baixa entra na aba de mensalidades do CTN, com o agente integrado a ele. Fica
    para o dev: como a integração escreve a baixa (T9).
@@ -216,6 +216,8 @@ decidiu.
 
 ### C2. Teto de mensagens
 
+**Respondida em 2026-10-22 → D33:** teto de 5; a 6ª é fixa (confirmação de pagamento ou canal externo).
+
 Em 2026-10-21 a operação achou o teto de 3 + 1 (D8, D19) muito restrito e recomendou **cerca de 5
 mensagens**. Os casos simples, como a NR, fecham rápido. As réguas altas pedem mais negociação ou chegam
 com atrito com a clínica, e esses casos devem ir logo para o humano.
@@ -225,4 +227,4 @@ com atrito com a clínica, e esses casos devem ir logo para o humano.
   o humano quando houver atrito. A D14 continua valendo: o teto seria o mesmo em todas as franquias.
 - Depende disso a G2.1: a confirmação de pagamento conta no teto?
 
-Até você decidir, vale a D8.
+~~Até você decidir, vale a D8.~~
