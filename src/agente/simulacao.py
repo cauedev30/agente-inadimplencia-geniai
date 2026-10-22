@@ -154,8 +154,12 @@ class RelatorioSimulacao:
     por_pergunta: dict[str, Acerto] = field(default_factory=lambda: defaultdict(Acerto))
     por_acao: dict[str, Acerto] = field(default_factory=lambda: defaultdict(Acerto))
     divergencias: list[Divergencia] = field(default_factory=list)
-    # Os textos que o agente mandou ao cliente, na ordem.
+    # Os textos do LLM aprovados e enviados ao cliente, na ordem.
     textos: list[str] = field(default_factory=list)
+    # As tentativas do LLM, as que reprovaram (na interpolação ou no Jev 3) e as respostas seguras.
+    tentativas: int = 0
+    reprovadas: int = 0
+    respostas_seguras: int = 0
 
 
 def _respostas(sessao: Session, turno: Turno) -> dict:
@@ -185,6 +189,17 @@ def _conferir(
     elif not acertou_anexos:
         anexos = (", ".join(esperado.anexos) or "-", ", ".join(gravado.acoes_anexadas) or "-")
         relatorio.divergencias.append(Divergencia(caso, numero, "anexos", *anexos))
+
+
+def _contar_redacao(gravado: Turno, relatorio: RelatorioSimulacao) -> None:
+    tentativas = gravado.redacao.get("tentativas", [])
+    relatorio.tentativas += len(tentativas)
+    relatorio.reprovadas += sum(bool(tentativa["reprovadas"]) for tentativa in tentativas)
+    saida = gravado.redacao.get("saida")
+    if saida == "LLM":
+        relatorio.textos.append(gravado.texto_enviado)
+    elif saida == "RESPOSTA_SEGURA":
+        relatorio.respostas_seguras += 1
 
 
 def _rodar_caso(
@@ -239,8 +254,7 @@ def _rodar_caso(
             select(Turno).where(Turno.conversa_id == conversa.id).order_by(Turno.id.desc())
         ).first()
         _conferir(caso.nome, numero, turno, _respostas(sessao, gravado), gravado, relatorio)
-        if gravado.texto_enviado is not None:
-            relatorio.textos.append(gravado.texto_enviado)
+        _contar_redacao(gravado, relatorio)
         if conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO:
             if numero < len(caso.turnos):
                 relatorio.divergencias.append(

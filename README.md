@@ -46,6 +46,7 @@ Comandos do agente (com `AGENTE_DATABASE_URL` definido e o banco migrado por `uv
 uv run agente importar carteira.csv --campanha outubro   # importa a carteira
 uv run agente disparar --campanha outubro                 # dispara as aberturas (disparador falso até a T4)
 uv run agente simular tests/conversas                     # roda as conversas simuladas (Jev falso até a T10)
+uv run agente comparar-redatores tests/conversas --modelo openai/gpt-oss-120b  # compara os LLMs (T6); exige AGENTE_GROQ_API_KEY
 ```
 
 ## Deploy

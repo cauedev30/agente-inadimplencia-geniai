@@ -1,5 +1,5 @@
-"""Comandos do agente: `agente importar` (a carteira), `agente disparar` (as aberturas) e
-`agente simular` (as conversas simuladas).
+"""Comandos do agente: `agente importar` (a carteira), `agente disparar` (as aberturas),
+`agente simular` (as conversas simuladas) e `agente comparar-redatores` (a escolha do LLM, T6).
 """
 
 import argparse
@@ -9,10 +9,17 @@ from pathlib import Path
 
 from agente.abertura.disparar import disparar_aberturas
 from agente.carteira.importar import importar_carteira
-from agente.config import ConfigPolitica, carregar_config
+from agente.comparacao import (
+    Candidato,
+    comparar_redatores,
+    formatar_comparacao,
+    ler_candidato,
+)
+from agente.config import ConfigPolitica, ConfigRedator, carregar_config
 from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
+from agente.integracoes.redator import RedatorGroq
 from agente.politica import carregar_politica
 from agente.simulacao import (
     DependenciasSimulacao,
@@ -69,6 +76,33 @@ def _simular(argumentos: argparse.Namespace) -> int:
     return 1 if relatorio.divergencias else 0
 
 
+def _comparar(argumentos: argparse.Namespace) -> int:
+    config = ConfigRedator()
+    if not config.groq_api_key:
+        print("Defina o AGENTE_GROQ_API_KEY para comparar os modelos do Groq (T6).")
+        return 2
+    politica = carregar_politica(argumentos.politica or config.politica_path)
+    try:
+        lidos = [ler_candidato(valor) for valor in argumentos.modelo]
+    except ValueError as erro:
+        print(erro)
+        return 2
+    print("Jev falso: o Jev 3 aprova todo texto; só a interpolação reprova até a T10.")
+    casos = carregar_casos(argumentos.caminho)
+    redatores = [RedatorGroq(config.groq_api_key, modelo) for modelo, _, _ in lidos]
+    try:
+        candidatos = [
+            Candidato(redator, entrada, saida)
+            for redator, (_, entrada, saida) in zip(redatores, lidos, strict=True)
+        ]
+        relatorio = comparar_redatores(candidatos, casos, DependenciasSimulacao(politica))
+    finally:
+        for redator in redatores:
+            redator.fechar()
+    print(formatar_comparacao(relatorio))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # O console do Windows não usa UTF-8 por padrão e quebra os acentos.
     if hasattr(sys.stdout, "reconfigure"):
@@ -86,6 +120,18 @@ def main(argv: list[str] | None = None) -> int:
     simular.add_argument("caminho", type=Path)
     simular.add_argument("--politica", type=Path, help="padrão: AGENTE_POLITICA_PATH")
     simular.set_defaults(rodar=_simular)
+    comparar = comandos.add_parser(
+        "comparar-redatores", help="compara os LLMs candidatos nas conversas simuladas (T6)"
+    )
+    comparar.add_argument("caminho", type=Path)
+    comparar.add_argument(
+        "--modelo",
+        action="append",
+        required=True,
+        help="modelo do Groq, ou modelo:entrada:saida com o preço em US$ por milhão de tokens",
+    )
+    comparar.add_argument("--politica", type=Path, help="padrão: AGENTE_POLITICA_PATH")
+    comparar.set_defaults(rodar=_comparar)
     argumentos = parser.parse_args(argv)
     return argumentos.rodar(argumentos)
 
