@@ -1,0 +1,88 @@
+# Política de negócio do agente. Nenhum número de política fica no código: ele vem daqui.
+# Os valores marcados "padrão" são provisórios e citam a dúvida (docs/duvidas.md) que os decide.
+
+mensalidade_centavos = 3340          # D24
+teto_resolucao = 5                   # D33: 5 mensagens de resolução; a 6ª é fixa
+regua_acima_de_6 = "R6"              # padrão (G1.1): mais de 6 mensalidades usam a condição da R6
+pix_validade_horas = 24              # padrão (G2.4)
+objecoes_sem_desconto_ate_humano = 2 # padrão (G1.1): na régua sem desconto, a 2ª objeção vai ao humano
+confianca_minima = 0.60              # arquitetura, seção 4
+rajada_segundos = 7                  # espera para juntar as mensagens em rajada
+audio_max_segundos = 120             # arquitetura, seção 1
+jev_timeout_ms = 2000                # padrão; acima disso, o turno vai para o humano (arquitetura, seção 9)
+link_canal_externo = "https://atendimento.invalid/provisorio"  # provisório até a etapa 7 (G7.3)
+
+# Desconto máximo por régua (D29) em 3 degraus iguais (D35, padrão até a G1.1).
+[reguas.NR]
+desconto_max_centavos = 0
+n_degraus = 3
+
+[reguas.R1]
+desconto_max_centavos = 0
+n_degraus = 3
+
+[reguas.R2]
+desconto_max_centavos = 0
+n_degraus = 3
+
+[reguas.R3]
+desconto_max_centavos = 9000
+n_degraus = 3
+
+[reguas.PREVIA]
+desconto_max_centavos = 6000  # padrão (G1.1): o manual dava R$ 60; a operação não falou
+n_degraus = 3
+
+[reguas.R4]
+desconto_max_centavos = 9000
+n_degraus = 3
+
+[reguas.R5]
+desconto_max_centavos = 7500
+n_degraus = 3
+
+[reguas.R6]
+desconto_max_centavos = 6000  # padrão (G1.1): a operação disse R$ 60; o manual dava R$ 75
+n_degraus = 3
+
+# Janela de atendimento (D11, D16). Dia ausente = fechado.
+[janela]
+fuso = "America/Fortaleza"
+# Padrão (G3): feriados nacionais e o 5 de agosto (Paraíba e João Pessoa). Lista local a confirmar.
+feriados = [
+    2026-11-02, 2026-11-15, 2026-11-20, 2026-12-25,
+    2027-01-01, 2027-03-26, 2027-04-21, 2027-05-01, 2027-08-05,
+    2027-09-07, 2027-10-12, 2027-11-02, 2027-11-15, 2027-11-20, 2027-12-25,
+]
+
+[janela.dias]
+seg = ["08:00", "18:00"]
+ter = ["08:00", "18:00"]
+qua = ["08:00", "18:00"]
+qui = ["08:00", "18:00"]
+sex = ["08:00", "18:00"]
+sab = ["08:00", "12:00"]  # padrão (G3): a operação não confirmou o sábado
+
+# Propensão ao cartão (D36). Padrão (T9.4) até o CTN confirmar o histórico.
+[propensao]
+n_meses = 3
+tolerancia_dias = 3
+
+# Limiares dos gatilhos de saída do Jev 1 (arquitetura, seção 2). Calibrar com dado real.
+[limiares_jev1]
+quer_retencao = 0.80
+risco_juridico = 0.70
+alega_pagamento = 0.70
+contesta_divida = 0.70
+vulnerabilidade = 0.75
+atrito_clinica = 0.70
+quer_conta_energia = 0.70
+
+# Probabilidade mínima de cada ação do Jev 2 (arquitetura, seção 4). Calibrar com dado real.
+[limiares_jev2]
+INFORM_DEBT = 0.70
+OFFER_DISCOUNT = 0.80
+SEND_CTN_LINK = 0.85
+GENERATE_PIX = 0.90
+OUT_OF_SCOPE = 0.70
+NONE = 0.70
