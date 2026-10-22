@@ -12,6 +12,7 @@ from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Base, Cliente, Cobranca, Conversa, LaudoGravado, Transicao, Turno
 from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso
+from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevComPrazo, JevFalso, responder
 from agente.politica import Regua
@@ -40,6 +41,7 @@ def _deps(politica, modo=Modo.SOMBRA, regras=(), jev=None):
         time_humano=4,
         modo=modo,
         jev=jev or JevFalso(list(regras), registrar=True),
+        ctn=CTNFalso([ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", None)]),
     )
 
 
@@ -236,7 +238,7 @@ def test_ativo_o_humano_na_conversa_barra_o_jev(sessao, ligada, politica):
     assert _turno(sessao).humano_na_conversa is True
 
 
-# Modo ativo nesta etapa: a ação não sai (é da tarefa 5.3), mas a saída para o humano, sim.
+# Modo ativo: a saída para o humano acontece, e o backend executa a ação; o envio é da 5.3.
 
 
 def test_ativo_o_gatilho_faz_o_handoff_com_o_laudo_da_causa(sessao, ligada, politica):
@@ -309,7 +311,7 @@ def test_ativo_a_baixa_confianca_do_jev2_vai_para_o_humano(sessao, ligada, polit
     assert sessao.get(LaudoGravado, transicao.laudo_id).batch is BatchJev.JEV2
 
 
-def test_ativo_a_acao_fica_gravada_sem_envio(sessao, ligada, politica):
+def test_ativo_a_acao_e_executada_sem_envio(sessao, ligada, politica):
     deps = _deps(politica, Modo.ATIVO, OBJECAO)
     _cliente(sessao, ligada, "tá caro")
 
@@ -318,6 +320,7 @@ def test_ativo_a_acao_fica_gravada_sem_envio(sessao, ligada, politica):
     assert resultado is ResultadoTurno.SOMBRA
     assert deps.chatwoot.chamadas == []
     assert _turno(sessao).acao_principal == "OFFER_DISCOUNT"
+    assert [valor for _, valor, _ in deps.ctn.links.values()] == [7020]
 
 
 # Pronto quando: o serviço da tarefa 3.7 grava o laudo de toda rajada real.

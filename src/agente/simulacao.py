@@ -8,22 +8,28 @@ limiares. As conversas da Lohanny entram aqui quando chegarem.
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from agente.db.modelos import Cobranca, Conversa
+from agente.db.modelos import Cliente, Cobranca, Conversa
 from agente.dominio.divida import calcular_divida
+from agente.integracoes.ctn import CTN, ClienteCTN, CTNFalso
 from agente.integracoes.jev import Jev, JevFalso, responder
+from agente.integracoes.pix import PixBanco, PixFalso
 from agente.politica import Politica, Regua
 from agente.tipos import EstadoConversa, MotivoHumano
 from agente.turno.acoes import Acao
 from agente.turno.avaliacao import Avaliacao, avaliar, estado_jev
+from agente.turno.executar import executar
 from agente.turno.jev1 import PERGUNTAS_JEV1
 from agente.turno.jev2 import PERGUNTAS_JEV2
 
 _PERGUNTAS = {pergunta.nome: pergunta for pergunta in (*PERGUNTAS_JEV1, *PERGUNTAS_JEV2)}
+# O momento da simulação só data o Pix falso; nenhum gate roda aqui.
+_AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 
 
 class _Imutavel(BaseModel):
@@ -111,6 +117,15 @@ class DependenciasSimulacao:
 
 
 @dataclass
+class _Backend:
+    """O que o `executar` usa no caso: o CTN falso conhece o cliente simulado."""
+
+    politica: Politica
+    ctn: CTN
+    pix: PixBanco
+
+
+@dataclass
 class Acerto:
     acertos: int = 0
     total: int = 0
@@ -145,20 +160,6 @@ def _respostas(avaliacao: Avaliacao) -> dict:
     return {laudo.pergunta: laudo.valor for laudo in laudos}
 
 
-def _avancar(conversa: Conversa, cobranca: Cobranca, avaliacao: Avaliacao, politica: Politica):
-    """O que o backend grava depois da ação (etapa 5), para o caso seguir de um turno ao outro."""
-    # Regra provisória, só da simulação: o modo ativo ainda não incrementa o degrau nem as
-    # objecoes_sem_desconto. A tarefa 5.1 troca isto pelo `executar`.
-    if avaliacao.acao is Acao.OFFER_DISCOUNT:
-        conversa.degrau_atual += 1
-    elif (
-        avaliacao.acao is not None
-        and avaliacao.leitura.sim("objecao_valor")
-        and politica.reguas[cobranca.regua].desconto_max_centavos == 0
-    ):
-        conversa.objecoes_sem_desconto += 1
-
-
 def _conferir(
     caso: str, numero: int, turno: TurnoCaso, avaliacao: Avaliacao, relatorio: RelatorioSimulacao
 ) -> None:
@@ -180,15 +181,22 @@ def _conferir(
         relatorio.divergencias.append(Divergencia(caso, numero, "anexos", *anexos))
 
 
-def _rodar_caso(caso: Caso, deps: DependenciasSimulacao, relatorio: RelatorioSimulacao) -> None:
+def _rodar_caso(
+    indice: int, caso: Caso, deps: DependenciasSimulacao, relatorio: RelatorioSimulacao
+) -> None:
     politica = deps.politica
+    cliente = Cliente(matricula_ctn=f"SIM-{indice:04d}", nome="Cliente Simulado", telefone="")
     cobranca = Cobranca(
+        id=indice,
+        cliente=cliente,
         regua=caso.regua,
         mensalidades_abertas=caso.mensalidades,
         divida_centavos=calcular_divida(caso.mensalidades, politica),
         propenso_cartao=caso.propenso,
     )
     conversa = Conversa(estado=EstadoConversa.INICIADO, degrau_atual=0, objecoes_sem_desconto=0)
+    ctn = CTNFalso([ClienteCTN(cliente.matricula_ctn, cliente.nome, cliente.telefone, None)])
+    backend = _Backend(politica, ctn, PixFalso(agora=lambda: _AGORA))
     historico: list[tuple[str, str]] = []
     for numero, turno in enumerate(caso.turnos, start=1):
         relatorio.turnos += 1
@@ -205,7 +213,15 @@ def _rodar_caso(caso: Caso, deps: DependenciasSimulacao, relatorio: RelatorioSim
                     Divergencia(caso.nome, numero + 1, "caso", "seguir", f"parou no turno {numero}")
                 )
             return
-        _avancar(conversa, cobranca, avaliacao, politica)
+        # O mesmo backend do turno ativo avança o degrau e as objeções de um turno ao outro.
+        executar(
+            [avaliacao.acao, *avaliacao.anexos],
+            cobranca,
+            conversa,
+            backend,
+            _AGORA,
+            objecao=avaliacao.leitura.sim("objecao_valor"),
+        )
         historico.append(
             ("AGENTE", f"[teria feito: {' + '.join([avaliacao.rotulo, *avaliacao.anexos])}]")
         )
@@ -213,8 +229,8 @@ def _rodar_caso(caso: Caso, deps: DependenciasSimulacao, relatorio: RelatorioSim
 
 def rodar_simulacao(casos: list[Caso], deps: DependenciasSimulacao) -> RelatorioSimulacao:
     relatorio = RelatorioSimulacao(casos=len(casos))
-    for caso in casos:
-        _rodar_caso(caso, deps, relatorio)
+    for indice, caso in enumerate(casos, start=1):
+        _rodar_caso(indice, caso, deps, relatorio)
     return relatorio
 
 

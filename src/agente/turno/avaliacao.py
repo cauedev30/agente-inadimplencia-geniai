@@ -90,7 +90,10 @@ def avaliar(
 def numeros_previstos(
     avaliacao: Avaliacao, conversa: Conversa, cobranca: Cobranca, politica: Politica
 ) -> dict:
-    """Os números que a ação teria levado, sem gerar link nem Pix (isso é da tarefa 5.1)."""
+    """A prévia da sombra: os números que a ação teria levado, sem gerar link nem Pix.
+
+    No modo ativo, quem gera os números de verdade é o `executar`.
+    """
     if avaliacao.acao is None:
         return {"erro": avaliacao.erro} if avaliacao.erro else {}
     acoes = [avaliacao.acao, *avaliacao.anexos]

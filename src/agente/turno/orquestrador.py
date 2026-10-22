@@ -1,13 +1,13 @@
-"""O turno de uma conversa: os gates, o Jev 1, o Jev 2 e as regras de ação. O LLM entra na etapa 5.
+"""O turno de uma conversa: os gates, o Jev 1, o Jev 2, as regras de ação e o backend.
 
 Em modo sombra, nada é enviado e o estado não muda: o turno só grava os laudos e o que teria feito
 (arquitetura, seção 8), mesmo com um humano na conversa (T7). No modo ativo, a saída para o humano
-já acontece; o envio é da tarefa 5.3.
+já acontece e o backend executa as ações; o envio é da tarefa 5.3.
 """
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import select
@@ -18,14 +18,26 @@ from agente.db.historico import (
     fechar_turno,
     gravar_laudos,
     registrar_mensagem,
+    transicionar,
 )
 from agente.db.modelos import Conversa, Mensagem, Turno
 from agente.integracoes.chatwoot import Chatwoot
+from agente.integracoes.ctn import CTN, CTNFalso
 from agente.integracoes.disparador import Disparador
 from agente.integracoes.jev import Jev
+from agente.integracoes.pix import PixBanco, PixFalso
 from agente.politica import Politica
-from agente.tipos import BatchJev, Modo, MotivoHumano, OrigemMensagem, ResultadoTurno, TipoFixa
+from agente.tipos import (
+    BatchJev,
+    EstadoConversa,
+    Modo,
+    MotivoHumano,
+    OrigemMensagem,
+    ResultadoTurno,
+    TipoFixa,
+)
 from agente.turno.avaliacao import Avaliacao, avaliar, estado_jev, numeros_previstos
+from agente.turno.executar import executar
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import (
     Adiar,
@@ -51,6 +63,9 @@ class Dependencias:
     time_humano: int | None
     modo: Modo
     jev: Jev
+    # Até a T9 e a T1, o CTN e o Pix são os falsos.
+    ctn: CTN = field(default_factory=CTNFalso)
+    pix: PixBanco = field(default_factory=PixFalso)
 
 
 def _rotulo(gate: Gate) -> str | None:
@@ -107,6 +122,30 @@ def _gravar_laudos(
     return ids
 
 
+def _agir(
+    sessao: Session,
+    conversa: Conversa,
+    avaliacao: Avaliacao,
+    deps: Dependencias,
+    laudo_id: int,
+    agora: datetime,
+) -> dict:
+    """O backend executa a ação autorizada; com link ou Pix, a conversa aguarda o pagamento."""
+    numeros = executar(
+        [avaliacao.acao, *avaliacao.anexos],
+        conversa.cobranca,
+        conversa,
+        deps,
+        agora,
+        objecao=avaliacao.leitura.sim("objecao_valor"),
+    )
+    if numeros.forma is not None and conversa.estado is not EstadoConversa.AGUARDANDO_PAGAMENTO:
+        transicionar(
+            sessao, conversa, EstadoConversa.AGUARDANDO_PAGAMENTO, None, laudo_id, momento=agora
+        )
+    return numeros.como_dict()
+
+
 def _seguir(
     sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
@@ -115,6 +154,10 @@ def _seguir(
     avaliacao = avaliar(deps.jev, estado, conversa, cobranca, deps.politica)
     ids = _gravar_laudos(sessao, turno.id, avaliacao, deps.jev.origem)
     resultado = ResultadoTurno.SOMBRA
+    if avaliacao.motivo is None and deps.modo is Modo.ATIVO:
+        numeros = _agir(sessao, conversa, avaliacao, deps, ids[(BatchJev.JEV2, "acao")], agora)
+    else:
+        numeros = numeros_previstos(avaliacao, conversa, cobranca, deps.politica)
     if avaliacao.motivo is not None and deps.modo is Modo.ATIVO:
         laudos, laudo_id = [], None
         if avaliacao.causa is not None:
@@ -138,7 +181,7 @@ def _seguir(
         resultado,
         acao_principal=avaliacao.rotulo,
         acoes_anexadas=[acao.value for acao in avaliacao.anexos],
-        numeros=numeros_previstos(avaliacao, conversa, cobranca, deps.politica),
+        numeros=numeros,
         momento=agora,
     )
     log.info("turno %s da conversa %s: %s", turno.id, conversa.id, avaliacao.rotulo)
