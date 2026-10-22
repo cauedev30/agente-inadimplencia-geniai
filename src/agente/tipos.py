@@ -1,6 +1,17 @@
 """Tipos de valor compartilhados pelo banco e pela lógica do turno."""
 
+from dataclasses import dataclass
 from enum import StrEnum
+
+
+@dataclass(frozen=True)
+class Laudo:
+    """A resposta do Jev a uma pergunta tipada: sim/não, nota ou escolha."""
+
+    pergunta: str
+    valor: bool | float | str
+    probabilidade: float
+    confianca: float
 
 
 class EstadoConversa(StrEnum):
