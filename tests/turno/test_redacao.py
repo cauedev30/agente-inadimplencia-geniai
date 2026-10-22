@@ -113,6 +113,10 @@ def test_qualquer_valor_escrito_pelo_llm_e_barrado(texto):
         "Pague em um dia: {divida}",  # o um que indica quantidade
         "Fica por mil e quinhentos: {divida}",
         "Sobram cinquenta centavos: {divida}",
+        "Fica dois mil: {divida}",
+        "Fica mil reais: {divida}",
+        "Pague em duas parcelas: {divida}",
+        "São quinhentos reais: {divida}",
     ],
 )
 def test_valor_e_prazo_por_extenso_sao_barrados(texto):
@@ -156,6 +160,10 @@ def test_os_motivos_novos_se_somam_aos_antigos():
         "Bom dia! Uma boa notícia para você.",
         "Entendo o seu incômodo, e obrigado pelo retorno.",
         "Tudo bem. Vamos resolver isso por aqui.",
+        "Mil desculpas pelo transtorno.",
+        "Posso ajudar com os dois assuntos.",
+        "Entendo que o problema é real.",
+        "Zero burocracia para resolver.",
     ],
 )
 def test_o_texto_normal_passa(texto):

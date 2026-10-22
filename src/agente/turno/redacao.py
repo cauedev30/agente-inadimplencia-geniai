@@ -24,8 +24,9 @@ _MARCADOR = re.compile(r"\{([a-z_]+)\}")
 TENTATIVAS = 2
 _DIGITO = re.compile(r"\d")
 
-# Valor e prazo por extenso (sem acento, em minúsculas). "um"/"uma" ficam de fora das palavras
-# soltas, porque "um abraço" é só artigo: só contam colados a uma palavra de dinheiro ou de prazo.
+# Valor e prazo por extenso (sem acento, em minúsculas). O numeral sozinho é palavra comum ("os
+# dois", "zero burocracia", "mil desculpas", "o problema real"): só é barrado perto de uma palavra
+# de dinheiro, de prazo ou de "por cento", ou quando faz um número composto ("duzentos e trinta").
 _NUMERAIS = (
     "zero|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|catorze|quatorze"
     "|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta|quarenta|cinquenta|sessenta"
@@ -33,13 +34,20 @@ _NUMERAIS = (
     "|quatrocentas|quinhentos|quinhentas|seiscentos|seiscentas|setecentos|setecentas"
     "|oitocentos|oitocentas|novecentos|novecentas"
 )
-_DINHEIRO_E_PRAZO = (
-    "real|reais|centavos?|por cento|mil|dias?|mes|meses|semanas?|anos?|horas?|parcelas?"
-    "|mensalidades?"
-)
+_DINHEIRO_E_PRAZO = "reais|real|dias?|mes|meses|semanas?|anos?|horas?|parcelas?|mensalidades?"
 _POR_EXTENSO = re.compile(
-    rf"\b(?:{_NUMERAIS}|reais|real|centavos?|por cento|mil|milhao|milhoes)\b"
-    rf"|%|\b(?:um|uma)\s+(?:{_DINHEIRO_E_PRAZO})\b"
+    r"%|\b(?:"
+    # "dez por cento", "cinquenta centavos", "um milhão" sempre falam de valor.
+    r"por cento|centavos?|milhao|milhoes"
+    # "dois mil", "um mil", "mil e quinhentos", "mil reais".
+    rf"|(?:{_NUMERAIS}|um|uma)\s+mil|mil\s+e\s+(?:{_NUMERAIS})|mil\s+(?:{_DINHEIRO_E_PRAZO})"
+    # "duzentos e cinquenta".
+    rf"|(?:{_NUMERAIS})\s+e\s+(?:{_NUMERAIS})"
+    # "setenta reais", "em trinta dias", "as duas parcelas": até duas palavras entre os dois.
+    rf"|(?:{_NUMERAIS})(?:\s+[a-z]+){{0,2}}?\s+(?:{_DINHEIRO_E_PRAZO})"
+    # "um/uma" é artigo ("um abraço"): só conta colado a uma palavra de dinheiro ou de prazo.
+    rf"|(?:um|uma)\s+(?:{_DINHEIRO_E_PRAZO})"
+    r")\b"
 )
 # Todo link vem do backend, em `{link_ctn}`: sobra "http", "www" e domínio solto.
 _LINK = re.compile(

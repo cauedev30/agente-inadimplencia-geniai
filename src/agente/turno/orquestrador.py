@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 
+import httpx
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
@@ -25,11 +26,11 @@ from agente.db.historico import (
 from agente.db.modelos import Conversa, Mensagem, Turno
 from agente.dominio.janela import dentro_da_janela, proxima_abertura
 from agente.integracoes.chatwoot import Chatwoot
-from agente.integracoes.ctn import CTN, CTNFalso
-from agente.integracoes.disparador import Disparador
-from agente.integracoes.jev import EstadoJev, Jev
+from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNFalso
+from agente.integracoes.disparador import Disparador, FalhaNoEnvio
+from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
 from agente.integracoes.pix import PixBanco, PixFalso
-from agente.integracoes.redator import Redator, RedatorFalso
+from agente.integracoes.redator import Redator, RedatorFalso, RedatorIndisponivel
 from agente.politica import Politica
 from agente.tipos import (
     BatchJev,
@@ -56,6 +57,7 @@ from agente.turno.gates import (
     Reiniciar,
     Retomar,
     Seguir,
+    avaliar_envio,
     avaliar_gates,
     humano_na_conversa,
 )
@@ -65,6 +67,16 @@ from agente.turno.liberacao import modo_da_conversa
 from agente.turno.redacao import Redacao, montar_pedido, redigir_validado
 
 log = logging.getLogger(__name__)
+
+# O que conta como integração fora do ar (CTN, Pix, Chatwoot, redator e Jev): é tentado de novo e
+# depois vai ao humano. Qualquer outro erro é bug de código e sobe, para ser visto e corrigido.
+_FALHAS_DE_INTEGRACAO = (
+    httpx.HTTPError,
+    ClienteNaoEncontrado,
+    FalhaNoEnvio,
+    JevIndisponivel,
+    RedatorIndisponivel,
+)
 
 
 @dataclass
@@ -229,20 +241,29 @@ def _envio_pendente(sessao: Session, conversa_id: int) -> Mensagem | None:
     return sessao.scalars(consulta.order_by(Mensagem.id)).first()
 
 
+def _normalizar(texto: str) -> str:
+    return " ".join(texto.split())
+
+
 def _entregue(
     sessao: Session, conversa: Conversa, mensagem: Mensagem, deps: Dependencias
 ) -> str | None:
     """O id da mensagem no Chatwoot, se ela já foi entregue (a resposta do envio se perdeu).
 
-    Só vale a de mesmo texto que o banco ainda não conhece: o mesmo texto já saiu em outro turno.
+    Só vale a de mesmo texto que o banco ainda não conhece nesta conversa: o mesmo texto já saiu
+    em outro turno. O texto é comparado sem espaços a mais nem diferença de quebra de linha, que
+    o canal pode mexer.
     """
     conhecidas = set(
         sessao.scalars(
-            select(Mensagem.chatwoot_message_id).where(Mensagem.chatwoot_message_id.is_not(None))
+            select(Mensagem.chatwoot_message_id).where(
+                Mensagem.conversa_id == conversa.id, Mensagem.chatwoot_message_id.is_not(None)
+            )
         )
     )
+    procurado = _normalizar(mensagem.texto)
     for chatwoot_id, texto in deps.chatwoot.mensagens_do_agente(conversa.chatwoot_conversa_id):
-        if chatwoot_id not in conhecidas and texto.strip() == mensagem.texto.strip():
+        if chatwoot_id not in conhecidas and _normalizar(texto) == procurado:
             return chatwoot_id
     return None
 
@@ -254,9 +275,25 @@ def _confirmar(sessao: Session, mensagem: Mensagem, chatwoot_id: str) -> None:
 
 
 def _descartar(sessao: Session, mensagem: Mensagem) -> None:
-    """A mensagem nunca saiu e não vai mais sair: deixa de contar no teto."""
+    """A mensagem nunca saiu e não vai mais sair: deixa de contar no teto.
+
+    O turno que a gerou fechou como ENVIADO, antes do envio: passa a dizer que o texto não saiu.
+    """
     mensagem.envio = EstadoEnvio.DESCARTADA
     mensagem.conta_no_teto = False
+    turno = sessao.scalars(
+        select(Turno)
+        .where(
+            Turno.conversa_id == mensagem.conversa_id,
+            Turno.resultado == ResultadoTurno.ENVIADO,
+            Turno.texto_enviado == mensagem.texto,
+        )
+        .order_by(Turno.id.desc())
+    ).first()
+    if turno is not None:
+        turno.resultado = ResultadoTurno.DESCARTADO
+        turno.texto_enviado = None
+        turno.redacao = {**turno.redacao, "envio": EstadoEnvio.DESCARTADA.value}
     sessao.flush()
 
 
@@ -467,7 +504,7 @@ def _registrar_falha(
         try:
             with sessao.begin_nested():
                 return _desistir(sessao, conversa, deps, agora)
-        except Exception:
+        except _FALHAS_DE_INTEGRACAO:
             log.exception("o handoff da conversa %s também falhou", conversa_id)
     conversa.turno_em = agora + deps.politica.espera_integracao(conversa.falhas_turno)
     sessao.flush()
@@ -500,7 +537,7 @@ def _entregar(
     """Despacha a mensagem gravada. A falha conta como uma tentativa e fica para a próxima."""
     try:
         _despachar(sessao, conversa, mensagem, deps, reenvio=reenvio)
-    except Exception as erro:
+    except _FALHAS_DE_INTEGRACAO as erro:
         log.exception("o envio da conversa %s falhou", conversa.id)
         return _registrar_falha(sessao, conversa.id, erro, deps, agora, desistindo=False)
     conversa.falhas_turno = 0
@@ -512,15 +549,20 @@ def _entregar(
 def _retomar_envio(
     sessao: Session, conversa: Conversa, mensagem: Mensagem, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
-    """Um turno anterior gravou a mensagem e não a confirmou: refaz só o envio, não o turno."""
-    if humano_na_conversa(conversa) or conversa.cobranca.status is not StatusCobranca.ATIVA:
-        # O humano assumiu ou a cobrança fechou na espera: o texto não sai mais.
+    """Um turno anterior gravou a mensagem e não a confirmou: refaz só o envio, não o turno.
+
+    A mensagem passa de novo pelos gates, porque a conversa pode ter mudado na espera.
+    """
+    gate = avaliar_envio(conversa, mensagem, agora, deps.politica, sessao)
+    if isinstance(gate, Adiar):
+        agendar_turno(sessao, conversa.id, gate.ate)
+        return ResultadoTurno.ADIADO
+    if not isinstance(gate, Seguir):
+        # O humano assumiu, a cobrança fechou, passaram as 24h ou o teto fechou: o texto não sai.
         _descartar(sessao, mensagem)
+        conversa.falhas_turno = 0
         _limpar_retorno(sessao, conversa, agora, None)
         return ResultadoTurno.IGNORADO
-    if not dentro_da_janela(agora, deps.politica):
-        agendar_turno(sessao, conversa.id, proxima_abertura(agora, deps.politica))
-        return ResultadoTurno.ADIADO
     return _entregar(sessao, conversa, mensagem, deps, agora, reenvio=True, retorno=None)
 
 
@@ -544,7 +586,7 @@ def _turno_ativo(
                 resultado = _desistir(sessao, conversa, deps, agora)
             else:
                 resultado = _rodar_turno(sessao, conversa, agora, deps)
-    except Exception as erro:
+    except _FALHAS_DE_INTEGRACAO as erro:
         log.exception("o turno da conversa %s falhou", conversa.id)
         return _registrar_falha(sessao, conversa.id, erro, deps, agora, desistindo=desistindo)
     # Só a mensagem que este turno acabou de gravar vai agora. A que o `_desistir` adiou fica

@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from agente.db.historico import mensagens_no_teto, registrar_mensagem
-from agente.db.modelos import Mensagem, Pagamento, Turno
+from agente.db.modelos import Conversa, Mensagem, Pagamento, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.jev import responder
 from agente.integracoes.redator import RedatorFalso
@@ -23,9 +23,10 @@ from agente.tipos import (
     ResultadoTurno,
 )
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, TEXTO_RESPOSTA_SEGURA
-from agente.turno.orquestrador import _ja_saiu_resposta_segura, processar_turno
+from agente.turno.orquestrador import _entregue, _ja_saiu_resposta_segura, processar_turno
 
 from .test_orquestrador_ativo import _deps
+from .test_orquestrador_falhas import PixFora
 from .test_orquestrador_gates import SEGUNDA_10H
 
 
@@ -280,3 +281,192 @@ def test_a_pendente_que_o_desistir_adiou_nao_e_reenviada_sem_conferir(sessao, li
     assert processar_turno(sessao, ligada.id, ligada.turno_em, deps) is ResultadoTurno.HANDOFF
     [mensagem] = _do_agente(sessao)
     assert (mensagem.envio, mensagem.chatwoot_message_id) == (EstadoEnvio.ENVIADA, "falso-1")
+
+
+class ChatwootQueNormaliza(ChatwootInstavel):
+    """O Chatwoot devolve o texto com outra quebra de linha e espaços a mais."""
+
+    def mensagens_do_agente(self, conversa_id):
+        return [
+            (chatwoot_id, "  " + texto.replace(" ", "  ").replace("\n", "\r\n") + " \n")
+            for chatwoot_id, texto in super().mensagens_do_agente(conversa_id)
+        ]
+
+
+def test_a_conferencia_ignora_espacos_e_quebras_de_linha_que_o_chatwoot_mexe(
+    sessao, ligada, politica
+):
+    deps = _deps_com(politica, ChatwootQueNormaliza(depois={1}))
+    _pergunta(sessao, ligada)
+
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ERRO
+    resultado = processar_turno(sessao, ligada.id, ligada.turno_em, deps)
+
+    assert resultado is ResultadoTurno.ENVIADO
+    assert len(deps.chatwoot.enviadas(555)) == 1
+    [mensagem] = _do_agente(sessao)
+    assert (mensagem.envio, mensagem.chatwoot_message_id) == (EstadoEnvio.ENVIADA, "falso-1")
+
+
+def test_a_conferencia_so_descarta_os_ids_da_propria_conversa(sessao, ligada, politica):
+    deps = _deps_com(politica, ChatwootInstavel(antes={1}))
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    [pendente] = _do_agente(sessao)
+    # O id "falso-1" é de outra conversa: não é a mensagem desta.
+    outra = Conversa(cobranca_id=ligada.cobranca_id, chatwoot_conversa_id=777)
+    sessao.add(outra)
+    sessao.flush()
+    registrar_mensagem(
+        sessao, outra.id, OrigemMensagem.AGENTE, "outra", "falso-1", True, SEGUNDA_10H
+    )
+    deps.chatwoot.mensagens_do_agente = lambda _id: [("falso-1", pendente.texto)]
+
+    assert _entregue(sessao, ligada, pendente, deps) == "falso-1"
+
+
+def test_um_erro_de_codigo_no_turno_sobe_e_nao_conta_como_falha_de_integracao(
+    sessao, ligada, politica
+):
+    deps = _deps_com(politica, ChatwootInstavel(), redator=RedatorFalso(falha=KeyError("bug")))
+    _pergunta(sessao, ligada)
+
+    with pytest.raises(KeyError):
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert ligada.falhas_turno == 0 and ligada.turno_em is None
+    assert sessao.scalars(select(Turno)).all() == []
+
+
+def _chatwoot_com_bug_na_nota():
+    chatwoot = ChatwootInstavel()
+
+    def nota_privada(conversa_id, texto):
+        raise KeyError("bug")
+
+    chatwoot.nota_privada = nota_privada
+    return chatwoot
+
+
+def test_um_erro_de_codigo_no_handoff_das_tentativas_sobe_em_vez_de_se_repetir(
+    sessao, ligada, politica
+):
+    deps = _deps_com(politica, _chatwoot_com_bug_na_nota())
+    _pergunta(sessao, ligada)
+    ligada.falhas_turno = politica.integracao_tentativas
+
+    with pytest.raises(KeyError):
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert sessao.scalars(select(Turno)).all() == []
+
+
+def test_um_erro_de_codigo_no_handoff_da_ultima_falha_sobe(sessao, ligada, politica):
+    deps = _deps_com(politica, _chatwoot_com_bug_na_nota())
+    deps.pix = PixFora(10**6)
+    _pergunta(sessao, ligada)
+    ligada.falhas_turno = politica.integracao_tentativas - 1
+
+    with pytest.raises(KeyError):
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+
+def _turnos(sessao, resultado):
+    return sessao.scalars(select(Turno).where(Turno.resultado == resultado)).all()
+
+
+def test_o_turno_cuja_mensagem_o_humano_cancelou_deixa_de_dizer_enviado(sessao, ligada, politica):
+    deps = _deps_com(politica, ChatwootInstavel(antes={1}))
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    ligada.human_owned = True
+    processar_turno(sessao, ligada.id, ligada.turno_em, deps)
+
+    [turno] = _turnos(sessao, ResultadoTurno.DESCARTADO)
+    assert turno.texto_enviado is None
+    assert turno.redacao["envio"] == "DESCARTADA"
+    assert _turnos(sessao, ResultadoTurno.ENVIADO) == []
+
+
+def test_o_turno_cuja_mensagem_o_desistir_descartou_deixa_de_dizer_enviado(
+    sessao, ligada, politica
+):
+    n = politica.integracao_tentativas
+    deps = _deps_com(politica, ChatwootInstavel(antes=set(range(1, n + 1))))
+    _pergunta(sessao, ligada)
+    agora = SEGUNDA_10H
+    for _ in range(n):
+        processar_turno(sessao, ligada.id, agora, deps)
+        agora = ligada.turno_em or agora
+
+    [turno] = _turnos(sessao, ResultadoTurno.DESCARTADO)
+    assert turno.texto_enviado is None
+
+
+def test_o_turno_cuja_mensagem_saiu_continua_enviado(sessao, ligada, politica):
+    deps = _deps_com(politica, ChatwootInstavel(depois={1}))
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    processar_turno(sessao, ligada.id, ligada.turno_em, deps)
+
+    [turno] = _turnos(sessao, ResultadoTurno.ENVIADO)
+    assert turno.texto_enviado == _do_agente(sessao)[0].texto
+    assert _turnos(sessao, ResultadoTurno.DESCARTADO) == []
+
+
+def test_a_pendente_que_passou_das_24h_do_whatsapp_e_descartada(sessao, ligada, politica):
+    deps = _deps_com(politica, ChatwootInstavel(antes={1}))
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    # O retorno só vem no dia seguinte à tarde: a última mensagem do cliente passou das 24h.
+    mais_de_24h = SEGUNDA_10H + timedelta(hours=25)
+
+    assert processar_turno(sessao, ligada.id, mais_de_24h, deps) is ResultadoTurno.IGNORADO
+
+    assert deps.chatwoot.enviadas(555) == []
+    [mensagem] = _do_agente(sessao)
+    assert (mensagem.envio, mensagem.conta_no_teto) == (EstadoEnvio.DESCARTADA, False)
+    assert (ligada.turno_em, ligada.falhas_turno) == (None, 0)
+
+
+def test_a_pendente_barrada_pelo_teto_e_descartada(sessao, ligada, politica):
+    deps = _deps_com(politica, ChatwootInstavel(antes={1}))
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    for _ in range(politica.teto_resolucao):
+        registrar_mensagem(
+            sessao, ligada.id, OrigemMensagem.AGENTE, "outra", None, True, SEGUNDA_10H
+        )
+
+    assert processar_turno(sessao, ligada.id, ligada.turno_em, deps) is ResultadoTurno.IGNORADO
+
+    assert deps.chatwoot.enviadas(555) == []
+    assert _do_agente(sessao)[0].envio is EstadoEnvio.DESCARTADA
+    assert (ligada.turno_em, ligada.falhas_turno) == (None, 0)
+
+
+def test_a_pendente_que_e_a_ultima_do_teto_ainda_sai(sessao, ligada, politica):
+    deps = _deps_com(politica, ChatwootInstavel(antes={1}))
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    # A 5ª mensagem conta no teto e continua valendo: o teto só barra a 6ª.
+    for _ in range(politica.teto_resolucao - 1):
+        registrar_mensagem(
+            sessao, ligada.id, OrigemMensagem.AGENTE, "outra", None, True, SEGUNDA_10H
+        )
+    assert mensagens_no_teto(sessao, ligada.id) == politica.teto_resolucao
+
+    assert processar_turno(sessao, ligada.id, ligada.turno_em, deps) is ResultadoTurno.ENVIADO
+
+
+def test_o_descarte_da_pendente_zera_a_conta_de_falhas(sessao, ligada, politica):
+    deps = _deps_com(politica, ChatwootInstavel(antes={1, 2}))
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    processar_turno(sessao, ligada.id, ligada.turno_em, deps)
+    assert ligada.falhas_turno == 2
+    ligada.human_owned = True
+
+    assert processar_turno(sessao, ligada.id, ligada.turno_em, deps) is ResultadoTurno.IGNORADO
+
+    assert ligada.falhas_turno == 0

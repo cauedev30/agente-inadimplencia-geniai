@@ -8,7 +8,7 @@ atendimento, janela de 24h do WhatsApp e teto.
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
 from agente.db.historico import mensagens_no_teto
@@ -107,4 +107,32 @@ def avaliar_gates(
         if _ja_saiu_fixa(sessao, conversa.id):
             return Ignorar("teto_encerrado")
         return Fixa(TipoFixa.CANAL_EXTERNO)
+    return Seguir()
+
+
+def avaliar_envio(
+    conversa: Conversa, mensagem: Mensagem, agora: datetime, politica: Politica, sessao: Session
+) -> Gate:
+    """Os gates da mensagem do agente já gravada (PENDENTE), antes de ela ir ao Chatwoot.
+
+    O que pode ter mudado na espera: cobrança, humano, janela de atendimento, janela de 24h e teto.
+    Só `Seguir`, `Ignorar` (o texto não sai mais) e `Adiar` (sai quando a janela abrir) voltam.
+    """
+    if conversa.cobranca.status is not StatusCobranca.ATIVA:
+        return Ignorar("sem_cobranca_ativa")
+    if humano_na_conversa(conversa):
+        return Ignorar("humano_na_conversa")
+    if not dentro_da_janela(agora, politica):
+        return Adiar(proxima_abertura(agora, politica))
+    ultima = sessao.scalar(
+        select(func.max(Mensagem.momento)).where(
+            Mensagem.conversa_id == conversa.id, Mensagem.origem == OrigemMensagem.CLIENTE
+        )
+    )
+    if ultima is not None and agora - ultima > JANELA_WHATSAPP:
+        return Ignorar("fora_das_24h")
+    # A própria mensagem já conta no teto: o que a barra são as outras.
+    outras = mensagens_no_teto(sessao, conversa.id) - (1 if mensagem.conta_no_teto else 0)
+    if outras >= politica.teto_resolucao:
+        return Ignorar("teto_encerrado")
     return Seguir()

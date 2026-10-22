@@ -134,6 +134,8 @@ class ResultadoTurno(StrEnum):
     # O Jev 2 decidiu não agir (NONE): o turno roda e nada sai.
     SEM_ENVIO = "SEM_ENVIO"
     ERRO = "ERRO"
+    # O texto foi gravado para sair e nunca saiu (o humano assumiu, as tentativas acabaram).
+    DESCARTADO = "DESCARTADO"
 
 
 class TipoFixa(StrEnum):
