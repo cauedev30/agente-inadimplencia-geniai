@@ -22,6 +22,7 @@ from agente.tipos import (
     MotivoHumano,
     OrigemMensagem,
     ResultadoTurno,
+    StatusCobranca,
 )
 from agente.turno.orquestrador import Dependencias, criar_processador, processar_turno
 
@@ -74,6 +75,7 @@ def test_em_sombra_grava_os_laudos_e_o_que_teria_feito(sessao, ligada, politica)
     [jev2] = _laudos(sessao, BatchJev.JEV2)
     assert (jev2.pergunta, jev2.valor, jev2.turno_id) == ("acao", "INFORM_DEBT", turno.id)
     assert {laudo.origem for laudo in turno.laudos} == {"falso"}
+    assert turno.humano_na_conversa is False
     # A cobrança fictícia não é propensa: o débito vai com o Pix integral (D34, D37).
     assert turno.acao_principal == "INFORM_DEBT"
     assert turno.acoes_anexadas == ["GENERATE_PIX"]
@@ -176,11 +178,48 @@ def test_o_jev_ve_a_oferta_do_degrau_atual(sessao, ligada, politica):
 
 def test_gate_que_nao_segue_nao_chama_o_jev(sessao, ligada, politica):
     deps = _deps(politica)
+    ligada.cobranca.status = StatusCobranca.PAGA
+    _cliente(sessao, ligada)
+
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.IGNORADO
+    assert deps.jev.chamadas == []
+
+
+def test_em_sombra_o_humano_na_conversa_nao_barra_a_avaliacao(sessao, ligada, politica):
+    # Padrão da T7: a sombra lê as conversas reais enquanto os humanos atendem.
+    deps = _deps(politica)
+    ligada.human_owned = True
+    registrar_mensagem(
+        sessao,
+        ligada.id,
+        OrigemMensagem.HUMANO,
+        "Oi, aqui é a atendente",
+        "cw-0",
+        False,
+        SEGUNDA_10H,
+    )
+    _cliente(sessao, ligada)
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.SOMBRA
+    assert deps.chatwoot.chamadas == []
+    turno = _turno(sessao)
+    assert turno.humano_na_conversa is True
+    assert turno.acao_principal == "INFORM_DEBT"
+    assert len(turno.laudos) == 14
+    assert ("HUMANO", "Oi, aqui é a atendente") in deps.jev.chamadas[0][1].historico
+    assert ligada.human_owned is True
+
+
+def test_ativo_o_humano_na_conversa_barra_o_jev(sessao, ligada, politica):
+    deps = _deps(politica, Modo.ATIVO)
     ligada.human_owned = True
     _cliente(sessao, ligada)
 
     assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.IGNORADO
     assert deps.jev.chamadas == []
+    assert _turno(sessao).humano_na_conversa is True
 
 
 # Modo ativo nesta etapa: a ação não sai (é da tarefa 5.3), mas a saída para o humano, sim.

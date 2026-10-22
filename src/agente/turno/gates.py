@@ -71,18 +71,25 @@ def _ja_saiu_fixa(sessao: Session, conversa_id: int) -> bool:
     return bool(sessao.scalar(consulta))
 
 
+def humano_na_conversa(conversa: Conversa) -> bool:
+    return conversa.human_owned or conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO
+
+
 def avaliar_gates(
     conversa: Conversa,
     mensagens: list[Mensagem],
     agora: datetime,
     politica: Politica,
     sessao: Session,
+    *,
+    barrar_humano: bool = True,
 ) -> Gate:
+    """Em sombra, o humano na conversa não barra: a sombra lê enquanto os humanos atendem (T7)."""
     if not mensagens:
         return Ignorar("sem_mensagem")
     if conversa.cobranca.status is not StatusCobranca.ATIVA:
         return Ignorar("sem_cobranca_ativa")
-    if conversa.human_owned or conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO:
+    if barrar_humano and humano_na_conversa(conversa):
         return Ignorar("humano_na_conversa")
     textos = [mensagem.texto.strip() for mensagem in mensagens]
     if (

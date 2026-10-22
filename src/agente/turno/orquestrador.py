@@ -1,7 +1,8 @@
 """O turno de uma conversa: os gates, o Jev 1, o Jev 2 e as regras de ação. O LLM entra na etapa 5.
 
 Em modo sombra, nada é enviado e o estado não muda: o turno só grava os laudos e o que teria feito
-(arquitetura, seção 8). No modo ativo, a saída para o humano já acontece; o envio é da tarefa 5.3.
+(arquitetura, seção 8), mesmo com um humano na conversa (T7). No modo ativo, a saída para o humano
+já acontece; o envio é da tarefa 5.3.
 """
 
 import logging
@@ -35,6 +36,7 @@ from agente.turno.gates import (
     Retomar,
     Seguir,
     avaliar_gates,
+    humano_na_conversa,
 )
 from agente.turno.handoff import fazer_handoff
 
@@ -145,7 +147,12 @@ def processar_turno(
 ) -> ResultadoTurno:
     conversa = sessao.get_one(Conversa, conversa_id)
     gate = avaliar_gates(
-        conversa, mensagens_pendentes(sessao, conversa_id), agora, deps.politica, sessao
+        conversa,
+        mensagens_pendentes(sessao, conversa_id),
+        agora,
+        deps.politica,
+        sessao,
+        barrar_humano=deps.modo is Modo.ATIVO,
     )
     if isinstance(gate, Adiar):
         # As mensagens ficam pendentes e o turno volta para a fila na abertura (D16).
@@ -154,6 +161,7 @@ def processar_turno(
 
     mensagens = tomar_turno(sessao, conversa_id)
     turno = abrir_turno(sessao, conversa_id, [m.id for m in mensagens], deps.modo)
+    turno.humano_na_conversa = humano_na_conversa(conversa)
 
     def fechar(resultado: ResultadoTurno) -> ResultadoTurno:
         fechar_turno(sessao, turno.id, resultado, acao_principal=_rotulo(gate), momento=agora)
