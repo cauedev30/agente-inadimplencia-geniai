@@ -159,9 +159,9 @@ def confirmar_pagamento(
 ) -> ResultadoConfirmacao:
     """Confirma o pagamento da referência (o txid do Pix ou o id do link do CTN). É idempotente.
 
-    A sequência: o pagamento vira pago e a conversa vai para PAGO; sai a baixa no CTN (sempre no Pix;
-    no link, conforme `ctn_baixa_no_link`); sai a mensagem fixa; a conversa vai para ENCERRADO. A
-    conversa com o humano também confirma e sai. Os outros pagamentos pendentes da cobrança ficam
+    A sequência: o pagamento vira pago e a conversa vai para PAGO; sai a baixa no CTN (sempre no
+    Pix; no link, conforme `ctn_baixa_no_link`); sai a mensagem fixa; a conversa vai para ENCERRADO.
+    A conversa com o humano também confirma e sai. Os outros pagamentos pendentes da cobrança ficam
     como estão. O segundo pagamento de uma cobrança já paga só é marcado como pago: não repete a
     baixa nem a mensagem, e o aviso no log fica para a conferência humana.
     """
