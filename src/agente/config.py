@@ -35,6 +35,10 @@ class Config(ConfigRedator):
     chatwoot_time_humano: int | None = None
     webhook_segredo: str | None = None
 
+    # Webhooks de pagamento (T1 e T9): sem o segredo, o webhook fica desligado.
+    pix_webhook_segredo: str | None = None
+    ctn_webhook_segredo: str | None = None
+
 
 def carregar_config(**kwargs) -> Config:
     return Config(**kwargs)
