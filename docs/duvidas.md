@@ -39,8 +39,8 @@ Enquanto não há resposta, a dúvida entra no código como parâmetro, com o **
    - **Objeção de valor nas réguas sem desconto (NR, R1, R2):** o que o agente faz? **Padrão:** explica
      a condição; na 2ª objeção, a conversa vai para o humano.
    - **Degraus esgotados:** o cliente objeta de novo depois do último degrau (a 4ª objeção na R3). O
-     que o agente faz? **Padrão (2026-10-22):** a conversa vai para o humano, como na NR. A outra saída
-     seria repetir a última oferta.
+     que o agente faz? **Respondida pelo Cauê em 2026-10-22 → D38:** a conversa vai para o humano, como
+     na NR.
 2. ~~**Aceita parcelar?** Em quantas vezes, no máximo? Tem valor mínimo de parcela?~~ **Respondida em
    2026-10-20 → D23:** não tem parcelamento.
 3. ~~**A regra muda** conforme o tempo de atraso ou o valor da dívida? Por exemplo: até 30 dias de
@@ -281,6 +281,8 @@ Já existe um caso parecido: a resposta do agente que ficou pronta e não saiu a
 24h é descartada hoje, sem template (2026-10-22). Entra na mesma decisão.
 
 ### C4. Comportamentos do turno ativo
+
+**Respondida pelo Cauê em 2026-10-22 → D38:** os padrões abaixo ficam valendo.
 
 A etapa 5 precisou de regras que a spec não fixava. **Padrões até você decidir (2026-10-22):**
 
