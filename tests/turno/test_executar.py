@@ -26,6 +26,7 @@ from agente.tipos import (
 from agente.turno.acoes import Acao
 from agente.turno.executar import executar, proximo_estado
 from agente.turno.jev3 import aprovar_tudo
+from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
 from .test_orquestrador_gates import SEGUNDA_10H
@@ -39,7 +40,7 @@ def _ctn():
 
 def _deps(politica, modo=Modo.ATIVO, regras=()):
     return Dependencias(
-        politica=politica,
+        politica=liberar_tudo(politica),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,

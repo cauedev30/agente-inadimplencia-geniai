@@ -14,6 +14,7 @@ from agente.integracoes.jev import JevFalso
 from agente.tipos import EstadoConversa, Modo, MotivoHumano, OrigemMensagem, ResultadoTurno
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.fila import mensagens_pendentes
+from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
 JP = ZoneInfo("America/Fortaleza")
@@ -24,7 +25,7 @@ DOMINGO = datetime(2026, 11, 1, 10, tzinfo=JP)
 @pytest.fixture
 def deps(politica):
     return Dependencias(
-        politica=politica,
+        politica=liberar_tudo(politica),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,

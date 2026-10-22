@@ -17,6 +17,7 @@ from agente.integracoes.jev import JevFalso
 from agente.politica import Regua
 from agente.tipos import EstadoConversa, Modo, OrigemMensagem
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
+from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, criar_processador
 
 SABADO_13H = datetime(2026, 10, 31, 16, tzinfo=UTC)  # 13h em João Pessoa: janela fechada
@@ -54,7 +55,12 @@ def ambiente(politica):
         sessao.commit()
     chatwoot = ChatwootFalso()
     deps = Dependencias(
-        politica, chatwoot, DisparadorFalso(), time_humano=4, modo=Modo.ATIVO, jev=JevFalso()
+        liberar_tudo(politica),
+        chatwoot,
+        DisparadorFalso(),
+        time_humano=4,
+        modo=Modo.ATIVO,
+        jev=JevFalso(),
     )
     relogio = Relogio(SEGUNDA_10H)
     config = Config(database_url="sqlite://", webhook_segredo="s3gredo")

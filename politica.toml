@@ -16,6 +16,10 @@ template_retomada = "cobranca_retomada"  # padrão (C3): o turno adiado que pass
 anexos_aceitos = ["image", "file", "audio"]  # o comprovante vem como imagem ou PDF; o áudio espera a T11
 comando_reinicio = "#reiniciar"
 telefones_equipe = []  # só estes telefones podem usar o comando de reinício
+# Liberação gradual do modo ativo (T7), quando o AGENTE_MODO é "ativo". Padrão: tudo em sombra.
+# O piloto: liberacao = { modo = "piloto", telefones = ["+55..."] }
+# Uma parte da carteira (100 é a carteira toda): liberacao = { modo = "percentual", percentual = 10 }
+liberacao = "sombra"
 
 # Desconto máximo por régua (D29) em 3 degraus iguais (D35, padrão até a G1.1).
 [reguas.NR]

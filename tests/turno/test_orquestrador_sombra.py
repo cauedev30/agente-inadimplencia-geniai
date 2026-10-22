@@ -25,6 +25,7 @@ from agente.tipos import (
     ResultadoTurno,
     StatusCobranca,
 )
+from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, criar_processador, processar_turno
 
 from .test_avaliacao import SoJev1
@@ -35,7 +36,7 @@ OBJECAO = [responder("objecao_valor", True), responder("acao", "OFFER_DISCOUNT")
 
 def _deps(politica, modo=Modo.SOMBRA, regras=(), jev=None):
     return Dependencias(
-        politica=politica,
+        politica=liberar_tudo(politica),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,

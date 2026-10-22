@@ -37,6 +37,7 @@ from agente.turno.acoes import Acao
 from agente.turno.jev1 import PERGUNTAS_JEV1
 from agente.turno.jev2 import PERGUNTAS_JEV2
 from agente.turno.jev3 import aprovar_tudo
+from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
 _PERGUNTAS = {pergunta.nome: pergunta for pergunta in (*PERGUNTAS_JEV1, *PERGUNTAS_JEV2)}
@@ -230,7 +231,8 @@ def _rodar_caso(
     agora = proxima_abertura(datetime(2026, 10, 26, 10, tzinfo=politica.janela.zona), politica)
     inicio = agora
     base = Dependencias(
-        politica=politica,
+        # Toda conversa simulada roda no modo ativo, seja qual for a liberação do arquivo.
+        politica=liberar_tudo(politica),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=None,

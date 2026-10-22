@@ -28,6 +28,7 @@ from agente.tipos import (
 )
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, TEXTO_RESPOSTA_SEGURA
 from agente.turno.jev3 import aprovar_tudo
+from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
 from ..conftest import RAIZ
@@ -39,7 +40,7 @@ REPROVA_TOM = [responder("tom_adequado", False)]
 
 def _deps(politica, regras=(), redator=None, jev=None):
     return Dependencias(
-        politica=politica,
+        politica=liberar_tudo(politica),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,

@@ -2,12 +2,13 @@
 
 Em modo sombra, nada é enviado e o estado não muda: o turno só grava os laudos e o que teria feito
 (arquitetura, seção 8), mesmo com um humano na conversa (T7). No modo ativo, o turno executa as
-ações, redige, valida, envia e muda o estado, ou sai para o humano.
+ações, redige, valida, envia e muda o estado, ou sai para o humano. O AGENTE_MODO em sombra força a
+sombra em tudo; no ativo, a `liberacao` do politica.toml decide cada conversa.
 """
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from sqlalchemy import exists, select
@@ -56,6 +57,7 @@ from agente.turno.gates import (
 )
 from agente.turno.handoff import fazer_handoff
 from agente.turno.jev1 import laudo_do_risco
+from agente.turno.liberacao import modo_da_conversa
 from agente.turno.redacao import Redacao, montar_pedido, redigir_validado
 
 log = logging.getLogger(__name__)
@@ -330,6 +332,9 @@ def processar_turno(
     sessao: Session, conversa_id: int, agora: datetime, deps: Dependencias
 ) -> ResultadoTurno:
     conversa = sessao.get_one(Conversa, conversa_id)
+    if deps.modo is Modo.ATIVO:
+        # O modo ativo vale só para a conversa liberada no politica.toml (tarefa 5.5).
+        deps = replace(deps, modo=modo_da_conversa(conversa.cobranca, deps.politica))
     gate = avaliar_gates(
         conversa,
         mensagens_pendentes(sessao, conversa_id),

@@ -8,7 +8,7 @@ A primeira franquia é o **Cartão de Todos João Pessoa Sul**.
 
 ## Status
 
-**Em implementação: etapas 1 a 4 prontas, com o serviço em modo sombra.** A spec está fechada para começar ([`docs/spec.md`](docs/spec.md)).
+**Em implementação: etapas 1 a 5 prontas, com o serviço em modo sombra.** A spec está fechada para começar ([`docs/spec.md`](docs/spec.md)).
 As decisões estão em [`docs/decisoes.md`](docs/decisoes.md), e as perguntas em aberto, cada uma com o
 padrão usado até a resposta, em [`docs/duvidas.md`](docs/duvidas.md).
 
@@ -53,7 +53,8 @@ uv run agente comparar-redatores tests/conversas --modelo openai/gpt-oss-120b  #
 
 O serviço roda em modo sombra até o Chatwoot (T3), o Jev real (T10) e o servidor (T2) estarem
 definidos: lê, grava os laudos do Jev e o que o turno teria feito, sem enviar nada. Até a T10, o
-modo ativo é recusado.
+modo ativo é recusado. Com o `AGENTE_MODO=ativo`, a `liberacao` do `politica.toml` decide quais
+conversas saem da sombra: o piloto com os telefones da equipe, uma parte da carteira ou a carteira toda.
 
 ```bash
 docker build -t agente-inadimplencia .

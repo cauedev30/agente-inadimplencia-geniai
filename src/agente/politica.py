@@ -91,6 +91,29 @@ class Carteira(_Imutavel):
     colunas: ColunasCarteira = ColunasCarteira()
 
 
+class LiberacaoSombra(_Imutavel):
+    modo: Literal["sombra"] = "sombra"
+
+
+class LiberacaoPiloto(_Imutavel):
+    """Só os telefones da lista ficam no modo ativo: o piloto com a equipe (T7)."""
+
+    modo: Literal["piloto"]
+    telefones: frozenset[str] = Field(min_length=1)
+
+
+class LiberacaoPercentual(_Imutavel):
+    """Uma parte da carteira no modo ativo; 100 é a carteira toda (T7)."""
+
+    modo: Literal["percentual"]
+    percentual: int = Field(ge=0, le=100)
+
+
+Liberacao = Annotated[
+    LiberacaoSombra | LiberacaoPiloto | LiberacaoPercentual, Field(discriminator="modo")
+]
+
+
 class Politica(_Imutavel):
     mensalidade_centavos: int = Field(gt=0)
     teto_resolucao: int = Field(ge=1)
@@ -113,6 +136,13 @@ class Politica(_Imutavel):
     limiares_jev1: dict[str, Limiar]
     limiares_jev2: dict[str, Limiar]
     carteira: Carteira = Carteira()
+    liberacao: Liberacao = LiberacaoSombra()
+
+    @field_validator("liberacao", mode="before")
+    @classmethod
+    def _liberacao_em_texto(cls, valor):
+        # `liberacao = "sombra"` é o atalho de `liberacao = { modo = "sombra" }`.
+        return {"modo": valor} if isinstance(valor, str) else valor
 
     @field_validator("reguas")
     @classmethod
