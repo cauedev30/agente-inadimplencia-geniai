@@ -13,7 +13,7 @@ from agente.db.modelos import Base, Cliente, Cobranca, Conversa, LaudoGravado, T
 from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevComPrazo, JevFalso, JevIndisponivel, responder
+from agente.integracoes.jev import JevComPrazo, JevFalso, responder
 from agente.politica import Regua
 from agente.tipos import (
     BatchJev,
@@ -25,6 +25,7 @@ from agente.tipos import (
 )
 from agente.turno.orquestrador import Dependencias, criar_processador, processar_turno
 
+from .test_avaliacao import SoJev1
 from .test_orquestrador_gates import SEGUNDA_10H
 
 OBJECAO = [responder("objecao_valor", True), responder("acao", "OFFER_DISCOUNT")]
@@ -132,12 +133,6 @@ def test_em_sombra_o_jev_indisponivel_fica_registrado_no_turno(sessao, ligada, p
 
 
 def test_jev2_indisponivel_guarda_a_leitura_do_jev1(sessao, ligada, politica):
-    class SoJev1(JevFalso):
-        def avaliar(self, perguntas, estado):
-            if perguntas[0].nome == "acao":
-                raise JevIndisponivel("o Jev passou de 2000 ms")
-            return super().avaliar(perguntas, estado)
-
     deps = _deps(politica, jev=SoJev1())
     _cliente(sessao, ligada)
 
@@ -224,6 +219,30 @@ def test_ativo_o_jev_indisponivel_vai_para_o_humano(sessao, ligada, politica):
     assert resultado is ResultadoTurno.HANDOFF
     assert ligada.motivo_humano is MotivoHumano.JEV_INDISPONIVEL
     assert sessao.scalars(select(Transicao)).one().laudo_id is None
+
+
+def test_ativo_jev2_indisponivel_vai_para_o_humano(sessao, ligada, politica):
+    deps = _deps(politica, Modo.ATIVO, jev=SoJev1())
+    _cliente(sessao, ligada)
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.HANDOFF
+    assert ligada.motivo_humano is MotivoHumano.JEV_INDISPONIVEL
+    assert sessao.scalars(select(Transicao)).one().laudo_id is None
+    assert len(_laudos(sessao, BatchJev.JEV1)) == 13
+
+
+def test_ativo_objecao_sem_desconto_aponta_o_laudo_da_objecao(sessao, ligada, politica):
+    ligada.cobranca.regua = Regua.NR
+    ligada.objecoes_sem_desconto = politica.objecoes_sem_desconto_ate_humano - 1
+    deps = _deps(politica, Modo.ATIVO, OBJECAO)
+    _cliente(sessao, ligada, "sem desconto eu não pago")
+
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.HANDOFF
+    assert ligada.motivo_humano is MotivoHumano.OBJECAO_SEM_DESCONTO
+    causa = sessao.get(LaudoGravado, sessao.scalars(select(Transicao)).one().laudo_id)
+    assert (causa.batch, causa.pergunta) == (BatchJev.JEV1, "objecao_valor")
 
 
 def test_ativo_a_baixa_confianca_do_jev2_vai_para_o_humano(sessao, ligada, politica):

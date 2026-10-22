@@ -35,11 +35,15 @@ class Avaliacao:
     @property
     def laudo_da_causa(self) -> Laudo | None:
         """O laudo que levou ao humano, para a nota e a transição (auditoria)."""
-        if self.motivo is None:
+        if self.motivo is None or self.leitura is None:
             return None
-        if self.decisao is None and self.leitura is not None:
-            return self.leitura.laudo(PERGUNTA_DO_GATILHO[self.motivo])
-        return self.decisao.laudo if self.decisao is not None else None
+        if self.motivo is MotivoHumano.OBJECAO_SEM_DESCONTO:
+            return self.leitura.laudo("objecao_valor")
+        if self.decisao is not None:
+            return self.decisao.laudo
+        # Sem decisão, só o gatilho do Jev 1 tem laudo; o Jev 2 indisponível, não.
+        pergunta = PERGUNTA_DO_GATILHO.get(self.motivo)
+        return self.leitura.laudo(pergunta) if pergunta is not None else None
 
 
 def oferta_no_degrau(cobranca: Cobranca, degrau: int, politica: Politica) -> Oferta | None:
