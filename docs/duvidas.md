@@ -192,6 +192,10 @@ Quem cria e paga as contas de cada serviço: **Vercel AI Gateway** (Jev), **Groq
 O LLM de redação é escolhido por teste (D6). **Como é esse teste**: quais conversas, quais critérios? E
 quem aprova o resultado?
 
+
+**Antes de ligar a chave em produção (2026-10-22):** o histórico da conversa vai para o Groq a cada
+turno. Falta confirmar a retenção de dados do Groq (LGPD) e se dá para desligar o uso para treino.
+
 ### T7. Entrada em fases
 
 O desenho prevê banco → modo sombra → Jev 3 → Jev 1 → Jev 2 (ver [`arquitetura.md`](arquitetura.md),
@@ -272,3 +276,22 @@ com atrito com a clínica, e esses casos devem ir logo para o humano.
 A mensagem que chega fora da janela é respondida quando a janela abre (D16). Uma mensagem de sábado
 às 12h30 só seria respondida na segunda às 8h, e aí a janela de 24h do WhatsApp já fechou: só pode
 sair um template. **Padrão até você decidir:** um template de retomada pelo disparador, fora do teto.
+
+Já existe um caso parecido: a resposta do agente que ficou pronta e não saiu antes de fechar a janela de
+24h é descartada hoje, sem template (2026-10-22). Entra na mesma decisão.
+
+### C4. Comportamentos do turno ativo
+
+A etapa 5 precisou de regras que a spec não fixava. **Padrões até você decidir (2026-10-22):**
+
+1. **O Jev 2 decide NONE:** o agente não responde nada naquele turno.
+2. **EM_RISCO:** a conversa entra em risco com o tom impaciente ou quando o cliente repete sem avançar.
+   Se o turno seguinte não melhora, vai para o humano. Em risco, só o texto para de propor; o código
+   ainda manda o desconto, o link ou o Pix se o Jev 2 escolher. Barrar as propostas é uma linha.
+3. **O Jev 3 reprova o texto duas vezes:** sai uma resposta segura, curta e sem números, uma vez por
+   conversa; na segunda vez, a conversa vai para o humano.
+4. **O LLM fora do ar:** a conversa vai para o humano.
+5. **O CTN, o Pix ou o Chatwoot falhando:** 3 tentativas, com espera que dobra; depois, o humano.
+6. **Erro no próprio código:** 3 tentativas; depois, o humano, com o erro no log (decidido por você em
+   2026-10-22).
+
