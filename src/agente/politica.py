@@ -76,6 +76,21 @@ class Propensao(_Imutavel):
     tolerancia_dias: int = Field(ge=0)
 
 
+class ColunasCarteira(_Imutavel):
+    """O nome, no CSV, de cada coluna que o agente lê. A coluna da régua é opcional."""
+
+    matricula: str = "matricula"
+    nome: str = "nome"
+    telefone: str = "telefone"
+    mensalidades_abertas: str = "mensalidades_abertas"
+    regua: str = "regua"
+
+
+class Carteira(_Imutavel):
+    separador: str = Field(default=";", min_length=1, max_length=1)
+    colunas: ColunasCarteira = ColunasCarteira()
+
+
 class Politica(_Imutavel):
     mensalidade_centavos: int = Field(gt=0)
     teto_resolucao: int = Field(ge=1)
@@ -92,6 +107,7 @@ class Politica(_Imutavel):
     propensao: Propensao
     limiares_jev1: dict[str, Limiar]
     limiares_jev2: dict[str, Limiar]
+    carteira: Carteira = Carteira()
 
     @field_validator("reguas")
     @classmethod

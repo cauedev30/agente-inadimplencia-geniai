@@ -86,3 +86,14 @@ SEND_CTN_LINK = 0.85
 GENERATE_PIX = 0.90
 OUT_OF_SCOPE = 0.70
 NONE = 0.70
+
+# Layout do CSV da carteira. Padrão (G5) até saber de onde a lista vem e com quais colunas.
+[carteira]
+separador = ";"
+
+[carteira.colunas]
+matricula = "matricula"
+nome = "nome"
+telefone = "telefone"
+mensalidades_abertas = "mensalidades_abertas"
+regua = "regua"  # opcional; quando vem, vence o número de mensalidades

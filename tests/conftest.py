@@ -2,12 +2,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from alembic.config import Config as AlembicConfig
 
 from agente.db.modelos import Base, Cliente, Cobranca, Conversa
 from agente.db.sessao import criar_sessao
 from agente.politica import Regua, carregar_politica
 
 RAIZ = Path(__file__).resolve().parents[1]
+
+
+def alembic_config(url: str) -> AlembicConfig:
+    config = AlembicConfig(str(RAIZ / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", url)
+    config.attributes["configurar_log"] = False
+    return config
 
 
 @pytest.fixture

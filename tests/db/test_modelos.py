@@ -3,7 +3,6 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
-from alembic.config import Config as AlembicConfig
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.exc import IntegrityError
@@ -12,7 +11,7 @@ from agente.db.modelos import Base, Cliente, Cobranca, Mensagem
 from agente.politica import Regua
 from agente.tipos import EstadoConversa, OrigemMensagem, StatusCobranca
 
-from ..conftest import RAIZ
+from ..conftest import alembic_config
 
 
 def _mensagem(conversa, chatwoot_id):
@@ -98,16 +97,9 @@ def test_conversa_comeca_iniciada(conversa):
     assert conversa.degrau_atual == 0
 
 
-def _alembic(url):
-    config = AlembicConfig(str(RAIZ / "alembic.ini"))
-    config.set_main_option("script_location", str(RAIZ / "migrations"))
-    config.set_main_option("sqlalchemy.url", url)
-    return config
-
-
 def test_migracao_sobe_desce_e_bate_com_os_modelos(tmp_path):
     url = f"sqlite:///{(tmp_path / 'm.db').as_posix()}"
-    config = _alembic(url)
+    config = alembic_config(url)
 
     command.upgrade(config, "head")
     motor = create_engine(url)

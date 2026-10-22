@@ -12,6 +12,9 @@ dependencies = [
     "tzdata>=2026.5",
 ]
 
+[project.scripts]
+agente = "agente.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",
