@@ -107,6 +107,8 @@ class Conversa(Base):
     objecoes_sem_desconto: Mapped[int] = mapped_column(default=0)
     # Os turnos seguidos que falharam por uma integração; o turno que fecha zera (tarefa 5.3).
     falhas_turno: Mapped[int] = mapped_column(default=0)
+    # Os turnos seguidos que falharam por erro de código; zera quando um turno termina (ou desiste).
+    erros_turno: Mapped[int] = mapped_column(default=0)
     forma_enviada: Mapped[FormaPagamento | None] = mapped_column(_enum(FormaPagamento))
     # Quando o próximo turno roda: a rajada empurra para frente a cada mensagem (tarefa 3.4).
     turno_em: Mapped[datetime | None] = mapped_column(index=True)

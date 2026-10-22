@@ -137,6 +137,7 @@ class Politica(_Imutavel):
     audio_max_segundos: int = Field(ge=1)
     jev_timeout_ms: int = Field(ge=1)
     integracao_tentativas: int = Field(ge=1)
+    erro_interno_tentativas: int = Field(ge=1)
     integracao_espera_segundos: int = Field(ge=1)
     integracao_espera_maxima_segundos: int = Field(ge=1)
     link_canal_externo: str

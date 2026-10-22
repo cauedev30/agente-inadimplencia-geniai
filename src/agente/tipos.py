@@ -73,6 +73,8 @@ class MotivoHumano(StrEnum):
     REDATOR_INDISPONIVEL = "REDATOR_INDISPONIVEL"
     # O CTN, o Pix ou o Chatwoot falhou em todas as tentativas do turno (arquitetura, seção 9).
     INTEGRACAO_INDISPONIVEL = "INTEGRACAO_INDISPONIVEL"
+    # Um erro de código repetiu `erro_interno_tentativas` vezes no mesmo turno.
+    ERRO_INTERNO = "ERRO_INTERNO"
     VALIDACAO = "VALIDACAO"
     OBJECAO_SEM_DESCONTO = "OBJECAO_SEM_DESCONTO"
     BOLETO = "BOLETO"

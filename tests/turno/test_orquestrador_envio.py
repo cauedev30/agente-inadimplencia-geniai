@@ -325,17 +325,18 @@ def test_a_conferencia_so_descarta_os_ids_da_propria_conversa(sessao, ligada, po
     assert _entregue(sessao, ligada, pendente, deps) == "falso-1"
 
 
-def test_um_erro_de_codigo_no_turno_sobe_e_nao_conta_como_falha_de_integracao(
+def test_um_erro_de_codigo_no_turno_conta_como_erro_interno_e_nao_como_falha_de_integracao(
     sessao, ligada, politica
 ):
     deps = _deps_com(politica, ChatwootInstavel(), redator=RedatorFalso(falha=KeyError("bug")))
     _pergunta(sessao, ligada)
+    sessao.commit()
 
-    with pytest.raises(KeyError):
-        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ERRO
 
-    assert ligada.falhas_turno == 0 and ligada.turno_em is None
-    assert sessao.scalars(select(Turno)).all() == []
+    assert (ligada.falhas_turno, ligada.erros_turno) == (0, 1)
+    [erro] = sessao.scalars(select(Turno)).all()
+    assert erro.redacao == {"erro": "KeyError", "tentativa": 1}
 
 
 def _chatwoot_com_bug_na_nota():
@@ -348,27 +349,32 @@ def _chatwoot_com_bug_na_nota():
     return chatwoot
 
 
-def test_um_erro_de_codigo_no_handoff_das_tentativas_sobe_em_vez_de_se_repetir(
+def test_um_erro_de_codigo_no_handoff_das_tentativas_conta_como_erro_interno(
     sessao, ligada, politica
 ):
     deps = _deps_com(politica, _chatwoot_com_bug_na_nota())
     _pergunta(sessao, ligada)
     ligada.falhas_turno = politica.integracao_tentativas
+    sessao.commit()
 
-    with pytest.raises(KeyError):
-        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ERRO
 
-    assert sessao.scalars(select(Turno)).all() == []
+    assert (ligada.falhas_turno, ligada.erros_turno) == (politica.integracao_tentativas, 1)
+    assert ligada.turno_em is not None
 
 
-def test_um_erro_de_codigo_no_handoff_da_ultima_falha_sobe(sessao, ligada, politica):
+def test_um_erro_de_codigo_no_handoff_da_ultima_falha_conta_como_erro_interno(
+    sessao, ligada, politica
+):
     deps = _deps_com(politica, _chatwoot_com_bug_na_nota())
     deps.pix = PixFora(10**6)
     _pergunta(sessao, ligada)
     ligada.falhas_turno = politica.integracao_tentativas - 1
+    sessao.commit()
 
-    with pytest.raises(KeyError):
-        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ERRO
+
+    assert ligada.erros_turno == 1
 
 
 def _turnos(sessao, resultado):

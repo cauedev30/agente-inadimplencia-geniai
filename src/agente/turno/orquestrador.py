@@ -69,7 +69,7 @@ from agente.turno.redacao import Redacao, montar_pedido, redigir_validado
 log = logging.getLogger(__name__)
 
 # O que conta como integração fora do ar (CTN, Pix, Chatwoot, redator e Jev): é tentado de novo e
-# depois vai ao humano. Qualquer outro erro é bug de código e sobe, para ser visto e corrigido.
+# depois vai ao humano. Qualquer outro erro é bug de código: tem o próprio teto (`erros_turno`).
 _FALHAS_DE_INTEGRACAO = (
     httpx.HTTPError,
     ClienteNaoEncontrado,
@@ -443,9 +443,14 @@ def _seguir(
 
 
 def _desistir(
-    sessao: Session, conversa: Conversa, deps: Dependencias, agora: datetime
+    sessao: Session,
+    conversa: Conversa,
+    deps: Dependencias,
+    agora: datetime,
+    motivo: MotivoHumano = MotivoHumano.INTEGRACAO_INDISPONIVEL,
 ) -> ResultadoTurno:
-    """Esgotadas as tentativas com a integração fora, a conversa sai para o humano, uma vez só."""
+    """Esgotadas as tentativas, com a integração fora ou com um erro de código, a conversa sai para
+    o humano, uma vez só."""
     if not dentro_da_janela(agora, deps.politica):
         # O handoff manda a mensagem do canal externo: só dentro da janela (D16).
         agendar_turno(sessao, conversa.id, proxima_abertura(agora, deps.politica))
@@ -462,13 +467,14 @@ def _desistir(
     turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
     turno.humano_na_conversa = humano_na_conversa(conversa)
     if not humano_na_conversa(conversa) and conversa.cobranca.status is StatusCobranca.ATIVA:
-        _handoff(sessao, conversa, MotivoHumano.INTEGRACAO_INDISPONIVEL, deps, agora)
+        _handoff(sessao, conversa, motivo, deps, agora)
     conversa.falhas_turno = 0
+    conversa.erros_turno = 0
     fechar_turno(
         sessao,
         turno.id,
         ResultadoTurno.HANDOFF,
-        redacao={"saida": "HANDOFF", "erro": MotivoHumano.INTEGRACAO_INDISPONIVEL.value},
+        redacao={"saida": "HANDOFF", "erro": motivo.value},
         momento=agora,
     )
     return ResultadoTurno.HANDOFF
@@ -507,6 +513,94 @@ def _registrar_falha(
         except _FALHAS_DE_INTEGRACAO:
             log.exception("o handoff da conversa %s também falhou", conversa_id)
     conversa.turno_em = agora + deps.politica.espera_integracao(conversa.falhas_turno)
+    sessao.flush()
+    return ResultadoTurno.ERRO
+
+
+def _sair_da_fila(
+    sessao: Session, conversa: Conversa, deps: Dependencias, agora: datetime
+) -> ResultadoTurno:
+    """Em sombra, esgotadas as tentativas, o turno é registrado com o erro e sai da fila.
+
+    Sem handoff nem envio: a sombra não muda o estado real. A rajada é consumida.
+    """
+    mensagens = tomar_turno(sessao, conversa.id)
+    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
+    turno.humano_na_conversa = humano_na_conversa(conversa)
+    conversa.erros_turno = 0
+    fechar_turno(
+        sessao,
+        turno.id,
+        ResultadoTurno.ERRO,
+        redacao={"erro": MotivoHumano.ERRO_INTERNO.value, "saida": "FILA"},
+        momento=agora,
+    )
+    return ResultadoTurno.ERRO
+
+
+def _encerrar_por_erro_interno(
+    sessao: Session, conversa: Conversa, deps: Dependencias, agora: datetime
+) -> ResultadoTurno:
+    """Esgotadas as tentativas com o erro de código: o humano assume, ou a sombra sai da fila.
+
+    Se o encerramento também quebra, a conversa sai da fila e fica com `erros_turno` no teto: o
+    turno com defeito não roda de novo, e só uma mensagem nova do cliente tenta o encerramento. Com
+    o Chatwoot fora, o encerramento espera como o handoff das integrações.
+    """
+    try:
+        with sessao.begin_nested():
+            if deps.modo is Modo.ATIVO:
+                return _desistir(sessao, conversa, deps, agora, MotivoHumano.ERRO_INTERNO)
+            return _sair_da_fila(sessao, conversa, deps, agora)
+    except _FALHAS_DE_INTEGRACAO:
+        log.exception(
+            "o handoff por erro interno da conversa %s falhou; tenta de novo", conversa.id
+        )
+        conversa.erros_turno += 1
+        conversa.turno_em = agora + deps.politica.espera_integracao(conversa.erros_turno)
+    except Exception:
+        log.exception(
+            "o encerramento por erro interno da conversa %s também falhou; ela sai da fila e só "
+            "uma mensagem nova tenta de novo",
+            conversa.id,
+        )
+        conversa.turno_em = None
+    sessao.flush()
+    return ResultadoTurno.ERRO
+
+
+def _erro_interno(
+    sessao: Session, conversa_id: int, erro: Exception, deps: Dependencias, agora: datetime
+) -> ResultadoTurno:
+    """Um erro de código no turno: desfaz o turno, conta e volta para a fila ou encerra.
+
+    O rollback desfaz o que o turno gravou depois do último commit; a contagem e o registro do erro
+    vêm depois dele, por isso sobrevivem. Só o tipo do erro vai ao banco: a mensagem pode trazer
+    URL ou matrícula. O stack trace fica no log.
+    """
+    sessao.rollback()
+    conversa = sessao.get_one(Conversa, conversa_id)
+    conversa.erros_turno += 1
+    log.error(
+        "o turno da conversa %s falhou por erro de código (%s de %s)",
+        conversa_id,
+        conversa.erros_turno,
+        deps.politica.erro_interno_tentativas,
+        exc_info=erro,
+    )
+    if conversa.erros_turno >= deps.politica.erro_interno_tentativas:
+        return _encerrar_por_erro_interno(sessao, conversa, deps, agora)
+    mensagens = mensagens_pendentes(sessao, conversa_id)
+    turno = abrir_turno(sessao, conversa_id, [m.id for m in mensagens], deps.modo)
+    turno.humano_na_conversa = humano_na_conversa(conversa)
+    fechar_turno(
+        sessao,
+        turno.id,
+        ResultadoTurno.ERRO,
+        redacao={"erro": type(erro).__name__, "tentativa": conversa.erros_turno},
+        momento=agora,
+    )
+    conversa.turno_em = agora + deps.politica.espera_integracao(conversa.erros_turno)
     sessao.flush()
     return ResultadoTurno.ERRO
 
@@ -650,13 +744,26 @@ def _rodar_turno(
 def processar_turno(
     sessao: Session, conversa_id: int, agora: datetime, deps: Dependencias
 ) -> ResultadoTurno:
-    conversa = sessao.get_one(Conversa, conversa_id)
-    if deps.modo is Modo.ATIVO:
-        # O modo ativo vale só para a conversa liberada no politica.toml (tarefa 5.5).
-        deps = replace(deps, modo=modo_da_conversa(conversa.cobranca, deps.politica))
-    if deps.modo is Modo.ATIVO:
-        return _turno_ativo(sessao, conversa, agora, deps)
-    return _rodar_turno(sessao, conversa, agora, deps)
+    """Roda o turno; o erro de código tem teto (`erro_interno_tentativas`) e depois encerra."""
+    efetivo = deps
+    try:
+        conversa = sessao.get_one(Conversa, conversa_id)
+        if deps.modo is Modo.ATIVO:
+            # O modo ativo vale só para a conversa liberada no politica.toml (tarefa 5.5).
+            efetivo = replace(deps, modo=modo_da_conversa(conversa.cobranca, deps.politica))
+        if conversa.erros_turno >= deps.politica.erro_interno_tentativas:
+            # As tentativas acabaram e o encerramento ficou para depois (janela, Chatwoot fora).
+            return _encerrar_por_erro_interno(sessao, conversa, efetivo, agora)
+        if efetivo.modo is Modo.ATIVO:
+            resultado = _turno_ativo(sessao, conversa, agora, efetivo)
+        else:
+            resultado = _rodar_turno(sessao, conversa, agora, efetivo)
+        if conversa.erros_turno and resultado not in (ResultadoTurno.ADIADO, ResultadoTurno.ERRO):
+            conversa.erros_turno = 0
+            sessao.flush()
+        return resultado
+    except Exception as erro:
+        return _erro_interno(sessao, conversa_id, erro, efetivo, agora)
 
 
 def criar_processador(deps: Dependencias) -> Callable[[Session, int, datetime], None]:

@@ -83,6 +83,7 @@ def test_regua_faltando_e_recusada(tmp_path):
 
 def test_integracao_fora_tentativas_e_esperas_padrao(politica):
     assert politica.integracao_tentativas == 3
+    assert politica.erro_interno_tentativas == 3
     assert [politica.espera_integracao(n) for n in (1, 2, 3, 4)] == [
         timedelta(seconds=60),
         timedelta(seconds=120),
