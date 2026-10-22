@@ -147,6 +147,8 @@ def _respostas(avaliacao: Avaliacao) -> dict:
 
 def _avancar(conversa: Conversa, cobranca: Cobranca, avaliacao: Avaliacao, politica: Politica):
     """O que o backend grava depois da ação (etapa 5), para o caso seguir de um turno ao outro."""
+    # Regra provisória, só da simulação: o modo ativo ainda não incrementa o degrau nem as
+    # objecoes_sem_desconto. A tarefa 5.1 troca isto pelo `executar`.
     if avaliacao.acao is Acao.OFFER_DISCOUNT:
         conversa.degrau_atual += 1
     elif (
