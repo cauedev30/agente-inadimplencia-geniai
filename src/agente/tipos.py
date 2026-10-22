@@ -119,3 +119,11 @@ class ResultadoTurno(StrEnum):
     IGNORADO = "IGNORADO"
     SOMBRA = "SOMBRA"
     ERRO = "ERRO"
+
+
+class TipoFixa(StrEnum):
+    """As mensagens fixas, sem LLM nem Jev (D33, D19)."""
+
+    CONFIRMACAO = "CONFIRMACAO"
+    CONFIRMACAO_CONVITE_CARTAO = "CONFIRMACAO_CONVITE_CARTAO"
+    CANAL_EXTERNO = "CANAL_EXTERNO"

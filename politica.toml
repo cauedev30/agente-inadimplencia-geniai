@@ -12,6 +12,10 @@ audio_max_segundos = 120             # arquitetura, seção 1
 jev_timeout_ms = 2000                # padrão; acima disso, o turno vai para o humano (arquitetura, seção 9)
 link_canal_externo = "https://atendimento.invalid/provisorio"  # provisório até a etapa 7 (G7.3)
 template_abertura = "cobranca_abertura"  # padrão: o nome do template aprovado na Meta (D28, T4)
+template_retomada = "cobranca_retomada"  # padrão (C3): o turno adiado que passou das 24h do WhatsApp
+anexos_aceitos = ["image", "file", "audio"]  # o comprovante vem como imagem ou PDF; o áudio espera a T11
+comando_reinicio = "#reiniciar"
+telefones_equipe = []  # só estes telefones podem usar o comando de reinício
 
 # Desconto máximo por régua (D29) em 3 degraus iguais (D35, padrão até a G1.1).
 [reguas.NR]
