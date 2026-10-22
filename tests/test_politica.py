@@ -1,17 +1,12 @@
 from datetime import date, time
-from pathlib import Path
 
 import pytest
 
 from agente.politica import PoliticaInvalida, Regua, carregar_politica
 
-RAIZ = Path(__file__).resolve().parents[1]
+from .conftest import RAIZ
+
 ARQUIVO_PADRAO = RAIZ / "politica.toml"
-
-
-@pytest.fixture
-def politica():
-    return carregar_politica(ARQUIVO_PADRAO)
 
 
 def test_arquivo_padrao_carrega(politica):
