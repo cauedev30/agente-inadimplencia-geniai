@@ -143,6 +143,8 @@ class Politica(_Imutavel):
     link_canal_externo: str
     template_abertura: str = Field(min_length=1)
     template_retomada: str = Field(min_length=1)
+    template_confirmacao: str = Field(min_length=1)
+    ctn_baixa_no_link: bool
     anexos_aceitos: frozenset[str]
     comando_reinicio: str = Field(min_length=1)
     telefones_equipe: frozenset[str] = frozenset()

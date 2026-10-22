@@ -80,6 +80,8 @@ class MotivoHumano(StrEnum):
     BOLETO = "BOLETO"
     TETO = "TETO"
     DECISAO_JEV2 = "DECISAO_JEV2"
+    # O valor pago não bate com o do Pix ou do link: a baixa fica com o humano (tarefa 6.1).
+    PAGAMENTO_DIVERGENTE = "PAGAMENTO_DIVERGENTE"
 
 
 class FormaPagamento(StrEnum):
