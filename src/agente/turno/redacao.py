@@ -152,7 +152,7 @@ def interpolar(texto: str, numeros: Numeros) -> str:
 
 def montar_pedido(
     numeros: Numeros,
-    leitura: LeituraJev1,
+    leitura: LeituraJev1 | None,
     regua: Regua,
     nome_cliente: str,
     estado: EstadoConversa,
@@ -165,13 +165,14 @@ def montar_pedido(
     return PedidoRedacao(
         acoes=tuple(acao.value for acao in numeros.acoes),
         marcadores=tuple(obrigatorios),
-        tom_alvo=TOM_ALVO.get(leitura.tom, TOM_ALVO["neutro"]),
+        # Sem leitura (o toque no botão não passa pelo Jev 1), o tom é o neutro.
+        tom_alvo=TOM_ALVO.get(leitura.tom if leitura else "", TOM_ALVO["neutro"]),
         estado=estado.value,
         historico=tuple(historico),
         nome_cliente=nome_cliente.split()[0],
         reprovadas_antes=tuple(reprovadas_antes) if reprovadas_antes else None,
         marcadores_opcionais=tuple(opcionais),
-        objecao_sem_desconto=leitura.sim("objecao_valor") and sem_desconto,
+        objecao_sem_desconto=leitura is not None and leitura.sim("objecao_valor") and sem_desconto,
     )
 
 
