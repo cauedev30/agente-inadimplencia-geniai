@@ -6,7 +6,7 @@ quando o cliente para de escrever, e junta a rajada inteira.
 
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from sqlalchemy import select
@@ -18,6 +18,8 @@ from agente.tipos import OrigemMensagem
 log = logging.getLogger(__name__)
 
 Processar = Callable[[Session, int, datetime], None]
+# Uma tarefa periódica do laço (o Pix vencido, por exemplo): roda a cada ciclo, em sessão própria.
+Rotina = Callable[[Session, datetime], object]
 
 
 def agendar_turno(sessao: Session, conversa_id: int, quando: datetime) -> None:
@@ -75,7 +77,9 @@ class Trabalhador:
         processar: Processar,
         relogio: Callable[[], datetime],
         intervalo_segundos: float = 1.0,
+        rotinas: Sequence[Rotina] = (),
     ):
+        self._rotinas = tuple(rotinas)
         self._fabrica = fabrica
         self._processar = processar
         self._relogio = relogio
@@ -95,7 +99,18 @@ class Trabalhador:
                 except Exception:  # um turno que falha não para os outros
                     sessao.rollback()
                     log.exception("o turno da conversa %s falhou", conversa_id)
+        self._rodar_rotinas(agora)
         return len(vencidos)
+
+    def _rodar_rotinas(self, agora: datetime) -> None:
+        for rotina in self._rotinas:
+            with self._fabrica() as sessao:
+                try:
+                    rotina(sessao, agora)
+                    sessao.commit()
+                except Exception:  # uma rotina que falha não para o laço
+                    sessao.rollback()
+                    log.exception("a rotina %s falhou", getattr(rotina, "__name__", rotina))
 
     def _laco(self) -> None:
         while not self._parar.wait(self._intervalo):
