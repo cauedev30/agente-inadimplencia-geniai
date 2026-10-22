@@ -1,7 +1,25 @@
 """Tipos de valor compartilhados pelo banco e pela lógica do turno."""
 
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
+
+
+class FormaHistorico(StrEnum):
+    """Como o cliente pagou uma mensalidade, segundo o histórico do CTN."""
+
+    PIX = "PIX"
+    CARTAO = "CARTAO"
+    BOLETO = "BOLETO"
+    ENERGIA = "ENERGIA"
+    OUTRO = "OUTRO"
+
+
+@dataclass(frozen=True)
+class PagamentoHistorico:
+    data: date
+    forma: FormaHistorico
+    valor_centavos: int
 
 
 @dataclass(frozen=True)
