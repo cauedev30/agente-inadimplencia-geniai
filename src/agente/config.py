@@ -14,7 +14,15 @@ class ConfigPolitica(BaseSettings):
     politica_path: Path = Path("politica.toml")
 
 
-class Config(ConfigPolitica):
+class ConfigRedator(ConfigPolitica):
+    """O LLM que redige (T6), para o serviço e o `agente comparar-redatores`."""
+
+    # Sem a chave, o serviço usa o RedatorFalso.
+    groq_api_key: str | None = None
+    groq_modelo: str = "openai/gpt-oss-120b"  # o candidato da D6
+
+
+class Config(ConfigRedator):
     database_url: str
     modo: Literal["sombra", "ativo"] = "sombra"
     log_level: str = "INFO"

@@ -49,3 +49,13 @@ def test_log_mascara_cpf():
 
 def test_log_nao_mascara_valor_em_centavos():
     assert _formatar("divida 10020 centavos") == "divida 10020 centavos"
+
+
+def test_config_le_a_chave_e_o_modelo_do_groq(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_GROQ_API_KEY", "chave-ficticia")
+
+    config = carregar_config(_env_file=None)
+
+    assert config.groq_api_key == "chave-ficticia"
+    assert config.groq_modelo == "openai/gpt-oss-120b"

@@ -5,6 +5,7 @@ from agente.api.principal import montar_app, montar_dependencias
 from agente.config import Config
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.jev import JevComPrazo, JevFalso
+from agente.integracoes.redator import RedatorFalso, RedatorGroq
 from agente.tipos import Modo
 
 from ..conftest import RAIZ
@@ -44,6 +45,20 @@ def test_ate_a_t10_o_jev_e_o_falso_com_o_prazo_da_politica(caplog):
     assert deps.jev.timeout_ms == deps.politica.jev_timeout_ms
     assert deps.jev.jev.registrar is False
     assert "Jev" in caplog.text and "T10" in caplog.text
+
+
+def test_sem_a_chave_do_groq_o_redator_e_o_falso(caplog):
+    deps = montar_dependencias(_config())
+    assert isinstance(deps.redator, RedatorFalso)
+    assert deps.redator.registrar is False
+    assert "AGENTE_GROQ_API_KEY" in caplog.text
+
+
+def test_com_a_chave_do_groq_o_redator_e_o_real():
+    deps = montar_dependencias(_config(groq_api_key="chave-ficticia", groq_modelo="m-teste"))
+    assert isinstance(deps.redator, RedatorGroq)
+    assert deps.redator.modelo == "m-teste"
+    deps.redator.fechar()
 
 
 def test_modo_ativo_sem_jev_real_e_recusado():

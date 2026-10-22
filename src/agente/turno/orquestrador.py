@@ -26,6 +26,7 @@ from agente.integracoes.ctn import CTN, CTNFalso
 from agente.integracoes.disparador import Disparador
 from agente.integracoes.jev import Jev
 from agente.integracoes.pix import PixBanco, PixFalso
+from agente.integracoes.redator import Redator, RedatorFalso
 from agente.politica import Politica
 from agente.tipos import (
     BatchJev,
@@ -66,6 +67,7 @@ class Dependencias:
     # Até a T9 e a T1, o CTN e o Pix são os falsos.
     ctn: CTN = field(default_factory=CTNFalso)
     pix: PixBanco = field(default_factory=PixFalso)
+    redator: Redator = field(default_factory=RedatorFalso)
 
 
 def _rotulo(gate: Gate) -> str | None:

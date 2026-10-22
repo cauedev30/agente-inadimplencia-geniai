@@ -1,7 +1,8 @@
 """Monta o serviço de produção a partir das variáveis de ambiente.
 
 Rodar: `uvicorn agente.api.principal:montar_app --factory`. Sem o Chatwoot configurado (T3), o
-serviço só roda em modo sombra, com a interface falsa. Até a T10, o Jev também é o falso.
+serviço só roda em modo sombra, com a interface falsa. Até a T10, o Jev também é o falso. Sem o
+AGENTE_GROQ_API_KEY, o redator é o falso.
 """
 
 import logging
@@ -14,12 +15,20 @@ from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevComPrazo, JevFalso
+from agente.integracoes.redator import Redator, RedatorFalso, RedatorGroq
 from agente.logs import configurar_logging
 from agente.politica import carregar_politica
 from agente.tipos import Modo
 from agente.turno.orquestrador import Dependencias, criar_processador
 
 log = logging.getLogger(__name__)
+
+
+def _redator(config: Config) -> Redator:
+    if config.groq_api_key:
+        return RedatorGroq(config.groq_api_key, config.groq_modelo)
+    log.warning("AGENTE_GROQ_API_KEY não configurada: usando o redator falso (T6)")
+    return RedatorFalso()
 
 
 def montar_dependencias(config: Config) -> Dependencias:
@@ -46,6 +55,7 @@ def montar_dependencias(config: Config) -> Dependencias:
         time_humano=config.chatwoot_time_humano,
         modo=modo,
         jev=JevComPrazo(JevFalso(), politica.jev_timeout_ms),
+        redator=_redator(config),
     )
 
 
