@@ -8,7 +8,7 @@ A primeira franquia é o **Cartão de Todos João Pessoa Sul**.
 
 ## Status
 
-**Em implementação, etapa 1 (base).** A spec está fechada para começar ([`docs/spec.md`](docs/spec.md)).
+**Em implementação: etapas 1 a 3 prontas, com o serviço em modo sombra.** A spec está fechada para começar ([`docs/spec.md`](docs/spec.md)).
 As decisões estão em [`docs/decisoes.md`](docs/decisoes.md), e as perguntas em aberto, cada uma com o
 padrão usado até a resposta, em [`docs/duvidas.md`](docs/duvidas.md).
 
@@ -39,3 +39,30 @@ uv run ruff format --check . # formatação
 ```
 
 No Windows sem o `uv` no PATH, use `python -m uv` no lugar de `uv`.
+
+Comandos do agente (com `AGENTE_DATABASE_URL` definido e o banco migrado por `uv run alembic upgrade head`):
+
+```bash
+uv run agente importar carteira.csv --campanha outubro   # importa a carteira
+uv run agente disparar --campanha outubro                 # dispara as aberturas (disparador falso até a T4)
+```
+
+## Deploy
+
+O serviço roda em modo sombra até o Chatwoot (T3) e o servidor (T2) estarem definidos: lê e grava
+tudo, sem enviar nada.
+
+```bash
+docker build -t agente-inadimplencia .
+docker run -p 8000:8000   -e AGENTE_DATABASE_URL=postgresql+psycopg://usuario:senha@host/agente   -e AGENTE_WEBHOOK_SEGREDO=...   agente-inadimplencia
+```
+
+O contêiner roda `alembic upgrade head` e depois o uvicorn. Sem Docker:
+`uv run uvicorn agente.api.principal:montar_app --factory`.
+
+| Endpoint | Para quê |
+|---|---|
+| `GET /saude` | verificação de saúde |
+| `POST /webhooks/chatwoot/{segredo}` | webhook do Agent Bot no Chatwoot |
+
+As variáveis estão no [`.env.example`](.env.example).

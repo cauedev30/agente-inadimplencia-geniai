@@ -2,6 +2,7 @@
 
 import logging
 import re
+import sys
 
 # Telefone em E.164: mantém o +55 e os 4 últimos dígitos.
 _TELEFONE = re.compile(r"\+55(\d{6,7})(\d{4})\b")
@@ -24,6 +25,9 @@ class MascaraDadosPessoais(logging.Filter):
 
 
 def configurar_logging(nivel: str = "INFO") -> None:
+    # O console do Windows não usa UTF-8 por padrão e quebra os acentos.
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     manipulador = logging.StreamHandler()
     manipulador.addFilter(MascaraDadosPessoais())
     manipulador.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
