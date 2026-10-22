@@ -11,6 +11,7 @@ rajada_segundos = 7                  # espera para juntar as mensagens em rajada
 audio_max_segundos = 120             # arquitetura, seção 1
 jev_timeout_ms = 2000                # padrão; acima disso, o turno vai para o humano (arquitetura, seção 9)
 link_canal_externo = "https://atendimento.invalid/provisorio"  # provisório até a etapa 7 (G7.3)
+template_abertura = "cobranca_abertura"  # padrão: o nome do template aprovado na Meta (D28, T4)
 
 # Desconto máximo por régua (D29) em 3 degraus iguais (D35, padrão até a G1.1).
 [reguas.NR]

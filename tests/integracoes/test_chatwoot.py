@@ -11,8 +11,9 @@ URL = "https://chatwoot.invalid"
 BASE = f"{URL}/api/v1/accounts/7/conversations/42"
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def chatwoot():
+    # Um cliente só: o httpx demora para carregar o SSL a cada cliente novo.
     with ChatwootHttp(URL, conta=7, token="segredo") as cliente:
         yield cliente
 

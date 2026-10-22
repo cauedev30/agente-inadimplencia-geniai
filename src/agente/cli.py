@@ -1,13 +1,16 @@
-"""Comandos do agente: `agente importar <csv> --campanha <nome>`."""
+"""Comandos do agente: `agente importar` (a carteira) e `agente disparar` (as aberturas)."""
 
 import argparse
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
+from agente.abertura.disparar import disparar_aberturas
 from agente.carteira.importar import importar_carteira
 from agente.config import carregar_config
 from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso
+from agente.integracoes.disparador import DisparadorFalso
 from agente.politica import carregar_politica
 
 
@@ -28,6 +31,26 @@ def _importar(argumentos: argparse.Namespace) -> int:
     return 0
 
 
+def _disparar(argumentos: argparse.Namespace) -> int:
+    config = carregar_config()
+    politica = carregar_politica(config.politica_path)
+    # Até a T4, não há disparador real: as aberturas só ficam gravadas.
+    print("Disparador falso: nenhuma mensagem sai de verdade (T4).")
+    with criar_sessao(config.database_url)() as sessao:
+        relatorio = disparar_aberturas(
+            sessao, politica, DisparadorFalso(), argumentos.campanha, datetime.now(UTC)
+        )
+    if relatorio.fora_da_janela:
+        print("fora da janela de atendimento: nada foi disparado")
+        return 1
+    print(f"enviadas: {relatorio.enviadas}")
+    print(f"puladas: {relatorio.puladas}")
+    print(f"falhas: {len(relatorio.falhas)}")
+    for matricula, erro in relatorio.falhas:
+        print(f"  {matricula}: {erro}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # O console do Windows não usa UTF-8 por padrão e quebra os acentos.
     if hasattr(sys.stdout, "reconfigure"):
@@ -38,6 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     importar.add_argument("csv", type=Path)
     importar.add_argument("--campanha", required=True)
     importar.set_defaults(rodar=_importar)
+    disparar = comandos.add_parser("disparar", help="dispara as aberturas da campanha")
+    disparar.add_argument("--campanha", required=True)
+    disparar.set_defaults(rodar=_disparar)
     argumentos = parser.parse_args(argv)
     return argumentos.rodar(argumentos)
 

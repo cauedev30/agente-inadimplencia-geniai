@@ -102,6 +102,7 @@ class Politica(_Imutavel):
     audio_max_segundos: int = Field(ge=1)
     jev_timeout_ms: int = Field(ge=1)
     link_canal_externo: str
+    template_abertura: str = Field(min_length=1)
     reguas: dict[Regua, ReguaParametros]
     janela: Janela
     propensao: Propensao
