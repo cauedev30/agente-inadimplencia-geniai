@@ -104,6 +104,20 @@ def test_em_sombra_a_objecao_na_r3_teria_liberado_o_degrau_sem_mudar_o_estado(
     assert deps.chatwoot.chamadas == []
 
 
+def test_em_sombra_o_link_do_propenso_leva_o_degrau_atual(sessao, ligada, politica):
+    # O desconto já liberado continua no link (D34); o Pix seria integral.
+    ligada.cobranca.propenso_cartao = True
+    ligada.degrau_atual = 2
+    deps = _deps(politica)
+    _cliente(sessao, ligada)
+
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.acoes_anexadas) == ("INFORM_DEBT", ["SEND_CTN_LINK"])
+    assert turno.numeros == {"divida_centavos": 10020, "valor_link_centavos": 4020}
+
+
 def test_em_sombra_o_gatilho_so_fica_registrado(sessao, ligada, politica):
     deps = _deps(politica, regras=[responder("quer_retencao", True, 0.92)])
     _cliente(sessao, ligada, "quero cancelar o cartão")
