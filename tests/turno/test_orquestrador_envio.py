@@ -246,3 +246,37 @@ def test_a_mensagem_do_cliente_que_chegou_na_espera_ainda_ganha_o_seu_turno(
     assert ligada.turno_em is not None
     assert processar_turno(sessao, ligada.id, ligada.turno_em, deps) is ResultadoTurno.ENVIADO
     assert len(deps.chatwoot.enviadas(555)) == 2
+
+
+def test_a_pendente_que_o_desistir_adiou_nao_sai_fora_da_janela(sessao, ligada, politica):
+    deps = _deps_com(politica, ChatwootInstavel(antes={1}))
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    ligada.falhas_turno = politica.integracao_tentativas
+    depois_das_18h = SEGUNDA_10H.replace(hour=18, minute=30)
+
+    assert processar_turno(sessao, ligada.id, depois_das_18h, deps) is ResultadoTurno.ADIADO
+
+    assert deps.chatwoot.enviadas(555) == []
+    assert _do_agente(sessao)[0].envio is EstadoEnvio.PENDENTE
+    assert ligada.turno_em == SEGUNDA_10H.replace(day=27, hour=8)
+    # Aberta a janela, o handoff confere o Chatwoot e descarta o que nunca saiu.
+    assert processar_turno(sessao, ligada.id, ligada.turno_em, deps) is ResultadoTurno.HANDOFF
+    assert _do_agente(sessao)[0].envio is EstadoEnvio.DESCARTADA
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+
+
+def test_a_pendente_que_o_desistir_adiou_nao_e_reenviada_sem_conferir(sessao, ligada, politica):
+    deps = _deps_com(politica, ChatwootInstavel(depois={1}))
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    ligada.falhas_turno = politica.integracao_tentativas
+    depois_das_18h = SEGUNDA_10H.replace(hour=18, minute=30)
+
+    # A mensagem chegou a sair: adiar o handoff não pode mandá-la outra vez.
+    assert processar_turno(sessao, ligada.id, depois_das_18h, deps) is ResultadoTurno.ADIADO
+    assert len(deps.chatwoot.enviadas(555)) == 1
+
+    assert processar_turno(sessao, ligada.id, ligada.turno_em, deps) is ResultadoTurno.HANDOFF
+    [mensagem] = _do_agente(sessao)
+    assert (mensagem.envio, mensagem.chatwoot_message_id) == (EstadoEnvio.ENVIADA, "falso-1")

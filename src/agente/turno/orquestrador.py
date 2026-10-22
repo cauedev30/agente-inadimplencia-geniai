@@ -547,7 +547,9 @@ def _turno_ativo(
     except Exception as erro:
         log.exception("o turno da conversa %s falhou", conversa.id)
         return _registrar_falha(sessao, conversa.id, erro, deps, agora, desistindo=desistindo)
-    pendente = _envio_pendente(sessao, conversa.id)
+    # Só a mensagem que este turno acabou de gravar vai agora. A que o `_desistir` adiou fica
+    # PENDENTE até a janela abrir, e ele a confere antes de descartar ou adotar.
+    pendente = None if desistindo else _envio_pendente(sessao, conversa.id)
     if pendente is None:
         if conversa.falhas_turno and resultado is not ResultadoTurno.ADIADO:
             conversa.falhas_turno = 0
