@@ -4,7 +4,7 @@ import hmac
 import json
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -18,7 +18,10 @@ from agente.config import Config
 from agente.pagamento.concluir import concluir_pagamentos
 from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
-from agente.turno.fila import Processar, Rotina, Trabalhador, processar_sem_acao
+from agente.turno.fila import Processar, Rotina, Trabalhador, a_cada, processar_sem_acao
+
+# O Pix vencido não tem pressa (G2.4): uma varredura por minuto basta.
+INTERVALO_EXPIRAR_PIX = timedelta(minutes=1)
 
 
 def _agora() -> datetime:
@@ -26,7 +29,7 @@ def _agora() -> datetime:
 
 
 def _rotinas(dependencias: Any | None) -> list[Rotina]:
-    rotinas: list[Rotina] = [expirar_pix]
+    rotinas: list[Rotina] = [a_cada(INTERVALO_EXPIRAR_PIX, expirar_pix)]
     if dependencias is not None:
         # Os webhooks só gravam a confirmação; a baixa e a mensagem saem por esta rotina.
         def concluir(sessao: Session, agora: datetime) -> int:

@@ -7,7 +7,7 @@ quando o cliente para de escrever, e junta a rajada inteira.
 import logging
 import threading
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -20,6 +20,21 @@ log = logging.getLogger(__name__)
 Processar = Callable[[Session, int, datetime], None]
 # Uma tarefa periódica do laço (o Pix vencido, por exemplo): roda a cada ciclo, em sessão própria.
 Rotina = Callable[[Session, datetime], object]
+
+
+def a_cada(intervalo: timedelta, rotina: Rotina) -> Rotina:
+    """A rotina que roda no máximo uma vez por intervalo, mesmo que o laço gire a cada segundo."""
+    ultima: datetime | None = None
+
+    def espacada(sessao: Session, agora: datetime) -> object:
+        nonlocal ultima
+        if ultima is not None and agora - ultima < intervalo:
+            return None
+        ultima = agora
+        return rotina(sessao, agora)
+
+    espacada.__name__ = getattr(rotina, "__name__", "rotina")
+    return espacada
 
 
 def agendar_turno(sessao: Session, conversa_id: int, quando: datetime) -> None:

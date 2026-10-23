@@ -65,7 +65,7 @@ def fazer_handoff(
         sessao, conversa, EstadoConversa.ATENDIMENTO_HUMANO, motivo, laudo_id, momento=agora
     )
     if politica.handoff_expira_pix:
-        expirar_pendentes(conversa.cobranca)
+        expirar_pendentes(sessao, conversa.cobranca)
     dados = DadosFixa(
         nome=conversa.cobranca.cliente.nome,
         valor_centavos=None,
