@@ -22,6 +22,7 @@ padrão usado até a resposta, em [`docs/duvidas.md`](docs/duvidas.md).
 | ⭐ [`docs/ideia-webchat.md`](docs/ideia-webchat.md) | **Ideia em avaliação, com prioridade alta:** atendimento humano por webchat no lugar de outro WhatsApp |
 | [`docs/decisoes.md`](docs/decisoes.md) | Decisões numeradas (D1, D2, …), com data |
 | [`docs/duvidas.md`](docs/duvidas.md) | Perguntas em aberto, separadas por quem responde |
+| [`docs/integracoes.md`](docs/integracoes.md) | Guia para ligar os sistemas reais (T1 a T11): o que precisamos, onde entra e o teste de cada um |
 
 ## Stack
 
