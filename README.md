@@ -68,6 +68,43 @@ O contêiner roda `alembic upgrade head` e depois o uvicorn. Sem Docker:
 |---|---|
 | `GET /saude` | o serviço está vivo, sem tocar no banco (o health check consulta esta) |
 | `GET /saude/pagamentos` | quantos pagamentos pagos não concluem (baixa ou confirmação); 503 se o banco falhar |
-| `POST /webhooks/chatwoot/{segredo}` | webhook do Agent Bot no Chatwoot |
+| `POST /webhooks/chatwoot/{segredo}` | webhook do Agent Bot no Chatwoot (mensagens, status e a conversa nova do webchat) |
+| `GET` e `POST /atendimento/{token}` | a página do webchat: pede os primeiros dígitos do CPF e abre o widget (503 sem os segredos do webchat) |
 
 As variáveis estão no [`.env.example`](.env.example).
+
+## Configuração do Chatwoot
+
+O que o serviço espera da conta do Chatwoot (T3). A conta, as inboxes e o time são criados na
+interface do Chatwoot; o serviço só lê os ids das variáveis de ambiente.
+
+**Inbox do WhatsApp (o robô):**
+
+- o Agent Bot da inbox aponta para `POST /webhooks/chatwoot/{AGENTE_WEBHOOK_SEGREDO}`, com os
+  eventos `message_created` e `conversation_status_changed`;
+- `AGENTE_CHATWOOT_URL`, `AGENTE_CHATWOOT_CONTA`, `AGENTE_CHATWOOT_INBOX` e `AGENTE_CHATWOOT_TOKEN`
+  (o token do bot); `AGENTE_CHATWOOT_TIME_HUMANO` é o time que recebe os handoffs.
+
+**Inbox Website (o webchat, D32):**
+
+1. Crie uma inbox do tipo **Website**. O atendente responde por ela, no Chatwoot; o cliente fala pelo
+   widget na página `/atendimento/{token}`.
+2. **Rodízio:** nas configurações da inbox, em *Collaborators*, marque os atendentes do plantão e
+   ligue **Enable auto assignment**. O Chatwoot reparte as conversas novas entre eles, em rodízio
+   igualitário. É configuração do Chatwoot, o código do agente não escolhe o atendente. O plantão
+   (quem está online na janela de atendimento, D16) também é gerido ali (G7).
+3. Em *Settings > Configuration*, ligue a **validação de identidade** (*Enable identity validation*) e
+   copie o **HMAC token** da inbox para `AGENTE_WEBCHAT_IDENTIDADE_HMAC`. O servidor calcula o
+   `identifier_hash` com ele; a chave nunca vai ao navegador.
+4. Copie o **token do site** (*website token*, o do script do widget) para
+   `AGENTE_WEBCHAT_WEBSITE_TOKEN` e o id da inbox para `AGENTE_WEBCHAT_INBOX`.
+5. Aponte um webhook da conta para `POST /webhooks/chatwoot/{AGENTE_WEBHOOK_SEGREDO}` com o evento
+   `conversation_created`: é ele que amarra a conversa do webchat à cobrança (nota com o resumo,
+   etiqueta, time e a conversa do WhatsApp marcada como transferida).
+6. `AGENTE_WEBCHAT_SEGREDO` assina o token do link (gere um valor longo e aleatório) e
+   `AGENTE_WEBCHAT_URL_BASE` é o domínio público da página (G7). Sem `AGENTE_WEBCHAT_URL_BASE`, a 6ª
+   mensagem mantém o link provisório do `politica.toml`; sem o segredo, a página `/atendimento` fica
+   desligada (503).
+
+Os parâmetros de negócio do webchat (validade do link, dígitos do CPF e tentativas) estão no
+`politica.toml`, com o prefixo `webchat_`.

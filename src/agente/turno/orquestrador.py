@@ -67,6 +67,7 @@ from agente.turno.handoff import fazer_handoff
 from agente.turno.jev1 import laudo_do_risco
 from agente.turno.liberacao import modo_da_conversa
 from agente.turno.redacao import Redacao, montar_pedido, redigir_validado
+from agente.webchat.link import ConfigWebchat
 
 log = logging.getLogger(__name__)
 
@@ -95,6 +96,8 @@ class Dependencias:
     ctn: CTN = field(default_factory=CTNFalso)
     pix: PixBanco = field(default_factory=PixFalso)
     redator: Redator = field(default_factory=RedatorFalso)
+    # O domínio e o segredo do link do webchat (G7); sem eles, a 6ª mensagem leva o link provisório.
+    webchat: ConfigWebchat | None = None
 
 
 def _rotulo(gate: Gate) -> str | None:
@@ -235,6 +238,7 @@ def _handoff(
         deps.time_humano,
         agora,
         laudo_id=laudo_id,
+        webchat=deps.webchat,
     )
 
 

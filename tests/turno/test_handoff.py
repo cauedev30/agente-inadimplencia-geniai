@@ -15,6 +15,8 @@ from agente.tipos import (
 )
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.handoff import devolver_ao_robo, fazer_handoff
+from agente.webchat.link import ConfigWebchat
+from agente.webchat.token import validar_token
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 LAUDOS = [Laudo("risco_juridico", True, 0.91, 0.80)]
@@ -109,3 +111,28 @@ def test_com_handoff_expira_pix_o_handoff_expira_o_pendente(sessao, conversa, po
     _handoff(sessao, conversa, politica, ChatwootFalso())
 
     assert (pix.status, pago.status) == (StatusPagamento.EXPIRADO, StatusPagamento.PAGO)
+
+
+def test_o_handoff_com_webchat_manda_o_link_com_o_token_da_cobranca(sessao, conversa, politica):
+    conversa.chatwoot_conversa_id = 555
+    chatwoot = ChatwootFalso()
+    webchat = ConfigWebchat("https://atendimento.exemplo.invalid", "segredo-do-webchat")
+
+    fazer_handoff(
+        sessao, chatwoot, conversa, MotivoHumano.TETO, [], politica, 4, AGORA, webchat=webchat
+    )
+
+    [botao] = chatwoot.chamadas[-1][3]
+    prefixo = "https://atendimento.exemplo.invalid/atendimento/"
+    assert botao.valor.startswith(prefixo)
+    token = botao.valor.removeprefix(prefixo)
+    assert validar_token(sessao, "segredo-do-webchat", token, AGORA) == conversa.cobranca_id
+
+
+def test_o_handoff_sem_webchat_mantem_o_link_provisorio(sessao, conversa, politica):
+    chatwoot = ChatwootFalso()
+
+    _handoff(sessao, conversa, politica, chatwoot)
+
+    [botao] = chatwoot.chamadas[-1][3]
+    assert botao.valor == politica.link_canal_externo

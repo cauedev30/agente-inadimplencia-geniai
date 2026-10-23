@@ -20,6 +20,7 @@ from agente.logs import configurar_logging
 from agente.politica import carregar_politica
 from agente.tipos import Modo
 from agente.turno.orquestrador import Dependencias, criar_processador
+from agente.webchat.link import ConfigWebchat
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,14 @@ def _redator(config: Config) -> Redator:
         return RedatorGroq(config.groq_api_key, config.groq_modelo)
     log.warning("AGENTE_GROQ_API_KEY não configurada: usando o redator falso (T6)")
     return RedatorFalso()
+
+
+def _webchat(config: Config) -> ConfigWebchat | None:
+    if config.webchat_url_base and config.webchat_segredo:
+        return ConfigWebchat(config.webchat_url_base, config.webchat_segredo)
+    if config.webchat_url_base:
+        log.warning("AGENTE_WEBCHAT_SEGREDO ausente: a 6ª mensagem leva o link provisório")
+    return None
 
 
 def montar_dependencias(config: Config) -> Dependencias:
@@ -56,6 +65,7 @@ def montar_dependencias(config: Config) -> Dependencias:
         modo=modo,
         jev=JevComPrazo(JevFalso(), politica.jev_timeout_ms),
         redator=_redator(config),
+        webchat=_webchat(config),
     )
 
 

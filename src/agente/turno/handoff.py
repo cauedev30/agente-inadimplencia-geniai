@@ -12,6 +12,7 @@ from agente.pagamento.expirar import expirar_pendentes
 from agente.politica import Politica
 from agente.tipos import EstadoConversa, Laudo, MotivoHumano, OrigemMensagem, TipoFixa
 from agente.turno.catalogo import DadosFixa, mensagem_fixa
+from agente.webchat.link import ConfigWebchat, link_canal_externo
 
 
 def _nota(motivo: MotivoHumano, laudos: list[Laudo]) -> str:
@@ -51,8 +52,13 @@ def fazer_handoff(
     time_id: int | None,
     agora: datetime,
     laudo_id: int | None = None,
+    webchat: ConfigWebchat | None = None,
 ) -> None:
-    """Nota com o laudo, etiqueta, atribuição, status aberta, estado e a mensagem do canal."""
+    """Nota com o laudo, etiqueta, atribuição, status aberta, estado e a mensagem do canal.
+
+    A mensagem do canal leva o link do webchat com o token da cobrança; sem `webchat` (sem o
+    domínio, G7), leva o link provisório do politica.toml.
+    """
     if conversa.chatwoot_conversa_id is None:
         raise ValueError(f"a conversa {conversa.id} não está ligada a uma conversa do Chatwoot")
     chatwoot_id = conversa.chatwoot_conversa_id
@@ -70,7 +76,7 @@ def fazer_handoff(
         nome=conversa.cobranca.cliente.nome,
         valor_centavos=None,
         link_cartao=None,
-        link_canal_externo=politica.link_canal_externo,
+        link_canal_externo=link_canal_externo(webchat, politica, conversa.cobranca_id, agora),
     )
     enviar_fixa(sessao, chatwoot, conversa, TipoFixa.CANAL_EXTERNO, dados, agora)
 

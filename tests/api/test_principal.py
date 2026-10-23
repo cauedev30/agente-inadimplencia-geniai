@@ -7,6 +7,7 @@ from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.jev import JevComPrazo, JevFalso
 from agente.integracoes.redator import RedatorFalso, RedatorGroq
 from agente.tipos import Modo
+from agente.webchat.link import ConfigWebchat
 
 from ..conftest import RAIZ
 
@@ -72,3 +73,16 @@ def test_modo_ativo_sem_jev_real_e_recusado():
 def test_app_de_producao_responde_a_saude():
     with TestClient(montar_app(_config(), iniciar_trabalhador=False)) as cliente:
         assert cliente.get("/saude").json() == {"status": "ok"}
+
+
+def test_com_dominio_e_segredo_o_handoff_leva_o_link_do_webchat():
+    config = _config(webchat_url_base="https://atendimento.exemplo.invalid", webchat_segredo="s")
+
+    assert montar_dependencias(config).webchat == ConfigWebchat(
+        "https://atendimento.exemplo.invalid", "s"
+    )
+
+
+@pytest.mark.parametrize("campos", [{}, {"webchat_url_base": "https://x.invalid"}])
+def test_sem_dominio_ou_sem_segredo_o_link_continua_provisorio(campos):
+    assert montar_dependencias(_config(**campos)).webchat is None
