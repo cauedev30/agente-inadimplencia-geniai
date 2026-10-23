@@ -148,6 +148,8 @@ class Politica(_Imutavel):
     webchat_token_validade_horas: int = Field(ge=1)
     webchat_cpf_digitos: int = Field(ge=1, le=11)
     webchat_cpf_tentativas: int = Field(ge=1)
+    # O bloqueio depois dos erros no CPF dura isto; então as tentativas zeram.
+    webchat_cpf_bloqueio_horas: int = Field(ge=1)
     # A amarração só vale para a cobrança que passou pelo CPF há menos que isto (defesa contra o
     # `identifier` forjado no widget).
     webchat_verificacao_validade_minutos: int = Field(ge=1)

@@ -110,4 +110,4 @@ interface do Chatwoot; o serviço só lê os ids das variáveis de ambiente.
    desligada (503).
 
 Os parâmetros de negócio do webchat (validade do link, dígitos do CPF e tentativas) estão no
-`politica.toml`, com o prefixo `webchat_`.
+`politica.toml`, com o prefixo `webchat_`. Depois dos erros no CPF o link bloqueia por `webchat_cpf_bloqueio_horas`; a conversa do WhatsApp ganha a etiqueta `webchat_bloqueado` e uma nota privada, uma vez por bloqueio.

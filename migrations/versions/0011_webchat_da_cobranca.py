@@ -21,6 +21,7 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("webchat_tentativas_cpf", sa.Integer(), nullable=False, server_default="0")
         )
+        batch_op.add_column(sa.Column("webchat_bloqueado_ate", sa.DateTime(), nullable=True))
         batch_op.add_column(sa.Column("webchat_verificado_em", sa.DateTime(), nullable=True))
         batch_op.add_column(sa.Column("webchat_conversa_id", sa.Integer(), nullable=True))
 
@@ -29,4 +30,5 @@ def downgrade() -> None:
     with op.batch_alter_table("cobranca", schema=None) as batch_op:
         batch_op.drop_column("webchat_conversa_id")
         batch_op.drop_column("webchat_verificado_em")
+        batch_op.drop_column("webchat_bloqueado_ate")
         batch_op.drop_column("webchat_tentativas_cpf")

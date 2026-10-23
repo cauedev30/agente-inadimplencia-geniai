@@ -127,5 +127,9 @@ def criar_app(
 
     app.include_router(criar_rota_pix(fabrica, config.pix_webhook_segredo, dependencias))
     app.include_router(criar_rota_ctn(fabrica, config.ctn_webhook_segredo, dependencias))
-    app.include_router(criar_rota_webchat(fabrica, politica, config, ctn, relogio))
+    app.include_router(
+        criar_rota_webchat(
+            fabrica, politica, config, ctn, relogio, getattr(dependencias, "chatwoot", None)
+        )
+    )
     return app

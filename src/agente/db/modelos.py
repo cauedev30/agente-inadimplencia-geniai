@@ -88,6 +88,8 @@ class Cobranca(Base):
     criada_em: Mapped[datetime] = mapped_column(default=_agora)
     # Os erros no CPF da página do webchat; ao chegar no limite do politica.toml, o link bloqueia.
     webchat_tentativas_cpf: Mapped[int] = mapped_column(default=0)
+    # Até quando o link está bloqueado por erros no CPF; passado o prazo, as tentativas zeram.
+    webchat_bloqueado_ate: Mapped[datetime | None]
     # Quando o cliente acertou o CPF na página; a amarração só aceita a verificada há pouco.
     webchat_verificado_em: Mapped[datetime | None]
     # A conversa do webchat já amarrada a esta cobrança (a amarração repetida não duplica a nota).

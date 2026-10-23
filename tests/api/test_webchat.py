@@ -2,7 +2,9 @@ import hashlib
 import hmac
 import re
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -10,6 +12,7 @@ from agente.api.app import criar_app
 from agente.config import Config
 from agente.db.modelos import Base, Cliente, Cobranca, Conversa
 from agente.db.sessao import criar_sessao
+from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.politica import Regua
 from agente.tipos import EstadoConversa, StatusCobranca
@@ -54,7 +57,20 @@ def ctn():
     return CTNFalso([ClienteCTN("F-1", NOME, TELEFONE, cpf=CPF)])
 
 
-def _app(fabrica, politica, ctn, **config):
+class Relogio:
+    def __init__(self, agora=AGORA):
+        self.agora = agora
+
+    def __call__(self):
+        return self.agora
+
+
+class ChatwootFora(ChatwootFalso):
+    def nota_privada(self, conversa_id, texto):
+        raise httpx.ConnectError("fora do ar")
+
+
+def _app(fabrica, politica, ctn, relogio=None, chatwoot=None, **config):
     campos = {
         "database_url": "sqlite://",
         "chatwoot_url": "https://chat.invalid",
@@ -66,9 +82,10 @@ def _app(fabrica, politica, ctn, **config):
         fabrica,
         politica,
         Config(**{**campos, **config}),
-        relogio=lambda: AGORA,
+        relogio=relogio or (lambda: AGORA),
         iniciar_trabalhador=False,
         ctn=ctn,
+        dependencias=SimpleNamespace(chatwoot=chatwoot) if chatwoot else None,
     )
 
 
@@ -181,8 +198,9 @@ def test_digitos_errados_nao_carregam_o_widget(http, token):
 
 
 def test_tres_erros_bloqueiam_ate_o_digito_certo(http, token):
-    for _ in range(3):
+    for _ in range(2):
         assert _confirmar(http, token, "000").status_code == 200
+    assert _confirmar(http, token, "000").status_code == 403  # o 3º erro já mostra o bloqueio
 
     for digitos in ("000", CPF[:3]):
         resposta = _confirmar(http, token, digitos)
@@ -276,3 +294,79 @@ def test_os_valores_no_script_nao_quebram_o_html(fabrica, politica, ctn, token):
 
     assert "</script><b>" not in corpo
     assert len(re.findall("</script>", corpo)) == len(re.findall("<script", corpo))
+
+
+@pytest.fixture
+def relogio():
+    return Relogio()
+
+
+@pytest.fixture
+def chatwoot():
+    return ChatwootFalso()
+
+
+@pytest.fixture
+def http_com_relogio(fabrica, politica, ctn, relogio, chatwoot):
+    with TestClient(_app(fabrica, politica, ctn, relogio=relogio, chatwoot=chatwoot)) as cliente:
+        yield cliente
+
+
+def _errar(http, token, vezes):
+    for _ in range(vezes):
+        _confirmar(http, token, "000")
+
+
+def test_o_bloqueio_dura_uma_hora_e_depois_as_tentativas_zeram(
+    http_com_relogio, relogio, politica, token
+):
+    http = http_com_relogio
+    assert politica.webchat_cpf_bloqueio_horas == 1
+    _errar(http, token, 3)
+
+    relogio.agora = AGORA + timedelta(minutes=59)
+    assert http.get(f"/atendimento/{token}").status_code == 403
+    assert _confirmar(http, token, CPF[:3]).status_code == 403
+
+    relogio.agora = AGORA + timedelta(hours=1, seconds=1)
+    assert http.get(f"/atendimento/{token}").status_code == 200
+    for _ in range(2):
+        assert _confirmar(http, token, "000").status_code == 200
+    assert _confirmar(http, token, "000").status_code == 403
+    assert _confirmar(http, token, CPF[:3]).status_code == 403
+
+
+def test_depois_do_bloqueio_o_digito_certo_abre(http_com_relogio, relogio, token):
+    _errar(http_com_relogio, token, 3)
+    relogio.agora = AGORA + timedelta(hours=2)
+
+    assert "sdk.js" in _confirmar(http_com_relogio, token, CPF[:3]).text
+
+
+def test_o_bloqueio_deixa_nota_e_etiqueta_na_conversa_uma_vez_so(
+    http_com_relogio, chatwoot, relogio, token
+):
+    _errar(http_com_relogio, token, 2)
+    assert chatwoot.chamadas == []
+
+    _errar(http_com_relogio, token, 5)
+
+    assert [(c[0], c[1]) for c in chatwoot.chamadas] == [
+        ("etiquetar", 555),
+        ("nota_privada", 555),
+    ]
+    assert chatwoot.chamadas[0][2] == ["webchat_bloqueado"]
+    assert CPF not in str(chatwoot.chamadas)
+
+    relogio.agora = AGORA + timedelta(hours=2)
+    _errar(http_com_relogio, token, 3)
+    assert sum(1 for c in chatwoot.chamadas if c[0] == "nota_privada") == 2
+
+
+def test_o_chatwoot_fora_no_aviso_nao_derruba_a_pagina(fabrica, politica, ctn, token):
+    with TestClient(_app(fabrica, politica, ctn, chatwoot=ChatwootFora())) as http:
+        _errar(http, token, 2)
+        resposta = _confirmar(http, token, "000")
+
+        assert resposta.status_code == 403
+        assert _confirmar(http, token, CPF[:3]).status_code == 403

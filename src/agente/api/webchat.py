@@ -13,19 +13,21 @@ import json
 import logging
 import re
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import update
+from sqlalchemy import case, literal, update
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from agente.config import Config
 from agente.db.modelos import Cobranca
+from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNIndisponivel
 from agente.politica import Politica
+from agente.webchat.bloqueio import avisar_bloqueio
 from agente.webchat.identidade import hash_de_identidade, identificador_do_chatwoot
 from agente.webchat.token import TokenInvalido, validar_token
 
@@ -130,6 +132,7 @@ def criar_rota_webchat(
     config: Config,
     ctn: CTN | None,
     relogio: Callable[[], datetime],
+    chatwoot: Chatwoot | None = None,
 ) -> APIRouter:
     roteador = APIRouter()
     # Sem qualquer um destes, a rota fica desligada: um HMAC de chave vazia qualquer um calcula.
@@ -141,17 +144,40 @@ def criar_rota_webchat(
         and ctn is not None
     )
 
-    def _entrada(token: str) -> tuple[int | None, HTMLResponse | None]:
+    def _entrada(token: str, agora: datetime) -> tuple[int | None, HTMLResponse | None]:
         """O id da cobrança do token, ou a resposta de recusa."""
         with fabrica() as sessao:
             try:
-                cobranca_id = validar_token(sessao, config.webchat_segredo or "", token, relogio())
+                cobranca_id = validar_token(sessao, config.webchat_segredo or "", token, agora)
             except TokenInvalido:
                 return None, _nao_encontrado()
-            tentativas = sessao.get(Cobranca, cobranca_id).webchat_tentativas_cpf
-        if tentativas >= politica.webchat_cpf_tentativas:
-            return None, _bloqueado()
-        return cobranca_id, None
+            cobranca = sessao.get(Cobranca, cobranca_id)
+            ate = cobranca.webchat_bloqueado_ate
+            if ate is not None and ate <= agora:
+                # O bloqueio acabou: as tentativas voltam a zero.
+                sessao.execute(
+                    update(Cobranca)
+                    .where(Cobranca.id == cobranca_id, Cobranca.webchat_bloqueado_ate <= agora)
+                    .values(webchat_tentativas_cpf=0, webchat_bloqueado_ate=None)
+                )
+                sessao.commit()
+                return cobranca_id, None
+            bloqueada = ate is not None or (
+                cobranca.webchat_tentativas_cpf >= politica.webchat_cpf_tentativas
+            )
+        return (None, _bloqueado()) if bloqueada else (cobranca_id, None)
+
+    def _avisar(sessao: Session, cobranca_id: int, tentativas: int) -> None:
+        # Uma vez por bloqueio: só quem gasta a última tentativa chega aqui. Se o Chatwoot falha, o
+        # cliente não é prejudicado; o bloqueio vale do mesmo jeito.
+        if chatwoot is None:
+            return
+        try:
+            avisar_bloqueio(
+                sessao, chatwoot, cobranca_id, politica.webchat_cpf_bloqueio_horas, tentativas
+            )
+        except Exception:
+            log.exception("webchat: o aviso do bloqueio da cobrança %s falhou", cobranca_id)
 
     def _conferir(cobranca_id: int, digitos: str, agora: datetime) -> HTMLResponse:
         assert ctn is not None
@@ -163,17 +189,32 @@ def criar_rota_webchat(
                 # Falha nossa, não do cliente: não gasta tentativa.
                 return _indisponivel()
             # A tentativa é gasta antes de comparar e o UPDATE confere o limite, para as
-            # requisições em paralelo não passarem do teto.
+            # requisições em paralelo não passarem do teto. O mesmo UPDATE que gasta a última
+            # tentativa grava o fim do bloqueio.
+            teto = politica.webchat_cpf_tentativas
+            fim = literal(
+                agora + timedelta(hours=politica.webchat_cpf_bloqueio_horas),
+                Cobranca.webchat_bloqueado_ate.type,
+            )
             gasta = sessao.execute(
                 update(Cobranca)
                 .where(
                     Cobranca.id == cobranca_id,
-                    Cobranca.webchat_tentativas_cpf < politica.webchat_cpf_tentativas,
+                    Cobranca.webchat_tentativas_cpf < teto,
+                    Cobranca.webchat_bloqueado_ate.is_(None),
                 )
-                .values(webchat_tentativas_cpf=Cobranca.webchat_tentativas_cpf + 1)
+                .values(
+                    webchat_tentativas_cpf=Cobranca.webchat_tentativas_cpf + 1,
+                    webchat_bloqueado_ate=case(
+                        (Cobranca.webchat_tentativas_cpf + 1 >= teto, fim),
+                        else_=Cobranca.webchat_bloqueado_ate,
+                    ),
+                )
+                .returning(Cobranca.webchat_tentativas_cpf)
             )
+            tentativas = gasta.scalar()
             sessao.commit()
-            if gasta.rowcount == 0:
+            if tentativas is None:
                 return _bloqueado()
             formato = re.fullmatch(f"[0-9]{{{politica.webchat_cpf_digitos}}}", digitos)
             confere = bool(
@@ -183,11 +224,18 @@ def criar_rota_webchat(
             )
             if not confere:
                 log.info("webchat: dígitos do CPF não conferem (cobrança %s)", cobranca_id)
+                if tentativas >= teto:
+                    _avisar(sessao, cobranca_id, tentativas)
+                    return _bloqueado()
                 return _formulario(politica, "Os dígitos não conferem. Tente de novo.")
             sessao.execute(
                 update(Cobranca)
                 .where(Cobranca.id == cobranca_id)
-                .values(webchat_tentativas_cpf=0, webchat_verificado_em=agora)
+                .values(
+                    webchat_tentativas_cpf=0,
+                    webchat_bloqueado_ate=None,
+                    webchat_verificado_em=agora,
+                )
             )
             sessao.commit()
         identificador = identificador_do_chatwoot(cobranca_id)
@@ -205,7 +253,7 @@ def criar_rota_webchat(
     async def pedir_cpf(token: str) -> HTMLResponse:
         if not ligada:
             return _indisponivel()
-        _, recusa = await run_in_threadpool(_entrada, token)
+        _, recusa = await run_in_threadpool(_entrada, token, relogio())
         return recusa or _formulario(politica)
 
     @roteador.post("/atendimento/{token}")
@@ -215,7 +263,7 @@ def criar_rota_webchat(
         # Sem a dependência de formulário (python-multipart): o corpo é só `cpf=...`.
         corpo = parse_qs((await request.body()).decode("utf-8", "replace"))
         digitos = (corpo.get("cpf") or [""])[0]
-        cobranca_id, recusa = await run_in_threadpool(_entrada, token)
+        cobranca_id, recusa = await run_in_threadpool(_entrada, token, relogio())
         if recusa is not None:
             return recusa
         return await run_in_threadpool(_conferir, cobranca_id, digitos, relogio())
