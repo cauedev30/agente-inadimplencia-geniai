@@ -153,3 +153,25 @@ def test_o_turno_trava_a_conversa_antes_da_cobranca_como_a_confirmacao(sessao, l
 
     assert travas and travas[0] == "conversa"
     assert travas.index("conversa") < travas.index("cobranca")
+
+
+def test_a_trava_da_cobranca_vem_antes_do_savepoint_da_acao(sessao, ligada, politica, monkeypatch):
+    # Com o texto vazio o savepoint volta atrás: uma trava tomada dentro dele seria solta.
+    deps = _deps(politica, redator=RedatorFalso(respostas=["", ""]))
+    _pergunta(sessao, ligada, "Pagar com Pix")  # sem Jev: nenhuma releitura antes do _agir
+    chamadas = []
+    refresh, begin_nested = sessao.refresh, sessao.begin_nested
+    monkeypatch.setattr(
+        sessao, "refresh", lambda *a, **k: (chamadas.append("refresh"), refresh(*a, **k))[1]
+    )
+    monkeypatch.setattr(
+        sessao,
+        "begin_nested",
+        lambda *a, **k: (chamadas.append("savepoint"), begin_nested(*a, **k))[1],
+    )
+
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    # O 1º savepoint é o do turno; o 2º, o da ação, precedido da releitura com trava.
+    posicoes = [i for i, nome in enumerate(chamadas) if nome == "savepoint"]
+    assert chamadas[posicoes[1] - 1] == "refresh"

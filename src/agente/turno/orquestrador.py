@@ -368,6 +368,9 @@ def _agir(
 ) -> ResultadoTurno:
     """O backend executa, o LLM redige, o Jev 3 valida e o texto fica gravado para sair (5.3)."""
     cobranca = conversa.cobranca
+    # A trava vem antes do savepoint: o rollback dele (texto vazio) soltaria a trava tomada dentro.
+    if _cobranca_fechou_no_meio(sessao, conversa):
+        return _fechar_ignorado(sessao, turno, avaliacao, agora)
     # O que o backend grava só vale se o texto com os números sair.
     ponto = sessao.begin_nested()
     numeros = executar(
