@@ -8,7 +8,7 @@ from agente.config import Config
 from agente.db.modelos import LaudoGravado, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.tipos import BatchJev, EstadoConversa, Modo, MotivoHumano
-from agente.webchat.amarrar import amarrar_conversa_webchat, tratar_conversa_criada
+from agente.webchat.amarrar import amarrar_conversa_webchat, tratar_evento_webchat
 from agente.webchat.identidade import cobranca_do_identificador, identificador_do_chatwoot
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
@@ -170,9 +170,7 @@ def _config(**extra):
 def test_o_evento_de_conversa_criada_do_webchat_amarra(sessao, ligada, politica):
     chatwoot = ChatwootFalso()
 
-    resultado = tratar_conversa_criada(
-        sessao, chatwoot, _evento(), _config(), politica, TIME, AGORA
-    )
+    resultado = tratar_evento_webchat(sessao, chatwoot, _evento(), _config(), politica, TIME, AGORA)
 
     assert resultado == "amarrada"
     assert ligada.cobranca.webchat_conversa_id == WEBCHAT
@@ -193,7 +191,7 @@ def test_o_evento_de_conversa_criada_do_webchat_amarra(sessao, ligada, politica)
 def test_o_evento_de_outra_inbox_ou_sem_cobranca_e_ignorado(sessao, ligada, politica, evento):
     chatwoot = ChatwootFalso()
 
-    resultado = tratar_conversa_criada(sessao, chatwoot, evento, _config(), politica, TIME, AGORA)
+    resultado = tratar_evento_webchat(sessao, chatwoot, evento, _config(), politica, TIME, AGORA)
 
     assert resultado == "ignorado"
     assert chatwoot.chamadas == []
@@ -202,7 +200,7 @@ def test_o_evento_de_outra_inbox_ou_sem_cobranca_e_ignorado(sessao, ligada, poli
 def test_sem_a_inbox_do_webchat_configurada_ignora(sessao, ligada, politica):
     config = Config(database_url="sqlite://")
 
-    resultado = tratar_conversa_criada(
+    resultado = tratar_evento_webchat(
         sessao, ChatwootFalso(), _evento(), config, politica, TIME, AGORA
     )
 
@@ -251,9 +249,7 @@ def test_sem_verificacao_do_cpf_o_identifier_forjado_nao_e_amarrado(sessao, liga
     ligada.cobranca.webchat_verificado_em = None
     chatwoot = ChatwootFalso()
 
-    resultado = tratar_conversa_criada(
-        sessao, chatwoot, _evento(), _config(), politica, TIME, AGORA
-    )
+    resultado = tratar_evento_webchat(sessao, chatwoot, _evento(), _config(), politica, TIME, AGORA)
 
     assert resultado == "ignorado"
     assert chatwoot.chamadas == []
@@ -265,9 +261,7 @@ def test_a_verificacao_velha_nao_vale(sessao, ligada, politica):
     ligada.cobranca.webchat_verificado_em = AGORA - janela - timedelta(seconds=1)
     chatwoot = ChatwootFalso()
 
-    resultado = tratar_conversa_criada(
-        sessao, chatwoot, _evento(), _config(), politica, TIME, AGORA
-    )
+    resultado = tratar_evento_webchat(sessao, chatwoot, _evento(), _config(), politica, TIME, AGORA)
 
     assert resultado == "ignorado"
     assert chatwoot.chamadas == []
@@ -277,7 +271,7 @@ def test_a_verificacao_dentro_da_janela_vale(sessao, ligada, politica):
     janela = timedelta(minutes=politica.webchat_verificacao_validade_minutos)
     ligada.cobranca.webchat_verificado_em = AGORA - janela
 
-    resultado = tratar_conversa_criada(
+    resultado = tratar_evento_webchat(
         sessao, ChatwootFalso(), _evento(), _config(), politica, TIME, AGORA
     )
 

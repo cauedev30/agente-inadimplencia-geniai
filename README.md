@@ -67,6 +67,7 @@ O contêiner roda `alembic upgrade head` e depois o uvicorn. Sem Docker:
 | Endpoint | Para quê |
 |---|---|
 | `GET /saude` | o serviço está vivo, sem tocar no banco (o health check consulta esta) |
+| `GET /saude/webchat` | quantas amarrações do webchat esgotaram as tentativas e seguem pendentes; 503 se o banco falhar |
 | `GET /saude/pagamentos` | quantos pagamentos pagos não concluem (baixa ou confirmação); 503 se o banco falhar |
 | `POST /webhooks/chatwoot/{segredo}` | webhook do Agent Bot no Chatwoot (mensagens, status e a conversa nova do webchat) |
 | `GET` e `POST /atendimento/{token}` | a página do webchat: pede os primeiros dígitos do CPF e abre o widget (503 sem os segredos do webchat) |
@@ -101,8 +102,8 @@ interface do Chatwoot; o serviço só lê os ids das variáveis de ambiente.
    `identifier_hash` com ele; a chave nunca vai ao navegador.
 4. Copie o **token do site** (*website token*, o do script do widget) para
    `AGENTE_WEBCHAT_WEBSITE_TOKEN` e o id da inbox para `AGENTE_WEBCHAT_INBOX`.
-5. Aponte um webhook da conta para `POST /webhooks/chatwoot/{AGENTE_WEBHOOK_SEGREDO}` com o evento
-   `conversation_created`: é ele que amarra a conversa do webchat à cobrança (nota com o resumo,
+5. Aponte um webhook da conta para `POST /webhooks/chatwoot/{AGENTE_WEBHOOK_SEGREDO}` com os eventos
+   `conversation_created` e `message_created`: eles amarram a conversa do webchat à cobrança (nota com o resumo,
    etiqueta, time e a conversa do WhatsApp marcada como transferida).
 6. `AGENTE_WEBCHAT_SEGREDO` assina o token do link (gere um valor longo e aleatório) e
    `AGENTE_WEBCHAT_URL_BASE` é o domínio público da página (G7). Sem `AGENTE_WEBCHAT_URL_BASE`, a 6ª

@@ -233,3 +233,20 @@ class Pagamento(Base):
     divergente_centavos: Mapped[int | None]
 
     cobranca: Mapped[Cobranca] = relationship(back_populates="pagamentos")
+
+
+class AmarracaoWebchat(Base):
+    """Uma amarração do webchat que o Chatwoot não deixou terminar: a rotina do Trabalhador a refaz.
+
+    A linha some quando a amarração conclui. `atencao_em` marca as tentativas esgotadas: o
+    /saude/webchat conta essas.
+    """
+
+    __tablename__ = "amarracao_webchat"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cobranca_id: Mapped[int] = mapped_column(ForeignKey("cobranca.id"), index=True)
+    conversa_webchat_id: Mapped[int] = mapped_column(unique=True)
+    tentativas: Mapped[int] = mapped_column(default=0)
+    proxima_tentativa_em: Mapped[datetime] = mapped_column(index=True)
+    atencao_em: Mapped[datetime | None]

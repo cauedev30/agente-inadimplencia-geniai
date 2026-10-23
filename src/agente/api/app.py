@@ -25,19 +25,28 @@ from agente.pagamento.concluir import (
 from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
 from agente.turno.fila import Processar, Rotina, Trabalhador, a_cada, processar_sem_acao
-from agente.webchat.amarrar import tratar_conversa_criada
+from agente.webchat.amarrar import (
+    contar_amarracoes_sem_concluir,
+    da_inbox_do_webchat,
+    refazer_amarracoes,
+    tratar_evento_webchat,
+)
 
 log = logging.getLogger(__name__)
 
 # O Pix vencido não tem pressa (G2.4): uma varredura por minuto basta.
 INTERVALO_EXPIRAR_PIX = timedelta(minutes=1)
+# A amarração do webchat pendente já espera por `espera_integracao`; a varredura é só a checagem.
+INTERVALO_AMARRACOES = timedelta(seconds=10)
 
 
 def _agora() -> datetime:
     return datetime.now(UTC)
 
 
-def _rotinas(dependencias: DependenciasPagamento | None) -> list[Rotina]:
+def _rotinas(
+    dependencias: DependenciasPagamento | None, politica: Politica, config: Config
+) -> list[Rotina]:
     rotinas: list[Rotina] = [a_cada(INTERVALO_EXPIRAR_PIX, expirar_pix)]
     if dependencias is not None:
         # Os webhooks só gravam a confirmação; a baixa e a mensagem saem por esta rotina.
@@ -45,6 +54,14 @@ def _rotinas(dependencias: DependenciasPagamento | None) -> list[Rotina]:
             return concluir_pagamentos(sessao, dependencias, agora)
 
         rotinas.append(concluir)
+        if config.webchat_inbox is not None:
+            # A amarração do webchat que o Chatwoot não deixou terminar (tarefa 7.3).
+            def refazer(sessao: Session, agora: datetime) -> int:
+                return refazer_amarracoes(
+                    sessao, dependencias.chatwoot, config, politica, dependencias.time_humano, agora
+                )
+
+            rotinas.append(a_cada(INTERVALO_AMARRACOES, refazer))
     return rotinas
 
 
@@ -63,7 +80,9 @@ def criar_app(
 
     `ctn` confere o CPF da página do webchat; sem ele (ou sem os segredos), a página fica desligada.
     """
-    trabalhador = Trabalhador(fabrica, processar, relogio, rotinas=_rotinas(dependencias))
+    trabalhador = Trabalhador(
+        fabrica, processar, relogio, rotinas=_rotinas(dependencias, politica, config)
+    )
 
     @asynccontextmanager
     async def ciclo_de_vida(_app: FastAPI):
@@ -93,6 +112,17 @@ def criar_app(
             raise HTTPException(503, "não foi possível contar os pagamentos sem concluir") from None
         return {"pagamentos_sem_concluir": sem_concluir}
 
+    @app.get("/saude/webchat")
+    def saude_webchat() -> dict:
+        # As amarrações do webchat que esgotaram as tentativas: o atendente está sem o resumo.
+        try:
+            with fabrica() as sessao:
+                sem_concluir = contar_amarracoes_sem_concluir(sessao)
+        except Exception:
+            log.exception("a contagem das amarrações do webchat falhou")
+            raise HTTPException(503, "não foi possível contar as amarrações") from None
+        return {"amarracoes_sem_concluir": sem_concluir}
+
     @app.post("/webhooks/chatwoot/{segredo}")
     async def webhook_chatwoot(segredo: str, request: Request) -> dict:
         if config.webhook_segredo is None:
@@ -108,11 +138,12 @@ def criar_app(
 
         def _tratar() -> str:
             with fabrica() as sessao:
-                if dados.get("event") == "conversation_created":
-                    # A conversa nova do webchat: a amarração à cobrança (tarefa 7.3).
+                eventos_do_webchat = ("conversation_created", "message_created")
+                if dados.get("event") in eventos_do_webchat and da_inbox_do_webchat(dados, config):
+                    # A conversa do webchat: a amarração à cobrança (tarefa 7.3).
                     if dependencias is None:
                         return "ignorado"
-                    return tratar_conversa_criada(
+                    return tratar_evento_webchat(
                         sessao,
                         dependencias.chatwoot,
                         dados,
