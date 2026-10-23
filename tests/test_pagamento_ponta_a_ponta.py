@@ -318,3 +318,18 @@ def test_o_pagamento_pelo_link_do_ctn_confirma_pelo_webhook_do_ctn(a):
             EstadoConversa.ENCERRADO,
             StatusCobranca.PAGA,
         )
+
+
+def test_o_webhook_de_uma_forma_nao_confirma_a_referencia_da_outra(a):
+    a.tocar_no_botao()
+    [txid] = a.pix.cobrancas
+    a.pix.simular_pagamento(txid)
+
+    assert a.webhook("ctn", txid).status_code == 404
+
+    assert a.banco()[:3] == (
+        EstadoConversa.AGUARDANDO_PAGAMENTO,
+        StatusCobranca.ATIVA,
+        StatusPagamento.PENDENTE,
+    )
+    assert a.webhook("pix", txid).status_code == 200

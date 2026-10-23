@@ -22,6 +22,7 @@ from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNIndisponivel
 from agente.integracoes.disparador import Disparador, FalhaNoEnvio
 from agente.pagamento.confirmar import (
+    DependenciasConfirmar,
     conversa_da_cobranca,
     dentro_das_24h,
     texto_do_template,
@@ -46,6 +47,10 @@ class DependenciasConcluir(Protocol):
     disparador: Disparador
     time_humano: int | None
     ctn: CTN
+
+
+class DependenciasPagamento(DependenciasConfirmar, DependenciasConcluir, Protocol):
+    """O que o serviço de pagamentos precisa: as dependências das duas fases da confirmação."""
 
 
 def _dar_baixa(

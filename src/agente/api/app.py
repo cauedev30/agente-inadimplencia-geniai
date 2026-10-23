@@ -5,7 +5,6 @@ import json
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from sqlalchemy.orm import Session, sessionmaker
@@ -15,7 +14,7 @@ from agente.api.chatwoot_webhook import receber_evento
 from agente.api.ctn_webhook import criar_rota_ctn
 from agente.api.pix_webhook import criar_rota_pix
 from agente.config import Config
-from agente.pagamento.concluir import concluir_pagamentos
+from agente.pagamento.concluir import DependenciasPagamento, concluir_pagamentos
 from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
 from agente.turno.fila import Processar, Rotina, Trabalhador, a_cada, processar_sem_acao
@@ -28,7 +27,7 @@ def _agora() -> datetime:
     return datetime.now(UTC)
 
 
-def _rotinas(dependencias: Any | None) -> list[Rotina]:
+def _rotinas(dependencias: DependenciasPagamento | None) -> list[Rotina]:
     rotinas: list[Rotina] = [a_cada(INTERVALO_EXPIRAR_PIX, expirar_pix)]
     if dependencias is not None:
         # Os webhooks só gravam a confirmação; a baixa e a mensagem saem por esta rotina.
@@ -47,7 +46,7 @@ def criar_app(
     processar: Processar = processar_sem_acao,
     relogio: Callable[[], datetime] = _agora,
     iniciar_trabalhador: bool = True,
-    dependencias: Any | None = None,
+    dependencias: DependenciasPagamento | None = None,
 ) -> FastAPI:
     """`dependencias` são as do turno; os webhooks de pagamento as passam ao confirmar_pagamento."""
     trabalhador = Trabalhador(fabrica, processar, relogio, rotinas=_rotinas(dependencias))

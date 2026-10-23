@@ -214,13 +214,15 @@ def test_o_log_nao_leva_cpf_nem_telefone(cliente_http, chamadas, caplog):
     assert "999990001" not in caplog.text
 
 
-def test_o_servico_de_producao_liga_os_webhooks_com_as_dependencias(monkeypatch):
+def test_o_servico_de_producao_liga_os_webhooks_com_as_dependencias(monkeypatch, tmp_path):
     from agente.api.principal import montar_app
 
     from ..conftest import RAIZ
 
+    url = f"sqlite:///{tmp_path / 'agente.db'}"
+    Base.metadata.create_all(criar_sessao(url).kw["bind"])
     config = Config(
-        database_url="sqlite://",
+        database_url=url,
         politica_path=RAIZ / "politica.toml",
         pix_webhook_segredo=SEGREDOS["pix"],
     )

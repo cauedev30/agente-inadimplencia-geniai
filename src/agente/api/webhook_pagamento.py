@@ -16,20 +16,23 @@ import json
 import logging
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError, field_validator
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
+from agente.db.modelos import Pagamento
+from agente.pagamento.concluir import DependenciasPagamento
 from agente.pagamento.confirmar import ResultadoConfirmacao
+from agente.tipos import FormaPagamento
 
 log = logging.getLogger(__name__)
 
 CABECALHO_ASSINATURA = "X-Assinatura"
 
-Confirmar = Callable[[Session, Any, str, int, datetime], ResultadoConfirmacao]
+Confirmar = Callable[[Session, DependenciasPagamento, str, int, datetime], ResultadoConfirmacao]
 
 
 class PagamentoRecebido(BaseModel):
@@ -58,10 +61,15 @@ def criar_rota(
     origem: str,
     segredo: str | None,
     fabrica: sessionmaker[Session],
-    dependencias: Any,
+    dependencias: DependenciasPagamento | None,
     confirmar: Callable[[], Confirmar],
+    forma: FormaPagamento,
 ) -> APIRouter:
-    """A rota do webhook. `confirmar` é lido a cada chamada, para os testes poderem trocá-lo."""
+    """A rota do webhook. `confirmar` é lido a cada chamada, para os testes poderem trocá-lo.
+
+    `forma` é a forma de pagamento que esta origem confirma: o webhook do Pix não confirma o link do
+    CTN, nem o contrário.
+    """
     roteador = APIRouter()
 
     @roteador.post(caminho)
@@ -82,6 +90,17 @@ def criar_rota(
 
         def _tratar() -> ResultadoConfirmacao:
             with fabrica() as sessao:
+                da_referencia = sessao.scalar(
+                    select(Pagamento.forma).where(Pagamento.referencia == pagamento.referencia)
+                )
+                if da_referencia is not None and da_referencia is not forma:
+                    log.warning(
+                        "webhook %s: a referência %s é de outra forma de pagamento (%s)",
+                        origem,
+                        pagamento.referencia,
+                        da_referencia.value,
+                    )
+                    return ResultadoConfirmacao.DESCONHECIDO
                 resultado = confirmar()(
                     sessao,
                     dependencias,
@@ -94,6 +113,9 @@ def criar_rota(
 
         resultado = await run_in_threadpool(_tratar)
         if resultado is ResultadoConfirmacao.DESCONHECIDO:
+            # Até a T1: o webhook de um banco costuma avisar todo Pix recebido na chave, inclusive
+            # os que não são do agente. Um 404 pode fazê-lo reenviar sem parar ou desligar o
+            # webhook; o provável é um 200 com este mesmo resultado, a rever com o formato real.
             log.warning("webhook %s: referência desconhecida %s", origem, pagamento.referencia)
             raise HTTPException(404, "nenhum pagamento com essa referência")
         if resultado is ResultadoConfirmacao.VALOR_DIVERGENTE:
