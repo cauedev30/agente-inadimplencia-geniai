@@ -96,6 +96,8 @@ class Pendencia(StrEnum):
     BAIXA = "BAIXA"
     # Enviar a mensagem de confirmação, gravada PENDENTE.
     MENSAGEM = "MENSAGEM"
+    # O cliente pagou duas vezes a mesma cobrança: nota e etiqueta para o atendente devolver (D39).
+    AVISO_DUPLICADO = "AVISO_DUPLICADO"
 
 
 class OrigemMensagem(StrEnum):

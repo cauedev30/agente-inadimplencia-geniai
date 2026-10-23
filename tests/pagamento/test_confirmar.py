@@ -314,7 +314,9 @@ def test_o_pagamento_confirmado_deixa_os_outros_pendentes_como_estao(sessao, lig
     assert status == {txid: StatusPagamento.PENDENTE, id_externo: StatusPagamento.PAGO}
 
 
-def test_o_segundo_pagamento_da_mesma_cobranca_nao_manda_nem_da_baixa_de_novo(sessao, ligada, deps):
+def test_o_segundo_pagamento_da_mesma_cobranca_nao_da_baixa_nem_manda_confirmacao(
+    sessao, ligada, deps
+):
     txid = _pix(sessao, ligada, deps)
     id_externo = _link(sessao, ligada, deps)
     _pagar(sessao, deps, txid, DIVIDA)
@@ -541,3 +543,78 @@ def test_a_confirmacao_trava_a_cobranca_e_o_pagamento_antes_de_ler(sessao, ligad
     travados = [c for c in comandos if c.rstrip().endswith("FOR UPDATE")]
     assert any("FROM cobranca" in c for c in travados)
     assert any("FROM pagamento" in c for c in travados)
+
+
+def _chamadas_de_aviso(deps):
+    return [c for c in deps.chatwoot.chamadas if c[0] != "enviar_mensagem"]
+
+
+def test_o_pix_e_o_link_pagos_avisam_o_atendente_para_devolver(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+    id_externo = _link(sessao, ligada, deps)
+    _pagar(sessao, deps, txid, DIVIDA)
+    assert _chamadas_de_aviso(deps) == []
+
+    resultado = _pagar(sessao, deps, id_externo, DIVIDA)
+
+    assert resultado is ResultadoConfirmacao.CONFIRMADO
+    assert len(deps.ctn.baixas) == 1 and len(deps.chatwoot.enviadas(555)) == 1
+    assert {p.status for p in sessao.scalars(select(Pagamento))} == {StatusPagamento.PAGO}
+    assert [c[0] for c in _chamadas_de_aviso(deps)] == [
+        "etiquetar",
+        "atribuir",
+        "mudar_status",
+        "nota_privada",
+    ]
+    assert ("etiquetar", 555, ["pagamento_duplicado"]) in deps.chatwoot.chamadas
+    assert ("mudar_status", 555, "open") in deps.chatwoot.chamadas
+    nota = _chamadas_de_aviso(deps)[-1][2]
+    assert txid in nota and id_externo in nota and nota.count("R$ 100,20") == 2
+    assert ligada.estado is EstadoConversa.ENCERRADO
+
+
+def test_o_pix_vencido_pago_com_o_novo_tambem_pago_avisa_o_atendente(sessao, ligada, deps):
+    velho = _pix(sessao, ligada, deps)
+    sessao.scalars(select(Pagamento)).one().status = StatusPagamento.EXPIRADO
+    _pix(sessao, ligada, deps)
+    novo = list(deps.pix.cobrancas)[-1]
+    assert novo != velho
+    _pagar(sessao, deps, velho, DIVIDA)
+
+    _pagar(sessao, deps, novo, DIVIDA)
+
+    assert len(deps.ctn.baixas) == 1 and len(deps.chatwoot.enviadas(555)) == 1
+    nota = [c for c in deps.chatwoot.chamadas if c[0] == "nota_privada"][0][2]
+    assert velho in nota and novo in nota
+
+
+def test_o_segundo_pagamento_repetido_nao_repete_o_aviso(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+    id_externo = _link(sessao, ligada, deps)
+    _pagar(sessao, deps, txid, DIVIDA)
+    _pagar(sessao, deps, id_externo, DIVIDA)
+    chamadas = len(deps.chatwoot.chamadas)
+
+    repetido = _pagar(sessao, deps, id_externo, DIVIDA)
+
+    assert repetido is ResultadoConfirmacao.JA_CONFIRMADO
+    assert len(deps.chatwoot.chamadas) == chamadas
+
+
+def test_o_aviso_do_pagamento_em_dobro_nao_se_perde_com_o_chatwoot_fora(sessao, ligada, politica):
+    deps = _deps(politica)
+    deps.chatwoot = ChatwootInstavel()
+    txid = _pix(sessao, ligada, deps)
+    id_externo = _link(sessao, ligada, deps)
+    _pagar(sessao, deps, txid, DIVIDA)
+    deps.chatwoot.fora = True
+
+    _pagar(sessao, deps, id_externo, DIVIDA)
+
+    segundo = sessao.scalars(select(Pagamento).where(Pagamento.referencia == id_externo)).one()
+    assert segundo.status is StatusPagamento.PAGO
+    assert segundo.pendencias == [Pendencia.AVISO_DUPLICADO.value]
+    deps.chatwoot.fora = False
+    concluir_pagamentos(sessao, deps, AGORA + deps.politica.espera_integracao(1))
+    assert segundo.pendencias == []
+    assert [c[0] for c in deps.chatwoot.chamadas if c[0] == "nota_privada"] == ["nota_privada"]

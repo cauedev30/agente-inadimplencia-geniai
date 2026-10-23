@@ -17,15 +17,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from agente.db.modelos import Mensagem, Pagamento
+from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNIndisponivel
 from agente.integracoes.disparador import Disparador, FalhaNoEnvio
-from agente.pagamento.confirmar import dentro_das_24h, texto_do_template, variaveis_do_template
+from agente.pagamento.confirmar import (
+    conversa_da_cobranca,
+    dentro_das_24h,
+    texto_do_template,
+    variaveis_do_template,
+)
 from agente.politica import Politica
-from agente.tipos import EstadoEnvio, OrigemMensagem, Pendencia
+from agente.tipos import EstadoEnvio, OrigemMensagem, Pendencia, StatusPagamento
 from agente.turno.entrega import confirmar_envio, entregue
 
 log = logging.getLogger(__name__)
+
+_ETIQUETA_DUPLICADO = "pagamento_duplicado"
 
 # O que conta como integração fora do ar: fica para a próxima tentativa. Qualquer outro erro é bug
 # de código: também fica para a próxima, mas com o stack trace no log.
@@ -36,6 +44,7 @@ class DependenciasConcluir(Protocol):
     politica: Politica
     chatwoot: Chatwoot
     disparador: Disparador
+    time_humano: int | None
     ctn: CTN
 
 
@@ -91,9 +100,43 @@ def _enviar_confirmacao(
     sessao.flush()
 
 
+def _avisar_duplicado(
+    sessao: Session, deps: DependenciasConcluir, pagamento: Pagamento, agora: datetime
+) -> None:
+    """O 2º pagamento da cobrança (D39): nota privada e etiqueta, para o atendente devolver.
+
+    A conversa fica como está (ENCERRADO). O Chatwoot reabre e vai para o time, senão a nota
+    passa despercebida numa conversa resolvida. A nota vai por último: se algo falha antes, ela não
+    se repete.
+    """
+    conversa = conversa_da_cobranca(pagamento)
+    if conversa is None or conversa.chatwoot_conversa_id is None:
+        log.warning("pagamento %s em dobro sem conversa no Chatwoot: conferir à mão", pagamento.id)
+        return
+    chatwoot_id = conversa.chatwoot_conversa_id
+    pagos = sorted(
+        (p for p in pagamento.cobranca.pagamentos if p.status is StatusPagamento.PAGO),
+        key=lambda p: (p.id == pagamento.id, p.pago_em, p.id),
+    )
+    linhas = ["Pagamento em dobro: a cobrança já estava paga quando este chegou."]
+    for outro in pagos:
+        quando = "agora" if outro.id == pagamento.id else "antes"
+        linhas.append(
+            f"- pago {quando}: referência {outro.referencia} ({outro.forma.value}), "
+            f"{formatar_reais(outro.valor_centavos)}"
+        )
+    linhas.append("Falta devolver o valor pago a mais.")
+    deps.chatwoot.etiquetar(chatwoot_id, [_ETIQUETA_DUPLICADO])
+    if deps.time_humano is not None:
+        deps.chatwoot.atribuir(chatwoot_id, deps.time_humano)
+    deps.chatwoot.mudar_status(chatwoot_id, "open")
+    deps.chatwoot.nota_privada(chatwoot_id, "\n".join(linhas))
+
+
 _PASSOS: dict[Pendencia, Callable[[Session, DependenciasConcluir, Pagamento, datetime], None]] = {
     Pendencia.BAIXA: _dar_baixa,
     Pendencia.MENSAGEM: _enviar_confirmacao,
+    Pendencia.AVISO_DUPLICADO: _avisar_duplicado,
 }
 
 

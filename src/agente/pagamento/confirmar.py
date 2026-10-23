@@ -63,7 +63,7 @@ def _agora() -> datetime:
     return datetime.now(UTC)
 
 
-def _conversa_da_cobranca(pagamento: Pagamento) -> Conversa | None:
+def conversa_da_cobranca(pagamento: Pagamento) -> Conversa | None:
     """A conversa mais recente da cobrança (o reinício abre uma nova para a mesma cobrança)."""
     conversas = pagamento.cobranca.conversas
     return max(conversas, key=lambda conversa: conversa.id) if conversas else None
@@ -214,8 +214,8 @@ def confirmar_pagamento(
     mensagem de confirmação fica gravada PENDENTE e a baixa no CTN (sempre no Pix; no link,
     conforme `agente_da_baixa_no_link`) fica como pendência. A rotina de conclusão faz o resto.
     A conversa com o humano também confirma e sai. Os outros pagamentos pendentes da cobrança ficam
-    como estão. O segundo pagamento de uma cobrança já paga só é marcado como pago: não repete a
-    baixa nem a mensagem, e o aviso no log fica para a conferência humana.
+    como estão. O segundo pagamento de uma cobrança já paga (D39) é marcado como pago, sem nova
+    baixa nem mensagem, e deixa o aviso ao atendente como pendência.
     """
     pagamento = sessao.scalar(select(Pagamento).where(Pagamento.referencia == referencia))
     if pagamento is None:
@@ -224,7 +224,7 @@ def confirmar_pagamento(
     if pagamento.status is StatusPagamento.PAGO:
         return ResultadoConfirmacao.JA_CONFIRMADO
     agora = _agora()
-    conversa = _conversa_da_cobranca(pagamento)
+    conversa = conversa_da_cobranca(pagamento)
     if valor_centavos != pagamento.valor_centavos:
         _pendencia_de_valor(sessao, deps, pagamento, conversa, valor_centavos, agora)
         return ResultadoConfirmacao.VALOR_DIVERGENTE
@@ -233,7 +233,10 @@ def confirmar_pagamento(
     pagamento.status = StatusPagamento.PAGO
     pagamento.pago_em = pago_em
     if cobranca.status is StatusCobranca.PAGA:
+        # Pagamento em dobro (D39): fica pago, sem nova baixa nem mensagem, e o atendente é avisado.
         log.warning("segundo pagamento (%s) da cobrança %s já paga", pagamento.id, cobranca.id)
+        pagamento.pendencias = [Pendencia.AVISO_DUPLICADO.value]
+        pagamento.proxima_tentativa_em = agora
         sessao.flush()
         return ResultadoConfirmacao.CONFIRMADO
     cobranca.status = StatusCobranca.PAGA
