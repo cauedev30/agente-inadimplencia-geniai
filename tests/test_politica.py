@@ -144,3 +144,4 @@ def test_parametros_do_webchat_tem_padrao(politica):
     assert politica.webchat_token_validade_horas == 720
     assert politica.webchat_cpf_digitos == 3
     assert politica.webchat_cpf_tentativas == 3
+    assert politica.webchat_verificacao_validade_minutos == 120

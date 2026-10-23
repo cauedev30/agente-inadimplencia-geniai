@@ -23,6 +23,7 @@ link_canal_externo = "https://atendimento.invalid/provisorio"
 # Webchat (D32, G7): padrões até o gestor responder.
 webchat_token_validade_horas = 720   # padrão (G7): o link vale 30 dias, ou até a cobrança encerrar
 webchat_cpf_digitos = 3              # padrão (G7.2): os primeiros dígitos do CPF pedidos antes de abrir o chat
+webchat_verificacao_validade_minutos = 120  # padrão: a amarração só vale para a cobrança que passou pelo CPF há menos disto
 webchat_cpf_tentativas = 3           # padrão (G7.2): erros no CPF; depois, o link da cobrança fica bloqueado
 template_abertura = "cobranca_abertura"  # padrão: o nome do template aprovado na Meta (D28, T4)
 template_retomada = "cobranca_retomada"  # padrão (C3): o turno adiado que passou das 24h do WhatsApp

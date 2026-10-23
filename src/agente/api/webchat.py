@@ -153,7 +153,7 @@ def criar_rota_webchat(
             return None, _bloqueado()
         return cobranca_id, None
 
-    def _conferir(cobranca_id: int, digitos: str) -> HTMLResponse:
+    def _conferir(cobranca_id: int, digitos: str, agora: datetime) -> HTMLResponse:
         assert ctn is not None
         with fabrica() as sessao:
             cobranca = sessao.get(Cobranca, cobranca_id)
@@ -185,7 +185,9 @@ def criar_rota_webchat(
                 log.info("webchat: dígitos do CPF não conferem (cobrança %s)", cobranca_id)
                 return _formulario(politica, "Os dígitos não conferem. Tente de novo.")
             sessao.execute(
-                update(Cobranca).where(Cobranca.id == cobranca_id).values(webchat_tentativas_cpf=0)
+                update(Cobranca)
+                .where(Cobranca.id == cobranca_id)
+                .values(webchat_tentativas_cpf=0, webchat_verificado_em=agora)
             )
             sessao.commit()
         identificador = identificador_do_chatwoot(cobranca_id)
@@ -216,6 +218,6 @@ def criar_rota_webchat(
         cobranca_id, recusa = await run_in_threadpool(_entrada, token)
         if recusa is not None:
             return recusa
-        return await run_in_threadpool(_conferir, cobranca_id, digitos)
+        return await run_in_threadpool(_conferir, cobranca_id, digitos, relogio())
 
     return roteador

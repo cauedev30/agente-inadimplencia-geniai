@@ -6,7 +6,7 @@ etiqueta e atribui ao mesmo time, e marca a conversa do WhatsApp como transferid
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from agente.config import Config
 from agente.db.modelos import Cobranca, Conversa, LaudoGravado, Mensagem, Turno
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.chatwoot import Chatwoot
+from agente.politica import Politica
 from agente.tipos import OrigemMensagem
 from agente.webchat.identidade import cobranca_do_identificador
 
@@ -137,6 +138,7 @@ def tratar_conversa_criada(
     chatwoot: Chatwoot,
     dados: dict,
     config: Config,
+    politica: Politica,
     time_id: int | None,
     agora: datetime,
 ) -> str:
@@ -155,7 +157,14 @@ def tratar_conversa_criada(
         return "ignorado"
     sender = (dados.get("meta") or {}).get("sender") or {}
     cobranca_id = cobranca_do_identificador(sender.get("identifier"))
-    if cobranca_id is None or sessao.get(Cobranca, cobranca_id) is None:
+    cobranca = sessao.get(Cobranca, cobranca_id) if cobranca_id is not None else None
+    if cobranca is None:
+        return "ignorado"
+    # O `identifier` (cobranca-<id>) é adivinhável e, sem a validação obrigatória, forjável:
+    # só amarra a cobrança que acertou o CPF na página há pouco.
+    validade = timedelta(minutes=politica.webchat_verificacao_validade_minutos)
+    if cobranca.webchat_verificado_em is None or agora - cobranca.webchat_verificado_em > validade:
+        log.warning("webchat: identifier da cobrança %s sem verificação recente", cobranca_id)
         return "ignorado"
     url = None
     if config.chatwoot_url and config.chatwoot_conta is not None:

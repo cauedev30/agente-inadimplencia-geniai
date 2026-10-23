@@ -117,6 +117,7 @@ def criar_app(
                         dependencias.chatwoot,
                         dados,
                         config,
+                        politica,
                         dependencias.time_humano,
                         relogio(),
                     )

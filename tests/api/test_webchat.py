@@ -192,6 +192,19 @@ def test_tres_erros_bloqueiam_ate_o_digito_certo(http, token):
     assert http.get(f"/atendimento/{token}").status_code == 403
 
 
+def test_o_acerto_do_cpf_grava_a_verificacao(http, fabrica, token):
+    with fabrica() as sessao:
+        assert sessao.get(Cobranca, 1).webchat_verificado_em is None
+
+    _confirmar(http, token, "000")
+    with fabrica() as sessao:
+        assert sessao.get(Cobranca, 1).webchat_verificado_em is None
+    _confirmar(http, token, CPF[:3])
+
+    with fabrica() as sessao:
+        assert sessao.get(Cobranca, 1).webchat_verificado_em == AGORA
+
+
 def test_o_acerto_zera_as_tentativas(http, token):
     for _ in range(2):
         _confirmar(http, token, "000")

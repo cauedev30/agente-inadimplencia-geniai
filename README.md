@@ -93,8 +93,11 @@ interface do Chatwoot; o serviço só lê os ids das variáveis de ambiente.
    ligue **Enable auto assignment**. O Chatwoot reparte as conversas novas entre eles, em rodízio
    igualitário. É configuração do Chatwoot, o código do agente não escolhe o atendente. O plantão
    (quem está online na janela de atendimento, D16) também é gerido ali (G7).
-3. Em *Settings > Configuration*, ligue a **validação de identidade** (*Enable identity validation*) e
-   copie o **HMAC token** da inbox para `AGENTE_WEBCHAT_IDENTIDADE_HMAC`. O servidor calcula o
+3. Em *Settings > Configuration*, ligue a **validação de identidade** e marque **Enforce User Identity
+   Validation** (obrigar). Sem o obrigatório, o widget aceita qualquer `identifier` sem hash, e o
+   `cobranca-<id>` é fácil de adivinhar. Copie o **HMAC token** da inbox para
+   `AGENTE_WEBCHAT_IDENTIDADE_HMAC`. Além da configuração, o código só amarra a conversa da cobrança
+   que acertou o CPF há menos de `webchat_verificacao_validade_minutos`. O servidor calcula o
    `identifier_hash` com ele; a chave nunca vai ao navegador.
 4. Copie o **token do site** (*website token*, o do script do widget) para
    `AGENTE_WEBCHAT_WEBSITE_TOKEN` e o id da inbox para `AGENTE_WEBCHAT_INBOX`.
