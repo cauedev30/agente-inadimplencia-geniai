@@ -15,13 +15,25 @@ from agente.api.chatwoot_webhook import receber_evento
 from agente.api.ctn_webhook import criar_rota_ctn
 from agente.api.pix_webhook import criar_rota_pix
 from agente.config import Config
+from agente.pagamento.concluir import concluir_pagamentos
 from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
-from agente.turno.fila import Processar, Trabalhador, processar_sem_acao
+from agente.turno.fila import Processar, Rotina, Trabalhador, processar_sem_acao
 
 
 def _agora() -> datetime:
     return datetime.now(UTC)
+
+
+def _rotinas(dependencias: Any | None) -> list[Rotina]:
+    rotinas: list[Rotina] = [expirar_pix]
+    if dependencias is not None:
+        # Os webhooks só gravam a confirmação; a baixa e a mensagem saem por esta rotina.
+        def concluir(sessao: Session, agora: datetime) -> int:
+            return concluir_pagamentos(sessao, dependencias, agora)
+
+        rotinas.append(concluir)
+    return rotinas
 
 
 def criar_app(
@@ -35,7 +47,7 @@ def criar_app(
     dependencias: Any | None = None,
 ) -> FastAPI:
     """`dependencias` são as do turno; os webhooks de pagamento as passam ao confirmar_pagamento."""
-    trabalhador = Trabalhador(fabrica, processar, relogio, rotinas=[expirar_pix])
+    trabalhador = Trabalhador(fabrica, processar, relogio, rotinas=_rotinas(dependencias))
 
     @asynccontextmanager
     async def ciclo_de_vida(_app: FastAPI):

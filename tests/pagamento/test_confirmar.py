@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -13,12 +14,15 @@ from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevFalso
 from agente.integracoes.pix import PixFalso, StatusPix
 from agente.pagamento import confirmar
+from agente.pagamento.concluir import concluir_pagamentos
 from agente.pagamento.confirmar import ResultadoConfirmacao, confirmar_pagamento
 from agente.tipos import (
     EstadoConversa,
+    EstadoEnvio,
     Modo,
     MotivoHumano,
     OrigemMensagem,
+    Pendencia,
     StatusCobranca,
     StatusPagamento,
     TipoFixa,
@@ -37,6 +41,35 @@ DIVIDA = 10020
 @pytest.fixture(autouse=True)
 def relogio(monkeypatch):
     monkeypatch.setattr(confirmar, "_agora", lambda: AGORA)
+
+
+class ChatwootInstavel(ChatwootFalso):
+    """O Chatwoot que cai: `fora` derruba toda chamada; `perde_a_resposta` entrega sem responder."""
+
+    def __init__(self):
+        super().__init__()
+        self.fora = False
+        self.perde_a_resposta = False
+
+    def _exigir_no_ar(self):
+        if self.fora:
+            raise httpx.ConnectError("o Chatwoot não respondeu")
+
+    def enviar_mensagem(self, conversa_id, texto, botoes=None):
+        self._exigir_no_ar()
+        chatwoot_id = super().enviar_mensagem(conversa_id, texto, botoes)
+        if self.perde_a_resposta:
+            self.perde_a_resposta = False
+            raise httpx.ReadTimeout("a resposta do Chatwoot se perdeu")
+        return chatwoot_id
+
+    def mensagens_do_agente(self, conversa_id):
+        self._exigir_no_ar()
+        return super().mensagens_do_agente(conversa_id)
+
+    def nota_privada(self, conversa_id, texto):
+        self._exigir_no_ar()
+        super().nota_privada(conversa_id, texto)
 
 
 def _deps(politica, **mudancas):
@@ -69,6 +102,13 @@ def ligada(sessao, conversa):
     return conversa
 
 
+def _pagar(sessao, deps, referencia, valor):
+    """A 1ª fase e, em seguida, a 2ª: o que a rotina do Trabalhador faz no ciclo seguinte."""
+    resultado = confirmar_pagamento(sessao, deps, referencia, valor, PAGO_EM)
+    concluir_pagamentos(sessao, deps, AGORA)
+    return resultado
+
+
 def _pix(sessao, conversa, deps):
     executar([Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA)
     sessao.flush()
@@ -94,7 +134,7 @@ def test_o_pix_pago_confirma_da_baixa_manda_a_fixa_e_encerra(sessao, ligada, dep
     deps.pix.simular_pagamento(txid)
     assert deps.pix.consultar(txid) is StatusPix.PAGO
 
-    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    resultado = _pagar(sessao, deps, txid, DIVIDA)
 
     assert resultado is ResultadoConfirmacao.CONFIRMADO
     pagamento = sessao.scalars(select(Pagamento)).one()
@@ -112,9 +152,9 @@ def test_o_pix_pago_confirma_da_baixa_manda_a_fixa_e_encerra(sessao, ligada, dep
 
 def test_o_webhook_repetido_nao_manda_duas_confirmacoes(sessao, ligada, deps):
     txid = _pix(sessao, ligada, deps)
-    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    _pagar(sessao, deps, txid, DIVIDA)
 
-    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    resultado = _pagar(sessao, deps, txid, DIVIDA)
 
     assert resultado is ResultadoConfirmacao.JA_CONFIRMADO
     assert len(deps.chatwoot.enviadas(555)) == 1
@@ -123,7 +163,7 @@ def test_o_webhook_repetido_nao_manda_duas_confirmacoes(sessao, ligada, deps):
 
 
 def test_referencia_desconhecida_nao_toca_em_nada(sessao, ligada, deps):
-    resultado = confirmar_pagamento(sessao, deps, "nao-existe", DIVIDA, PAGO_EM)
+    resultado = _pagar(sessao, deps, "nao-existe", DIVIDA)
 
     assert resultado is ResultadoConfirmacao.DESCONHECIDO
     assert deps.ctn.baixas == [] and deps.chatwoot.chamadas == []
@@ -134,7 +174,7 @@ def test_referencia_desconhecida_nao_toca_em_nada(sessao, ligada, deps):
 def test_valor_divergente_nao_confirma_e_vira_pendencia_para_o_humano(sessao, ligada, deps):
     txid = _pix(sessao, ligada, deps)
 
-    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA - 500, PAGO_EM)
+    resultado = _pagar(sessao, deps, txid, DIVIDA - 500)
 
     assert resultado is ResultadoConfirmacao.VALOR_DIVERGENTE
     pagamento = sessao.scalars(select(Pagamento)).one()
@@ -154,10 +194,10 @@ def test_valor_divergente_nao_confirma_e_vira_pendencia_para_o_humano(sessao, li
 
 def test_valor_divergente_repetido_nao_repete_a_pendencia(sessao, ligada, deps):
     txid = _pix(sessao, ligada, deps)
-    confirmar_pagamento(sessao, deps, txid, DIVIDA - 500, PAGO_EM)
+    _pagar(sessao, deps, txid, DIVIDA - 500)
     chamadas = len(deps.chatwoot.chamadas)
 
-    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA - 500, PAGO_EM)
+    resultado = _pagar(sessao, deps, txid, DIVIDA - 500)
 
     assert resultado is ResultadoConfirmacao.VALOR_DIVERGENTE
     assert len(deps.chatwoot.chamadas) == chamadas
@@ -167,7 +207,7 @@ def test_o_propenso_que_pagou_no_pix_recebe_o_convite_do_cartao(sessao, ligada, 
     ligada.cobranca.propenso_cartao = True
     txid = _pix(sessao, ligada, deps)
 
-    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    _pagar(sessao, deps, txid, DIVIDA)
 
     [link] = [url for url in deps.ctn.links if url.startswith("cartao")]
     esperada = mensagem_fixa(
@@ -175,14 +215,16 @@ def test_o_propenso_que_pagou_no_pix_recebe_o_convite_do_cartao(sessao, ligada, 
         DadosFixa("Cliente Fictício", DIVIDA, f"https://ctn.invalid/cartao/{link}", ""),
     )
     [chamada] = _enviadas(deps)
-    assert chamada[2:] == (esperada.texto, esperada.botoes)
+    # O botão de link vai no texto, como o Chatwoot o entrega.
+    botao = esperada.botoes[0]
+    assert chamada[2:] == (f"{esperada.texto}\n\n{botao.texto}: {botao.valor}", [])
 
 
 def test_o_propenso_que_pagou_pelo_link_recebe_a_confirmacao_simples(sessao, ligada, deps):
     ligada.cobranca.propenso_cartao = True
     id_externo = _link(sessao, ligada, deps)
 
-    confirmar_pagamento(sessao, deps, id_externo, DIVIDA, PAGO_EM)
+    _pagar(sessao, deps, id_externo, DIVIDA)
 
     [chamada] = _enviadas(deps)
     assert "cadastre o seu cartão" not in chamada[2] and chamada[3] == []
@@ -192,7 +234,7 @@ def test_o_propenso_que_pagou_pelo_link_recebe_a_confirmacao_simples(sessao, lig
 def test_quem_nao_e_propenso_recebe_a_confirmacao_simples_no_pix(sessao, ligada, deps):
     txid = _pix(sessao, ligada, deps)
 
-    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    _pagar(sessao, deps, txid, DIVIDA)
 
     [chamada] = _enviadas(deps)
     assert "cadastre o seu cartão" not in chamada[2]
@@ -201,7 +243,7 @@ def test_quem_nao_e_propenso_recebe_a_confirmacao_simples_no_pix(sessao, ligada,
 def test_o_link_nao_da_baixa_com_o_padrao_e_o_valor_e_o_do_degrau(sessao, ligada, deps):
     id_externo = _link(sessao, ligada, deps, [Acao.OFFER_DISCOUNT, Acao.SEND_CTN_LINK])
 
-    resultado = confirmar_pagamento(sessao, deps, id_externo, 7020, PAGO_EM)
+    resultado = _pagar(sessao, deps, id_externo, 7020)
 
     assert resultado is ResultadoConfirmacao.CONFIRMADO
     assert deps.ctn.baixas == []
@@ -214,7 +256,7 @@ def test_o_link_da_baixa_quando_o_parametro_manda(sessao, ligada, politica):
     deps = _deps(politica, agente_da_baixa_no_link=True)
     id_externo = _link(sessao, ligada, deps)
 
-    confirmar_pagamento(sessao, deps, id_externo, DIVIDA, PAGO_EM)
+    _pagar(sessao, deps, id_externo, DIVIDA)
 
     assert deps.ctn.baixas == [("M-0001", DIVIDA, PAGO_EM, id_externo)]
 
@@ -226,7 +268,7 @@ def test_a_confirmacao_sai_mesmo_depois_da_6a(sessao, ligada, deps):
     txid = _pix(sessao, ligada, deps)
     assert mensagens_no_teto(sessao, ligada.id) == 5
 
-    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    _pagar(sessao, deps, txid, DIVIDA)
 
     assert len(deps.chatwoot.enviadas(555)) == 1
     assert ligada.estado is EstadoConversa.ENCERRADO
@@ -236,7 +278,7 @@ def test_fora_das_24h_a_confirmacao_vai_por_template(sessao, ligada, deps):
     sessao.scalars(select(Mensagem)).one().momento = AGORA - timedelta(hours=30)
     txid = _pix(sessao, ligada, deps)
 
-    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    _pagar(sessao, deps, txid, DIVIDA)
 
     assert deps.chatwoot.enviadas(555) == []
     [envio] = deps.disparador.envios
@@ -253,7 +295,7 @@ def test_a_conversa_com_o_humano_tambem_da_a_baixa_e_sai(sessao, ligada, deps):
     ligada.human_owned = True
     txid = _pix(sessao, ligada, deps)
 
-    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    _pagar(sessao, deps, txid, DIVIDA)
 
     assert deps.ctn.baixas == [("M-0001", DIVIDA, PAGO_EM, txid)]
     assert len(deps.chatwoot.enviadas(555)) == 1
@@ -265,7 +307,7 @@ def test_o_pagamento_confirmado_deixa_os_outros_pendentes_como_estao(sessao, lig
     txid = _pix(sessao, ligada, deps)
     id_externo = _link(sessao, ligada, deps)
 
-    confirmar_pagamento(sessao, deps, id_externo, DIVIDA, PAGO_EM)
+    _pagar(sessao, deps, id_externo, DIVIDA)
 
     status = {p.referencia: p.status for p in sessao.scalars(select(Pagamento))}
     assert status == {txid: StatusPagamento.PENDENTE, id_externo: StatusPagamento.PAGO}
@@ -274,9 +316,9 @@ def test_o_pagamento_confirmado_deixa_os_outros_pendentes_como_estao(sessao, lig
 def test_o_segundo_pagamento_da_mesma_cobranca_nao_manda_nem_da_baixa_de_novo(sessao, ligada, deps):
     txid = _pix(sessao, ligada, deps)
     id_externo = _link(sessao, ligada, deps)
-    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    _pagar(sessao, deps, txid, DIVIDA)
 
-    resultado = confirmar_pagamento(sessao, deps, id_externo, DIVIDA, PAGO_EM)
+    resultado = _pagar(sessao, deps, id_externo, DIVIDA)
 
     assert resultado is ResultadoConfirmacao.CONFIRMADO
     assert len(deps.ctn.baixas) == 1 and len(deps.chatwoot.enviadas(555)) == 1
@@ -286,7 +328,7 @@ def test_o_segundo_pagamento_da_mesma_cobranca_nao_manda_nem_da_baixa_de_novo(se
 def test_sem_mensagem_do_cliente_a_confirmacao_vai_por_template(sessao, conversa, deps):
     txid = _pix(sessao, conversa, deps)
 
-    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    resultado = _pagar(sessao, deps, txid, DIVIDA)
 
     assert resultado is ResultadoConfirmacao.CONFIRMADO
     assert len(deps.ctn.baixas) == 1
@@ -303,7 +345,7 @@ def test_sem_conversa_so_confirma_e_da_a_baixa(sessao, conversa, deps):
     sessao.flush()
     sessao.expire_all()
 
-    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    resultado = _pagar(sessao, deps, txid, DIVIDA)
 
     assert resultado is ResultadoConfirmacao.CONFIRMADO
     assert len(deps.ctn.baixas) == 1
@@ -314,7 +356,7 @@ def test_o_pix_expirado_que_o_banco_confirma_pago_segue_a_sequencia_normal(sessa
     txid = _pix(sessao, ligada, deps)
     sessao.scalars(select(Pagamento)).one().status = StatusPagamento.EXPIRADO
 
-    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    resultado = _pagar(sessao, deps, txid, DIVIDA)
 
     assert resultado is ResultadoConfirmacao.CONFIRMADO
     pagamento = sessao.scalars(select(Pagamento)).one()
@@ -322,6 +364,163 @@ def test_o_pix_expirado_que_o_banco_confirma_pago_segue_a_sequencia_normal(sessa
     assert deps.ctn.baixas == [("M-0001", DIVIDA, PAGO_EM, txid)]
     assert len(deps.chatwoot.enviadas(555)) == 1
     assert ligada.estado is EstadoConversa.ENCERRADO
-    assert confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM) is (
-        ResultadoConfirmacao.JA_CONFIRMADO
-    )
+    assert _pagar(sessao, deps, txid, DIVIDA) is (ResultadoConfirmacao.JA_CONFIRMADO)
+
+
+def _pendentes(sessao):
+    consulta = select(Mensagem).where(Mensagem.envio == EstadoEnvio.PENDENTE)
+    return sessao.scalars(consulta).all()
+
+
+def test_a_1a_fase_so_grava_e_nao_toca_em_nada_externo(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+
+    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+
+    assert resultado is ResultadoConfirmacao.CONFIRMADO
+    assert deps.chatwoot.chamadas == [] and deps.ctn.baixas == [] and deps.disparador.envios == []
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert (pagamento.status, pagamento.baixa_ctn_em) == (StatusPagamento.PAGO, None)
+    assert pagamento.pendencias == [Pendencia.BAIXA.value, Pendencia.MENSAGEM.value]
+    assert pagamento.proxima_tentativa_em == AGORA
+    assert ligada.cobranca.status is StatusCobranca.PAGA
+    assert ligada.estado is EstadoConversa.ENCERRADO
+    assert _transicoes(sessao) == [EstadoConversa.PAGO, EstadoConversa.ENCERRADO]
+    [mensagem] = _pendentes(sessao)
+    assert (mensagem.origem, mensagem.conta_no_teto) == (OrigemMensagem.FIXA, False)
+    assert "R$ 100,20" in mensagem.texto
+
+
+def test_com_o_chatwoot_fora_o_pagamento_fica_pago_e_a_rotina_manda_a_confirmacao_depois(
+    sessao, ligada, politica
+):
+    deps = _deps(politica)
+    deps.chatwoot = ChatwootInstavel()
+    txid = _pix(sessao, ligada, deps)
+    deps.chatwoot.fora = True
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+
+    assert concluir_pagamentos(sessao, deps, AGORA) == 1
+
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert pagamento.status is StatusPagamento.PAGO
+    assert ligada.cobranca.status is StatusCobranca.PAGA
+    assert ligada.estado is EstadoConversa.ENCERRADO
+    assert deps.ctn.baixas == [("M-0001", DIVIDA, PAGO_EM, txid)]  # a baixa não esperou o Chatwoot
+    assert pagamento.pendencias == [Pendencia.MENSAGEM.value]
+    assert pagamento.tentativas_conclusao == 1
+    assert pagamento.proxima_tentativa_em == AGORA + deps.politica.espera_integracao(1)
+    assert len(_pendentes(sessao)) == 1
+
+    # Antes da espera nada roda; passada a espera, com o Chatwoot de volta, sai uma só.
+    deps.chatwoot.fora = False
+    assert concluir_pagamentos(sessao, deps, AGORA + timedelta(seconds=1)) == 0
+    assert deps.chatwoot.enviadas(555) == []
+    depois = AGORA + deps.politica.espera_integracao(1)
+    assert concluir_pagamentos(sessao, deps, depois) == 1
+    assert len(deps.chatwoot.enviadas(555)) == 1 and _pendentes(sessao) == []
+    assert (pagamento.pendencias, pagamento.proxima_tentativa_em) == ([], None)
+    assert concluir_pagamentos(sessao, deps, depois + timedelta(days=1)) == 0
+    assert len(deps.chatwoot.enviadas(555)) == 1 and len(deps.ctn.baixas) == 1
+
+
+def test_com_o_ctn_fora_a_mensagem_sai_e_a_baixa_fica_para_a_rotina(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.ctn.fora_do_ar = True
+
+    concluir_pagamentos(sessao, deps, AGORA)
+
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert pagamento.status is StatusPagamento.PAGO and pagamento.baixa_ctn_em is None
+    assert len(deps.chatwoot.enviadas(555)) == 1
+    assert pagamento.pendencias == [Pendencia.BAIXA.value]
+
+    deps.ctn.fora_do_ar = False
+    depois = AGORA + deps.politica.espera_integracao(1)
+    concluir_pagamentos(sessao, deps, depois)
+
+    assert deps.ctn.baixas == [("M-0001", DIVIDA, PAGO_EM, txid)]
+    assert pagamento.baixa_ctn_em == depois and pagamento.proxima_tentativa_em is None
+    assert len(deps.chatwoot.enviadas(555)) == 1
+
+
+def test_a_resposta_perdida_do_chatwoot_nao_reenvia_a_confirmacao(sessao, ligada, politica):
+    deps = _deps(politica)
+    deps.chatwoot = ChatwootInstavel()
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.chatwoot.perde_a_resposta = True
+
+    concluir_pagamentos(sessao, deps, AGORA)
+    assert len(_pendentes(sessao)) == 1 and len(deps.chatwoot.enviadas(555)) == 1
+
+    concluir_pagamentos(sessao, deps, AGORA + deps.politica.espera_integracao(1))
+
+    assert len(deps.chatwoot.enviadas(555)) == 1
+    assert _pendentes(sessao) == []
+    mensagem = sessao.scalars(select(Mensagem).where(Mensagem.origem == OrigemMensagem.FIXA)).one()
+    assert (mensagem.envio, mensagem.chatwoot_message_id) == (EstadoEnvio.ENVIADA, "falso-1")
+
+
+def test_o_webhook_repetido_com_a_conclusao_pendente_nao_refaz_nada(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+
+    repetido = confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    concluir_pagamentos(sessao, deps, AGORA)
+
+    assert repetido is ResultadoConfirmacao.JA_CONFIRMADO
+    assert len(deps.chatwoot.enviadas(555)) == 1 and len(deps.ctn.baixas) == 1
+
+
+def test_o_convite_que_falha_cai_para_a_confirmacao_simples_e_nao_barra_o_pagamento(
+    sessao, ligada, deps
+):
+    ligada.cobranca.propenso_cartao = True
+    txid = _pix(sessao, ligada, deps)
+    deps.ctn.fora_do_ar = True
+
+    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+
+    assert resultado is ResultadoConfirmacao.CONFIRMADO
+    [mensagem] = _pendentes(sessao)
+    assert "cadastre o seu cartão" not in mensagem.texto
+    assert ligada.cobranca.status is StatusCobranca.PAGA
+
+
+def test_se_a_janela_fecha_na_espera_a_confirmacao_pendente_sai_por_template(
+    sessao, ligada, politica
+):
+    deps = _deps(politica)
+    deps.chatwoot = ChatwootInstavel()
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.chatwoot.fora = True
+    concluir_pagamentos(sessao, deps, AGORA)
+
+    # O cliente escreveu há uma hora; passadas 25h, só o template pode sair.
+    concluir_pagamentos(sessao, deps, AGORA + timedelta(hours=25))
+
+    assert deps.chatwoot.enviadas(555) == []
+    [envio] = deps.disparador.envios
+    assert envio.template == deps.politica.template_confirmacao
+    assert envio.variaveis == {"nome": "Cliente", "valor": "R$ 100,20"}
+    assert _pendentes(sessao) == []
+
+
+def test_a_conclusao_que_nao_sai_vira_erro_no_log_depois_das_tentativas(
+    sessao, ligada, deps, caplog
+):
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.ctn.fora_do_ar = True
+    agora = AGORA
+    with caplog.at_level("WARNING"):
+        for _ in range(deps.politica.integracao_tentativas):
+            concluir_pagamentos(sessao, deps, agora)
+            agora = sessao.scalars(select(Pagamento)).one().proxima_tentativa_em
+
+    erros = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(erros) == 1 and "conferir à mão" in erros[0].getMessage()
+    assert txid not in erros[0].getMessage()

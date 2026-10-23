@@ -1,8 +1,10 @@
-"""Confirmação de pagamento (tarefa 6.1).
+"""Confirmação de pagamento (tarefa 6.1), em duas fases.
 
-A assinatura foi fixada antes da etapa 6 para os webhooks (6.3) chamarem a função enquanto ela era
-implementada. Quem chama decide o commit; a função só faz flush. Se a baixa ou o envio falharem, a
-exceção sobe e o webhook é refeito: a baixa é idempotente pela referência.
+A 1ª fase, esta função, só mexe no banco e é a que faz o commit: o pagamento vira pago, a cobrança
+paga, a conversa vai a PAGO e ENCERRADO, e a mensagem de confirmação fica gravada PENDENTE. Nada
+externo roda aqui, então uma queda do CTN ou do Chatwoot não perde o pagamento. A 2ª fase
+(`pagamento/concluir.py`, uma rotina do Trabalhador) dá a baixa no CTN e envia a mensagem, com
+tentativas. Quem chama decide o commit; a função só faz flush.
 """
 
 import json
@@ -11,28 +13,30 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol
 
+import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from agente.db.historico import registrar_mensagem, transicionar
-from agente.db.modelos import Conversa, Mensagem, Pagamento
+from agente.db.modelos import Cliente, Conversa, Mensagem, Pagamento
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.chatwoot import Chatwoot
-from agente.integracoes.ctn import CTN
+from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNIndisponivel
 from agente.integracoes.disparador import Disparador
 from agente.politica import Politica
 from agente.tipos import (
     EstadoConversa,
+    EstadoEnvio,
     FormaPagamento,
     MotivoHumano,
     OrigemMensagem,
+    Pendencia,
     StatusCobranca,
     StatusPagamento,
     TipoFixa,
 )
-from agente.turno.catalogo import DadosFixa
+from agente.turno.catalogo import DadosFixa, MensagemPronta, mensagem_fixa
 from agente.turno.gates import JANELA_WHATSAPP
-from agente.turno.handoff import enviar_fixa
 
 log = logging.getLogger(__name__)
 
@@ -99,7 +103,7 @@ def _pendencia_de_valor(
     transicionar(sessao, conversa, EstadoConversa.ATENDIMENTO_HUMANO, motivo, None, momento=agora)
 
 
-def _dentro_das_24h(sessao: Session, conversa: Conversa, agora: datetime) -> bool:
+def dentro_das_24h(sessao: Session, conversa: Conversa, agora: datetime) -> bool:
     ultima = sessao.scalar(
         select(func.max(Mensagem.momento)).where(
             Mensagem.conversa_id == conversa.id, Mensagem.origem == OrigemMensagem.CLIENTE
@@ -112,42 +116,67 @@ def _dentro_das_24h(sessao: Session, conversa: Conversa, agora: datetime) -> boo
     )
 
 
-def _avisar(
+def variaveis_do_template(cliente: Cliente, valor_centavos: int) -> dict[str, str]:
+    return {
+        "nome": cliente.nome.split()[0] if cliente.nome.strip() else "",
+        "valor": formatar_reais(valor_centavos),
+    }
+
+
+def texto_do_template(template: str, variaveis: dict[str, str]) -> str:
+    """Como o template fica no histórico: o disparador não devolve o texto."""
+    return f"[template {template}] {json.dumps(variaveis, ensure_ascii=False)}"
+
+
+def _texto_com_botoes(mensagem: MensagemPronta) -> str:
+    """O botão de link vai no texto, como o Chatwoot o entrega: o texto gravado é o que sai."""
+    links = [f"{botao.texto}: {botao.valor}" for botao in mensagem.botoes if botao.tipo == "url"]
+    if not links:
+        return mensagem.texto
+    return f"{mensagem.texto}\n\n" + "\n".join(links)
+
+
+def _link_do_convite(deps: DependenciasConfirmar, cliente: Cliente) -> str | None:
+    """O convite do cartão é acessório: se o CTN falha, a confirmação sai simples."""
+    try:
+        return deps.ctn.gerar_link_cadastro_cartao(cliente.matricula_ctn).url
+    except (CTNIndisponivel, ClienteNaoEncontrado, httpx.HTTPError):
+        log.warning("o link do convite do cartão falhou; a confirmação sai sem o convite")
+        return None
+
+
+def _gravar_confirmacao(
     sessao: Session,
     deps: DependenciasConfirmar,
     pagamento: Pagamento,
     conversa: Conversa,
-    valor_centavos: int,
     agora: datetime,
 ) -> None:
-    """A confirmação sai na hora, fora da janela de atendimento e do teto (D33).
+    """Grava a confirmação PENDENTE, fora do teto e da janela de atendimento (D33).
 
     Dentro das 24h do WhatsApp vai pelo Chatwoot (com o convite do cartão, se couber); fora delas,
-    pelo template de utilidade, sem o convite.
+    pelo template de utilidade, sem o convite. A rotina de conclusão envia.
     """
     cliente = conversa.cobranca.cliente
-    if _dentro_das_24h(sessao, conversa, agora):
+    valor_centavos = pagamento.valor_centavos
+    if dentro_das_24h(sessao, conversa, agora):
         convite = pagamento.forma is FormaPagamento.PIX and conversa.cobranca.propenso_cartao
-        link_cartao = (
-            deps.ctn.gerar_link_cadastro_cartao(cliente.matricula_ctn).url if convite else None
-        )
-        tipo = TipoFixa.CONFIRMACAO_CONVITE_CARTAO if convite else TipoFixa.CONFIRMACAO
+        link_cartao = _link_do_convite(deps, cliente) if convite else None
+        tipo = TipoFixa.CONFIRMACAO_CONVITE_CARTAO if link_cartao else TipoFixa.CONFIRMACAO
         dados = DadosFixa(
             nome=cliente.nome,
             valor_centavos=valor_centavos,
             link_cartao=link_cartao,
             link_canal_externo=deps.politica.link_canal_externo,
         )
-        enviar_fixa(sessao, deps.chatwoot, conversa, tipo, dados, agora)
-        return
-    template = deps.politica.template_confirmacao
-    variaveis = {
-        "nome": cliente.nome.split()[0] if cliente.nome.strip() else "",
-        "valor": formatar_reais(valor_centavos),
-    }
-    deps.disparador.enviar_template(cliente.telefone, template, variaveis, [])
-    texto = f"[template {template}] {json.dumps(variaveis, ensure_ascii=False)}"
-    registrar_mensagem(sessao, conversa.id, OrigemMensagem.ABERTURA, texto, None, False, agora)
+        origem, texto = OrigemMensagem.FIXA, _texto_com_botoes(mensagem_fixa(tipo, dados))
+    else:
+        variaveis = variaveis_do_template(cliente, valor_centavos)
+        origem = OrigemMensagem.ABERTURA
+        texto = texto_do_template(deps.politica.template_confirmacao, variaveis)
+    registrar_mensagem(
+        sessao, conversa.id, origem, texto, None, False, agora, envio=EstadoEnvio.PENDENTE
+    )
 
 
 def confirmar_pagamento(
@@ -159,9 +188,9 @@ def confirmar_pagamento(
 ) -> ResultadoConfirmacao:
     """Confirma o pagamento da referência (o txid do Pix ou o id do link do CTN). É idempotente.
 
-    A sequência: o pagamento vira pago e a conversa vai para PAGO; sai a baixa no CTN (sempre no
-    Pix; no link, conforme `agente_da_baixa_no_link`); sai a mensagem fixa; a conversa vai para
-    ENCERRADO.
+    A 1ª fase: o pagamento vira pago, a cobrança paga e a conversa vai a PAGO e a ENCERRADO; a
+    mensagem de confirmação fica gravada PENDENTE e a baixa no CTN (sempre no Pix; no link,
+    conforme `agente_da_baixa_no_link`) fica como pendência. A rotina de conclusão faz o resto.
     A conversa com o humano também confirma e sai. Os outros pagamentos pendentes da cobrança ficam
     como estão. O segundo pagamento de uma cobrança já paga só é marcado como pago: não repete a
     baixa nem a mensagem, e o aviso no log fica para a conferência humana.
@@ -185,17 +214,15 @@ def confirmar_pagamento(
         sessao.flush()
         return ResultadoConfirmacao.CONFIRMADO
     cobranca.status = StatusCobranca.PAGA
+    pendencias = []
+    if pagamento.forma is FormaPagamento.PIX or deps.politica.agente_da_baixa_no_link:
+        pendencias.append(Pendencia.BAIXA.value)
     if conversa is not None:
         transicionar(sessao, conversa, EstadoConversa.PAGO, None, None, momento=agora)
-
-    if pagamento.forma is FormaPagamento.PIX or deps.politica.agente_da_baixa_no_link:
-        deps.ctn.registrar_baixa(
-            cobranca.cliente.matricula_ctn, valor_centavos, pago_em, pagamento.referencia
-        )
-        pagamento.baixa_ctn_em = agora
-
-    if conversa is not None:
-        _avisar(sessao, deps, pagamento, conversa, valor_centavos, agora)
+        _gravar_confirmacao(sessao, deps, pagamento, conversa, agora)
+        pendencias.append(Pendencia.MENSAGEM.value)
         transicionar(sessao, conversa, EstadoConversa.ENCERRADO, None, None, momento=agora)
+    pagamento.pendencias = pendencias
+    pagamento.proxima_tentativa_em = agora if pendencias else None
     sessao.flush()
     return ResultadoConfirmacao.CONFIRMADO

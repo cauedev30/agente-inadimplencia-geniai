@@ -212,5 +212,10 @@ class Pagamento(Base):
     # O copia e cola do Pix, para o 2º toque no botão reaproveitar o que ainda vale.
     br_code: Mapped[str | None] = mapped_column(Text)
     baixa_ctn_em: Mapped[datetime | None]
+    # O que a confirmação deixou para depois do commit (baixa, mensagem): a rotina do Trabalhador
+    # refaz até acabar, com espera crescente entre as tentativas (pagamento/concluir.py).
+    pendencias: Mapped[list[Any]] = mapped_column(default=list)
+    tentativas_conclusao: Mapped[int] = mapped_column(default=0)
+    proxima_tentativa_em: Mapped[datetime | None] = mapped_column(index=True)
 
     cobranca: Mapped[Cobranca] = relationship(back_populates="pagamentos")

@@ -89,6 +89,15 @@ class FormaPagamento(StrEnum):
     LINK_CTN = "LINK_CTN"
 
 
+class Pendencia(StrEnum):
+    """O que falta fazer depois de gravada a confirmação do pagamento (pagamento/concluir.py)."""
+
+    # Dar a baixa no CTN.
+    BAIXA = "BAIXA"
+    # Enviar a mensagem de confirmação, gravada PENDENTE.
+    MENSAGEM = "MENSAGEM"
+
+
 class OrigemMensagem(StrEnum):
     CLIENTE = "CLIENTE"
     AGENTE = "AGENTE"

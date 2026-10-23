@@ -47,6 +47,7 @@ from agente.tipos import (
 from agente.turno.acoes import Acao
 from agente.turno.avaliacao import Avaliacao, avaliar, estado_jev, numeros_previstos
 from agente.turno.catalogo import TEXTO_RESPOSTA_SEGURA
+from agente.turno.entrega import confirmar_envio, entregue
 from agente.turno.executar import contar_objecao, executar, proximo_estado
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import (
@@ -244,37 +245,11 @@ def _envio_pendente(sessao: Session, conversa_id: int) -> Mensagem | None:
     return sessao.scalars(consulta.order_by(Mensagem.id)).first()
 
 
-def _normalizar(texto: str) -> str:
-    return " ".join(texto.split())
-
-
 def _entregue(
     sessao: Session, conversa: Conversa, mensagem: Mensagem, deps: Dependencias
 ) -> str | None:
-    """O id da mensagem no Chatwoot, se ela já foi entregue (a resposta do envio se perdeu).
-
-    Só vale a de mesmo texto que o banco ainda não conhece nesta conversa: o mesmo texto já saiu
-    em outro turno. O texto é comparado sem espaços a mais nem diferença de quebra de linha, que
-    o canal pode mexer.
-    """
-    conhecidas = set(
-        sessao.scalars(
-            select(Mensagem.chatwoot_message_id).where(
-                Mensagem.conversa_id == conversa.id, Mensagem.chatwoot_message_id.is_not(None)
-            )
-        )
-    )
-    procurado = _normalizar(mensagem.texto)
-    for chatwoot_id, texto in deps.chatwoot.mensagens_do_agente(conversa.chatwoot_conversa_id):
-        if chatwoot_id not in conhecidas and _normalizar(texto) == procurado:
-            return chatwoot_id
-    return None
-
-
-def _confirmar(sessao: Session, mensagem: Mensagem, chatwoot_id: str) -> None:
-    mensagem.chatwoot_message_id = chatwoot_id
-    mensagem.envio = EstadoEnvio.ENVIADA
-    sessao.flush()
+    """O id da mensagem no Chatwoot, se ela já foi entregue (a resposta do envio se perdeu)."""
+    return entregue(sessao, conversa, mensagem, deps.chatwoot)
 
 
 def _descartar(sessao: Session, mensagem: Mensagem) -> None:
@@ -310,7 +285,7 @@ def _despachar(
     chatwoot_id = _entregue(sessao, conversa, mensagem, deps) if reenvio else None
     if chatwoot_id is None:
         chatwoot_id = deps.chatwoot.enviar_mensagem(conversa.chatwoot_conversa_id, mensagem.texto)
-    _confirmar(sessao, mensagem, chatwoot_id)
+    confirmar_envio(sessao, mensagem, chatwoot_id)
 
 
 def _ja_saiu_resposta_segura(sessao: Session, conversa_id: int) -> bool:
@@ -489,7 +464,7 @@ def _desistir(
         if chatwoot_id is None:
             _descartar(sessao, pendente)
         else:
-            _confirmar(sessao, pendente, chatwoot_id)
+            confirmar_envio(sessao, pendente, chatwoot_id)
     mensagens = tomar_turno(sessao, conversa.id)
     turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
     turno.humano_na_conversa = humano_na_conversa(conversa)
