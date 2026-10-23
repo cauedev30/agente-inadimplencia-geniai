@@ -69,6 +69,7 @@ def pix_vigente(cobranca: Cobranca, agora: datetime, politica: Politica) -> Paga
             and pagamento.status is StatusPagamento.PENDENTE
             and pagamento.br_code is not None
             and pagamento.valor_centavos == cobranca.divida_centavos
+            and pagamento.divergente_centavos is None
             and pagamento.expira_em is not None
             and pagamento.expira_em > limite
         ):

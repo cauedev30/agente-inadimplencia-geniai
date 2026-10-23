@@ -98,6 +98,10 @@ class Pendencia(StrEnum):
     MENSAGEM = "MENSAGEM"
     # O cliente pagou duas vezes a mesma cobrança: nota e etiqueta para o atendente devolver (D39).
     AVISO_DUPLICADO = "AVISO_DUPLICADO"
+    # O valor pago não bate: nota e etiqueta para o atendente conferir (a conversa já saiu do robô).
+    AVISO_DIVERGENTE = "AVISO_DIVERGENTE"
+    # O cliente confirmou o pagamento com um atendente na conversa: nota para ele saber.
+    AVISO_HUMANO = "AVISO_HUMANO"
 
 
 class OrigemMensagem(StrEnum):

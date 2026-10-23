@@ -217,5 +217,8 @@ class Pagamento(Base):
     pendencias: Mapped[list[Any]] = mapped_column(default=list)
     tentativas_conclusao: Mapped[int] = mapped_column(default=0)
     proxima_tentativa_em: Mapped[datetime | None] = mapped_column(index=True)
+    # O valor que o banco ou o CTN avisou quando não bateu com o do pagamento: o pagamento fica
+    # pendente, vai para o humano e o Pix não é reaproveitado.
+    divergente_centavos: Mapped[int | None]
 
     cobranca: Mapped[Cobranca] = relationship(back_populates="pagamentos")

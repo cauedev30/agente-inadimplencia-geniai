@@ -28,7 +28,7 @@ from agente.pagamento.confirmar import (
     variaveis_do_template,
 )
 from agente.politica import Politica
-from agente.tipos import EstadoEnvio, OrigemMensagem, Pendencia, StatusPagamento
+from agente.tipos import EstadoEnvio, MotivoHumano, OrigemMensagem, Pendencia, StatusPagamento
 from agente.turno.entrega import confirmar_envio, entregue
 
 log = logging.getLogger(__name__)
@@ -133,10 +133,55 @@ def _avisar_duplicado(
     deps.chatwoot.nota_privada(chatwoot_id, "\n".join(linhas))
 
 
+def _avisar_divergente(
+    sessao: Session, deps: DependenciasConcluir, pagamento: Pagamento, agora: datetime
+) -> None:
+    """O valor pago não bate: o atendente recebe a nota e a etiqueta (a conversa já saiu do robô).
+
+    A nota vai por último, para não se repetir se uma chamada anterior falhar.
+    """
+    conversa = conversa_da_cobranca(pagamento)
+    if conversa is None or conversa.chatwoot_conversa_id is None:
+        log.warning(
+            "pagamento %s divergente sem conversa no Chatwoot: conferir à mão", pagamento.id
+        )
+        return
+    chatwoot_id = conversa.chatwoot_conversa_id
+    motivo = MotivoHumano.PAGAMENTO_DIVERGENTE
+    nota = (
+        f"Saída para o humano: {motivo.value}\n"
+        f"- referência {pagamento.referencia} ({pagamento.forma.value}): "
+        f"pago {formatar_reais(pagamento.divergente_centavos)}, esperado "
+        f"{formatar_reais(pagamento.valor_centavos)}"
+    )
+    deps.chatwoot.etiquetar(chatwoot_id, [motivo.value.lower()])
+    if deps.time_humano is not None:
+        deps.chatwoot.atribuir(chatwoot_id, deps.time_humano)
+    deps.chatwoot.mudar_status(chatwoot_id, "open")
+    deps.chatwoot.nota_privada(chatwoot_id, nota)
+
+
+def _avisar_humano(
+    sessao: Session, deps: DependenciasConcluir, pagamento: Pagamento, agora: datetime
+) -> None:
+    """O pagamento confirmou com um atendente na conversa: ele soube pela nota, não pelo cliente."""
+    conversa = conversa_da_cobranca(pagamento)
+    if conversa is None or conversa.chatwoot_conversa_id is None:
+        return
+    deps.chatwoot.nota_privada(
+        conversa.chatwoot_conversa_id,
+        f"Pagamento confirmado: referência {pagamento.referencia} ({pagamento.forma.value}), "
+        f"{formatar_reais(pagamento.valor_centavos)}. O cliente recebeu a confirmação e o robô "
+        "encerrou a conversa.",
+    )
+
+
 _PASSOS: dict[Pendencia, Callable[[Session, DependenciasConcluir, Pagamento, datetime], None]] = {
     Pendencia.BAIXA: _dar_baixa,
     Pendencia.MENSAGEM: _enviar_confirmacao,
     Pendencia.AVISO_DUPLICADO: _avisar_duplicado,
+    Pendencia.AVISO_DIVERGENTE: _avisar_divergente,
+    Pendencia.AVISO_HUMANO: _avisar_humano,
 }
 
 

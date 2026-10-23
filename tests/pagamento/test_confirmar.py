@@ -188,8 +188,8 @@ def test_valor_divergente_nao_confirma_e_vira_pendencia_para_o_humano(sessao, li
     )
     assert deps.chatwoot.enviadas(555) == []
     nomes = [chamada[0] for chamada in deps.chatwoot.chamadas]
-    assert nomes == ["nota_privada", "etiquetar", "atribuir", "mudar_status"]
-    nota = deps.chatwoot.chamadas[0][2]
+    assert nomes == ["etiquetar", "atribuir", "mudar_status", "nota_privada"]
+    nota = deps.chatwoot.chamadas[-1][2]
     assert "R$ 95,20" in nota and "R$ 100,20" in nota and txid in nota
 
 
@@ -618,3 +618,63 @@ def test_o_aviso_do_pagamento_em_dobro_nao_se_perde_com_o_chatwoot_fora(sessao, 
     concluir_pagamentos(sessao, deps, AGORA + deps.politica.espera_integracao(1))
     assert segundo.pendencias == []
     assert [c[0] for c in deps.chatwoot.chamadas if c[0] == "nota_privada"] == ["nota_privada"]
+
+
+def test_o_valor_divergente_fica_gravado_no_pagamento_mesmo_sem_conversa(sessao, conversa, deps):
+    txid = _pix(sessao, conversa, deps)
+    sessao.delete(conversa)
+    sessao.flush()
+    sessao.expire_all()
+
+    resultado = _pagar(sessao, deps, txid, DIVIDA - 500)
+
+    assert resultado is ResultadoConfirmacao.VALOR_DIVERGENTE
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert (pagamento.status, pagamento.divergente_centavos) == (
+        StatusPagamento.PENDENTE,
+        DIVIDA - 500,
+    )
+    assert deps.chatwoot.chamadas == []
+
+
+def test_o_valor_divergente_com_o_chatwoot_fora_sai_do_robo_e_a_nota_vem_depois(
+    sessao, ligada, politica
+):
+    deps = _deps(politica)
+    deps.chatwoot = ChatwootInstavel()
+    txid = _pix(sessao, ligada, deps)
+    deps.chatwoot.fora = True
+
+    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA - 500, PAGO_EM)
+    concluir_pagamentos(sessao, deps, AGORA)
+
+    assert resultado is ResultadoConfirmacao.VALOR_DIVERGENTE
+    assert ligada.estado is EstadoConversa.ATENDIMENTO_HUMANO
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert pagamento.pendencias == [Pendencia.AVISO_DIVERGENTE.value]
+    deps.chatwoot.fora = False
+    concluir_pagamentos(sessao, deps, AGORA + deps.politica.espera_integracao(1))
+    assert pagamento.pendencias == []
+    assert [c[0] for c in deps.chatwoot.chamadas].count("nota_privada") == 1
+
+
+def test_a_confirmacao_com_o_humano_na_conversa_deixa_uma_nota_para_o_atendente(
+    sessao, ligada, deps
+):
+    ligada.estado = EstadoConversa.ATENDIMENTO_HUMANO
+    ligada.human_owned = True
+    txid = _pix(sessao, ligada, deps)
+
+    _pagar(sessao, deps, txid, DIVIDA)
+
+    [nota] = [c for c in deps.chatwoot.chamadas if c[0] == "nota_privada"]
+    assert txid in nota[2] and "R$ 100,20" in nota[2]
+    assert len(deps.chatwoot.enviadas(555)) == 1
+
+
+def test_a_confirmacao_sem_humano_na_conversa_nao_deixa_nota(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+
+    _pagar(sessao, deps, txid, DIVIDA)
+
+    assert [c for c in deps.chatwoot.chamadas if c[0] == "nota_privada"] == []

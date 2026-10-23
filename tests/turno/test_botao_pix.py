@@ -341,3 +341,14 @@ def test_o_pix_com_o_minimo_de_folga_ainda_e_reaproveitado(sessao, ligada, clien
     cliente(TOQUE, deps)
 
     assert len(deps.pix.cobrancas) == 1
+
+
+def test_o_pix_com_valor_divergente_nao_e_reaproveitado(sessao, ligada, cliente, politica):
+    deps = _deps(politica)
+    cliente(TOQUE, deps)
+    sessao.scalars(select(Pagamento)).one().divergente_centavos = 9520
+    sessao.commit()
+
+    cliente(TOQUE, deps)
+
+    assert len(deps.pix.cobrancas) == 2

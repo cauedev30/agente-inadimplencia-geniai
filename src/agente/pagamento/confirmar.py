@@ -36,7 +36,7 @@ from agente.tipos import (
     TipoFixa,
 )
 from agente.turno.catalogo import DadosFixa, MensagemPronta, mensagem_fixa
-from agente.turno.gates import JANELA_WHATSAPP
+from agente.turno.gates import JANELA_WHATSAPP, humano_na_conversa
 
 log = logging.getLogger(__name__)
 
@@ -71,36 +71,35 @@ def conversa_da_cobranca(pagamento: Pagamento) -> Conversa | None:
 
 def _pendencia_de_valor(
     sessao: Session,
-    deps: DependenciasConfirmar,
     pagamento: Pagamento,
     conversa: Conversa | None,
     valor_centavos: int,
     agora: datetime,
 ) -> None:
-    """O valor pago não bate: nota ao humano e a conversa sai do robô, sem falar com o cliente."""
+    """O valor pago não bate: a conversa sai do robô, sem falar com o cliente.
+
+    O valor avisado fica no pagamento (`divergente_centavos`), que o humano vê mesmo sem conversa,
+    e a nota ao atendente sai pela rotina de conclusão, com tentativas.
+    """
+    pagamento.divergente_centavos = valor_centavos
     if conversa is None:
         log.warning("pagamento %s com valor divergente e sem conversa", pagamento.id)
-        return
-    if (
+    elif not (
         conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO
         and conversa.motivo_humano is MotivoHumano.PAGAMENTO_DIVERGENTE
-    ):
-        return  # o webhook repetido
-    motivo = MotivoHumano.PAGAMENTO_DIVERGENTE
-    chatwoot_id = conversa.chatwoot_conversa_id
-    if chatwoot_id is not None:
-        nota = (
-            f"Saída para o humano: {motivo.value}\n"
-            f"- referência {pagamento.referencia} ({pagamento.forma.value}): "
-            f"pago {formatar_reais(valor_centavos)}, esperado "
-            f"{formatar_reais(pagamento.valor_centavos)}"
+    ):  # o webhook repetido não repete a pendência
+        transicionar(
+            sessao,
+            conversa,
+            EstadoConversa.ATENDIMENTO_HUMANO,
+            MotivoHumano.PAGAMENTO_DIVERGENTE,
+            None,
+            momento=agora,
         )
-        deps.chatwoot.nota_privada(chatwoot_id, nota)
-        deps.chatwoot.etiquetar(chatwoot_id, [motivo.value.lower()])
-        if deps.time_humano is not None:
-            deps.chatwoot.atribuir(chatwoot_id, deps.time_humano)
-        deps.chatwoot.mudar_status(chatwoot_id, "open")
-    transicionar(sessao, conversa, EstadoConversa.ATENDIMENTO_HUMANO, motivo, None, momento=agora)
+        if conversa.chatwoot_conversa_id is not None:
+            pagamento.pendencias = [Pendencia.AVISO_DIVERGENTE.value]
+            pagamento.proxima_tentativa_em = agora
+    sessao.flush()
 
 
 def dentro_das_24h(sessao: Session, conversa: Conversa, agora: datetime) -> bool:
@@ -226,7 +225,7 @@ def confirmar_pagamento(
     agora = _agora()
     conversa = conversa_da_cobranca(pagamento)
     if valor_centavos != pagamento.valor_centavos:
-        _pendencia_de_valor(sessao, deps, pagamento, conversa, valor_centavos, agora)
+        _pendencia_de_valor(sessao, pagamento, conversa, valor_centavos, agora)
         return ResultadoConfirmacao.VALOR_DIVERGENTE
 
     cobranca = pagamento.cobranca
@@ -244,9 +243,12 @@ def confirmar_pagamento(
     if pagamento.forma is FormaPagamento.PIX or deps.politica.agente_da_baixa_no_link:
         pendencias.append(Pendencia.BAIXA.value)
     if conversa is not None:
+        com_humano = humano_na_conversa(conversa)
         transicionar(sessao, conversa, EstadoConversa.PAGO, None, None, momento=agora)
         _gravar_confirmacao(sessao, deps, pagamento, conversa, agora)
         pendencias.append(Pendencia.MENSAGEM.value)
+        if com_humano and conversa.chatwoot_conversa_id is not None:
+            pendencias.append(Pendencia.AVISO_HUMANO.value)
         transicionar(sessao, conversa, EstadoConversa.ENCERRADO, None, None, momento=agora)
     pagamento.pendencias = pendencias
     pagamento.proxima_tentativa_em = agora if pendencias else None
