@@ -40,7 +40,22 @@ class Config(ConfigRedator):
     pix_webhook_segredo: str | None = None
     ctn_webhook_segredo: str | None = None
 
-    @field_validator("webhook_segredo", "pix_webhook_segredo", "ctn_webhook_segredo")
+    # Webchat (7.1, 7.2): sem o segredo do token ou a chave da identidade, a página fica desligada.
+    webchat_segredo: str | None = None
+    webchat_identidade_hmac: str | None = None  # o token HMAC da inbox Website do Chatwoot
+    webchat_website_token: str | None = None  # o token público da inbox Website (vai ao navegador)
+    webchat_inbox: int | None = None  # a inbox Website, para reconhecer a conversa do webchat (7.3)
+    webchat_url_base: str | None = None  # o domínio do link da 6ª mensagem (G7)
+
+    @field_validator(
+        "webhook_segredo",
+        "pix_webhook_segredo",
+        "ctn_webhook_segredo",
+        "webchat_segredo",
+        "webchat_identidade_hmac",
+        "webchat_website_token",
+        "webchat_url_base",
+    )
     @classmethod
     def _segredo_vazio_e_desligado(cls, valor: str | None) -> str | None:
         # O .env copiado do .env.example traz a variável vazia: um HMAC de chave vazia é calculável

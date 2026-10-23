@@ -138,3 +138,9 @@ def test_telefone_da_equipe_invalido_e_recusado(tmp_path, telefone):
 
 def test_o_pix_a_menos_de_uma_hora_de_vencer_nao_e_reaproveitado_por_padrao(politica):
     assert politica.pix_reaproveitar_minimo_minutos == 60
+
+
+def test_parametros_do_webchat_tem_padrao(politica):
+    assert politica.webchat_token_validade_horas == 720
+    assert politica.webchat_cpf_digitos == 3
+    assert politica.webchat_cpf_tentativas == 3

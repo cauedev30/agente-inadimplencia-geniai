@@ -71,3 +71,18 @@ def test_config_le_a_chave_e_o_modelo_do_groq(monkeypatch):
 
     assert config.groq_api_key == "chave-ficticia"
     assert config.groq_modelo == "openai/gpt-oss-120b"
+
+
+def test_segredos_do_webchat_vazios_valem_como_ausentes():
+    config = carregar_config(
+        database_url="sqlite://",
+        webchat_segredo="  ",
+        webchat_identidade_hmac="",
+        webchat_website_token="",
+        webchat_url_base="",
+    )
+
+    assert config.webchat_segredo is None
+    assert config.webchat_identidade_hmac is None
+    assert config.webchat_website_token is None
+    assert config.webchat_url_base is None

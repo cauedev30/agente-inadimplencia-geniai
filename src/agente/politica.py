@@ -145,6 +145,9 @@ class Politica(_Imutavel):
     integracao_espera_segundos: int = Field(ge=1)
     integracao_espera_maxima_segundos: int = Field(ge=1)
     link_canal_externo: str
+    webchat_token_validade_horas: int = Field(ge=1)
+    webchat_cpf_digitos: int = Field(ge=1, le=11)
+    webchat_cpf_tentativas: int = Field(ge=1)
     template_abertura: str = Field(min_length=1)
     template_retomada: str = Field(min_length=1)
     template_confirmacao: str = Field(min_length=1)
