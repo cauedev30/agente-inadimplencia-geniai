@@ -179,23 +179,34 @@ def _gravar_confirmacao(
 
 
 def _travar(sessao: Session, pagamento: Pagamento) -> Pagamento:
-    """Trava a cobrança e o pagamento e os relê já travados, para a confirmação não correr em dobro.
+    """Trava as conversas, a cobrança e o pagamento, nessa ordem, e os relê já travados.
 
     O Postgres lê em READ COMMITTED: dois webhooks iguais em paralelo leriam PENDENTE e mandariam
     duas confirmações, e o pagamento do Pix e o do link da mesma cobrança dariam duas baixas. O 2º
-    espera na trava e lê PAGO. A cobrança vem primeiro, na mesma ordem do turno (que escreve nela
-    antes de tocar nos pagamentos), para as duas transações não se travarem uma à outra.
+    espera na trava e lê PAGO.
+
+    A ordem é a mesma do turno ativo, que segura a conversa desde o início (`tomar_turno`) e só
+    depois relê a cobrança: conversa, cobrança, pagamento, nos dois lados, para as transações
+    esperarem uma pela outra sem ciclo. A trava é a de `NO KEY UPDATE`, que não barra o
+    `FOR KEY SHARE` das chaves estrangeiras (a mensagem que a rotina de conclusão grava).
     """
+    sessao.execute(
+        select(Conversa.id)
+        .where(Conversa.cobranca_id == pagamento.cobranca_id)
+        .order_by(Conversa.id)
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
     sessao.execute(
         select(Cobranca)
         .where(Cobranca.id == pagamento.cobranca_id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     return sessao.scalars(
         select(Pagamento)
         .where(Pagamento.id == pagamento.id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     ).one()
 

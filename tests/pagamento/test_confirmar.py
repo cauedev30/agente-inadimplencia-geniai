@@ -529,7 +529,7 @@ def test_a_conclusao_que_nao_sai_vira_erro_no_log_depois_das_tentativas(
     assert txid not in erros[0].getMessage()
 
 
-def test_a_confirmacao_trava_a_cobranca_e_o_pagamento_antes_de_ler(sessao, ligada, deps):
+def test_a_confirmacao_trava_conversa_cobranca_e_pagamento_nessa_ordem(sessao, ligada, deps):
     txid = _pix(sessao, ligada, deps)
     comandos = []
 
@@ -540,9 +540,13 @@ def test_a_confirmacao_trava_a_cobranca_e_o_pagamento_antes_de_ler(sessao, ligad
 
     confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
 
-    travados = [c for c in comandos if c.rstrip().endswith("FOR UPDATE")]
-    assert any("FROM cobranca" in c for c in travados)
-    assert any("FROM pagamento" in c for c in travados)
+    travados = [c for c in comandos if c.rstrip().endswith("FOR NO KEY UPDATE")]
+    # A mesma ordem do turno ativo (conversa, cobrança), para os dois não se travarem em ciclo.
+    assert [c.split("FROM ")[1].split()[0] for c in travados] == [
+        "conversa",
+        "cobranca",
+        "pagamento",
+    ]
 
 
 def _chamadas_de_aviso(deps):

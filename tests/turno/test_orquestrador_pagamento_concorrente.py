@@ -8,7 +8,8 @@ meio do Jev ou do LLM.
 from dataclasses import dataclass
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
+from sqlalchemy.dialects import postgresql
 
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Cobranca, Conversa, Mensagem, Pagamento, Transicao, Turno
@@ -134,3 +135,21 @@ def test_sem_pagamento_no_meio_o_turno_segue_igual(sessao, ligada, politica):
         EstadoConversa.AGUARDANDO_PAGAMENTO,
         StatusCobranca.ATIVA,
     )
+
+
+def test_o_turno_trava_a_conversa_antes_da_cobranca_como_a_confirmacao(sessao, ligada, politica):
+    deps = _deps(politica)
+    _pergunta(sessao, ligada)
+    travas = []
+
+    def capturar(estado):
+        sql = estado.statement.compile(dialect=postgresql.dialect()).string
+        if sql.rstrip().endswith("FOR NO KEY UPDATE"):
+            travas.append(sql.split("FROM ")[1].split()[0])
+
+    event.listen(sessao, "do_orm_execute", capturar)
+
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert travas and travas[0] == "conversa"
+    assert travas.index("conversa") < travas.index("cobranca")

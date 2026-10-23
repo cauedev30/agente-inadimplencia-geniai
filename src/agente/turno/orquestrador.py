@@ -346,11 +346,12 @@ def _cobranca_fechou_no_meio(sessao: Session, conversa: Conversa) -> bool:
     O Jev e o LLM demoram, e o webhook de pagamento roda em outra transação: se ele confirmou nesse
     meio tempo, a conversa que o turno tem na sessão está velha. Sem a releitura, o turno
     sobrescreveria o ENCERRADO e mandaria o canal externo depois do "pagamento confirmado". A trava
-    da cobrança segura a confirmação seguinte até o commit do turno.
+    da conversa e da cobrança segura a confirmação seguinte até o commit do turno.
     """
     sessao.flush()
-    sessao.refresh(conversa.cobranca, with_for_update=True)
-    sessao.refresh(conversa)
+    # A ordem das travas é a da confirmação do pagamento: conversa, depois cobrança.
+    sessao.refresh(conversa, with_for_update={"key_share": True})
+    sessao.refresh(conversa.cobranca, with_for_update={"key_share": True})
     return conversa.cobranca.status is not StatusCobranca.ATIVA
 
 
