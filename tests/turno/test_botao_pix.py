@@ -316,3 +316,28 @@ def test_fora_da_janela_o_reenvio_da_resposta_ao_toque_tambem_sai_na_hora(sessao
 
     assert resultado is ResultadoTurno.ENVIADO
     assert len(deps.chatwoot.enviadas(555)) == 1
+
+
+def test_o_pix_a_menos_do_minimo_de_vencer_nao_e_reaproveitado(sessao, ligada, cliente, politica):
+    deps = _deps(politica)
+    cliente(TOQUE, deps)
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    # Ainda vale, mas vence em 59 minutos (no 2º toque): menos que o mínimo de 60 para pagar.
+    pagamento.expira_em = SEGUNDA_10H + timedelta(minutes=2 + 59)
+    sessao.commit()
+
+    cliente(TOQUE, deps)
+
+    assert len(deps.pix.cobrancas) == 2
+
+
+def test_o_pix_com_o_minimo_de_folga_ainda_e_reaproveitado(sessao, ligada, cliente, politica):
+    deps = _deps(politica)
+    cliente(TOQUE, deps)
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    pagamento.expira_em = SEGUNDA_10H + timedelta(minutes=2 + 61)
+    sessao.commit()
+
+    cliente(TOQUE, deps)
+
+    assert len(deps.pix.cobrancas) == 1

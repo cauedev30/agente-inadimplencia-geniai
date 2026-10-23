@@ -56,8 +56,13 @@ def contar_objecao(conversa: Conversa, cobranca: Cobranca, politica: Politica) -
         conversa.objecoes_sem_desconto += 1
 
 
-def pix_vigente(cobranca: Cobranca, agora: datetime) -> Pagamento | None:
-    """O Pix pendente da cobrança que ainda vale, no valor integral de hoje, ou None."""
+def pix_vigente(cobranca: Cobranca, agora: datetime, politica: Politica) -> Pagamento | None:
+    """O Pix pendente da cobrança que ainda vale, no valor integral de hoje, ou None.
+
+    Um Pix a minutos de vencer não vale, porque o cliente não teria tempo de pagar: o mínimo é o
+    `pix_reaproveitar_minimo_minutos`.
+    """
+    limite = agora + timedelta(minutes=politica.pix_reaproveitar_minimo_minutos)
     for pagamento in reversed(cobranca.pagamentos):
         if (
             pagamento.forma is FormaPagamento.PIX
@@ -65,7 +70,7 @@ def pix_vigente(cobranca: Cobranca, agora: datetime) -> Pagamento | None:
             and pagamento.br_code is not None
             and pagamento.valor_centavos == cobranca.divida_centavos
             and pagamento.expira_em is not None
-            and pagamento.expira_em > agora
+            and pagamento.expira_em > limite
         ):
             return pagamento
     return None
@@ -115,7 +120,7 @@ def executar(
     if Acao.GENERATE_PIX in acoes:
         # O Pix paga sempre o integral (D34). O que ainda vale é reaproveitado: o 2º toque no
         # botão não cria outra cobrança no banco.
-        vigente = pix_vigente(cobranca, agora)
+        vigente = pix_vigente(cobranca, agora, politica)
         if vigente is None:
             pix = deps.pix.criar_cobranca(
                 gerar_txid(cobranca.id),

@@ -134,3 +134,7 @@ def test_telefone_da_equipe_invalido_e_recusado(tmp_path, telefone):
     caminho = _arquivo_com(tmp_path, "telefones_equipe = []", f'telefones_equipe = ["{telefone}"]')
     with pytest.raises(PoliticaInvalida, match="telefones_equipe"):
         carregar_politica(caminho)
+
+
+def test_o_pix_a_menos_de_uma_hora_de_vencer_nao_e_reaproveitado_por_padrao(politica):
+    assert politica.pix_reaproveitar_minimo_minutos == 60
