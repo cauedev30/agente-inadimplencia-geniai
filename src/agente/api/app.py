@@ -72,14 +72,19 @@ def criar_app(
 
     @app.get("/saude")
     def saude() -> dict:
+        # Só diz que o processo está vivo, sem tocar no banco: é o que o health check consulta.
+        return {"status": "ok"}
+
+    @app.get("/saude/pagamentos")
+    def saude_pagamentos() -> dict:
         # Os pagamentos pagos que a conclusão não consegue terminar: precisam de gente.
         try:
             with fabrica() as sessao:
                 sem_concluir = contar_sem_concluir(sessao)
-        except Exception:  # a saúde do processo não cai junto com a consulta
+        except Exception:
             log.exception("a contagem dos pagamentos sem concluir falhou")
-            sem_concluir = None
-        return {"status": "ok", "pagamentos_sem_concluir": sem_concluir}
+            raise HTTPException(503, "não foi possível contar os pagamentos sem concluir") from None
+        return {"pagamentos_sem_concluir": sem_concluir}
 
     @app.post("/webhooks/chatwoot/{segredo}")
     async def webhook_chatwoot(segredo: str, request: Request) -> dict:

@@ -71,4 +71,4 @@ def test_modo_ativo_sem_jev_real_e_recusado():
 
 def test_app_de_producao_responde_a_saude():
     with TestClient(montar_app(_config(), iniciar_trabalhador=False)) as cliente:
-        assert cliente.get("/saude").json() == {"status": "ok", "pagamentos_sem_concluir": None}
+        assert cliente.get("/saude").json() == {"status": "ok"}

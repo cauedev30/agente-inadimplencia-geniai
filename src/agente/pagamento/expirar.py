@@ -17,8 +17,9 @@ def _expirar(sessao: Session, *condicoes) -> int:
     """Um UPDATE só, com o status conferido no próprio comando: o webhook que grava PAGO entre a
     leitura e o commit não é sobrescrito por EXPIRADO.
 
-    Ordem das travas (conversa, cobrança, pagamento): a varredura só toca pagamentos, e o handoff
-    do turno já segura a conversa, então nenhum dos dois cria outra ordem.
+    Ordem das travas: a varredura e o handoff só travam pagamentos, nunca a conversa nem a cobrança
+    depois deles. Entre si, os dois UPDATEs de várias linhas podem pegar os Pix da mesma cobrança em
+    ordens diferentes: só acontece com dois Pix pendentes nela, e o Postgres derruba um dos dois.
     """
     resultado = sessao.execute(
         update(Pagamento)

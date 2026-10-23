@@ -66,7 +66,8 @@ O contêiner roda `alembic upgrade head` e depois o uvicorn. Sem Docker:
 
 | Endpoint | Para quê |
 |---|---|
-| `GET /saude` | verificação de saúde |
+| `GET /saude` | o serviço está vivo, sem tocar no banco (o health check consulta esta) |
+| `GET /saude/pagamentos` | quantos pagamentos pagos não concluem (baixa ou confirmação); 503 se o banco falhar |
 | `POST /webhooks/chatwoot/{segredo}` | webhook do Agent Bot no Chatwoot |
 
 As variáveis estão no [`.env.example`](.env.example).
