@@ -119,6 +119,23 @@ def test_o_pix_grava_o_pagamento_pendente(sessao, conversa, politica):
     assert pagamento.expira_em == deps.pix.cobrancas[txid].expira_em
 
 
+def test_o_link_grava_o_pagamento_pendente_com_o_valor_do_degrau(sessao, conversa, politica):
+    deps = _deps(politica)
+
+    executar([Acao.OFFER_DISCOUNT, Acao.SEND_CTN_LINK], conversa.cobranca, conversa, deps, AGORA)
+    sessao.flush()
+
+    [id_externo] = deps.ctn.links
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert (pagamento.cobranca_id, pagamento.forma, pagamento.valor_centavos) == (
+        conversa.cobranca.id,
+        FormaPagamento.LINK_CTN,
+        7020,
+    )
+    assert (pagamento.referencia, pagamento.status) == (id_externo, StatusPagamento.PENDENTE)
+    assert pagamento.criado_em == AGORA
+
+
 def test_o_debito_sozinho_so_traz_a_divida(conversa, politica):
     deps = _deps(politica)
 
