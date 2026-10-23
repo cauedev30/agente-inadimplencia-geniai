@@ -1,10 +1,11 @@
 """A confirmação do pagamento: baixa, mensagem fixa e encerramento (tarefa 6.1)."""
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import event, select, update
 from sqlalchemy.dialects import postgresql
 
 from agente.db.historico import mensagens_no_teto, registrar_mensagem
@@ -682,3 +683,27 @@ def test_a_confirmacao_sem_humano_na_conversa_nao_deixa_nota(sessao, ligada, dep
     _pagar(sessao, deps, txid, DIVIDA)
 
     assert [c for c in deps.chatwoot.chamadas if c[0] == "nota_privada"] == []
+
+
+def test_o_pagamento_que_outra_instancia_acabou_de_reagendar_nao_e_refeito(
+    sessao, ligada, deps, monkeypatch
+):
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    sessao.commit()
+    scalars = sessao.scalars
+
+    def lista_e_depois_outra_instancia_reagenda(*args, **kwargs):
+        resultado = scalars(*args, **kwargs)
+        lista = resultado.all()
+        sessao.execute(
+            update(Pagamento)
+            .values(proxima_tentativa_em=AGORA + timedelta(minutes=5))
+            .execution_options(synchronize_session=False)
+        )
+        return SimpleNamespace(all=lambda: lista)
+
+    monkeypatch.setattr(sessao, "scalars", lista_e_depois_outra_instancia_reagenda)
+
+    assert concluir_pagamentos(sessao, deps, AGORA) == 0
+    assert deps.ctn.baixas == [] and deps.chatwoot.enviadas(555) == []

@@ -237,7 +237,12 @@ def concluir_pagamentos(sessao: Session, deps: DependenciasConcluir, agora: date
     for pagamento_id in vencidos:
         pagamento = sessao.scalar(
             select(Pagamento)
-            .where(Pagamento.id == pagamento_id, Pagamento.proxima_tentativa_em.is_not(None))
+            .where(
+                Pagamento.id == pagamento_id,
+                Pagamento.proxima_tentativa_em.is_not(None),
+                # Outra instância pode ter tratado e reagendado entre a lista e a trava.
+                Pagamento.proxima_tentativa_em <= agora,
+            )
             .with_for_update(skip_locked=True)
         )
         if pagamento is None:
