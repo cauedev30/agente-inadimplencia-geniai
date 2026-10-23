@@ -209,6 +209,8 @@ class Pagamento(Base):
     criado_em: Mapped[datetime] = mapped_column(default=_agora)
     expira_em: Mapped[datetime | None]
     pago_em: Mapped[datetime | None]
+    # O copia e cola do Pix, para o 2º toque no botão reaproveitar o que ainda vale.
+    br_code: Mapped[str | None] = mapped_column(Text)
     baixa_ctn_em: Mapped[datetime | None]
 
     cobranca: Mapped[Cobranca] = relationship(back_populates="pagamentos")

@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from agente.api.chatwoot_webhook import receber_evento
 from agente.config import Config
+from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
 from agente.turno.fila import Processar, Trabalhador, processar_sem_acao
 
@@ -29,7 +30,7 @@ def criar_app(
     relogio: Callable[[], datetime] = _agora,
     iniciar_trabalhador: bool = True,
 ) -> FastAPI:
-    trabalhador = Trabalhador(fabrica, processar, relogio)
+    trabalhador = Trabalhador(fabrica, processar, relogio, rotinas=[expirar_pix])
 
     @asynccontextmanager
     async def ciclo_de_vida(_app: FastAPI):

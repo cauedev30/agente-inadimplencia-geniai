@@ -56,6 +56,21 @@ def contar_objecao(conversa: Conversa, cobranca: Cobranca, politica: Politica) -
         conversa.objecoes_sem_desconto += 1
 
 
+def pix_vigente(cobranca: Cobranca, agora: datetime) -> Pagamento | None:
+    """O Pix pendente da cobrança que ainda vale, no valor integral de hoje, ou None."""
+    for pagamento in reversed(cobranca.pagamentos):
+        if (
+            pagamento.forma is FormaPagamento.PIX
+            and pagamento.status is StatusPagamento.PENDENTE
+            and pagamento.br_code is not None
+            and pagamento.valor_centavos == cobranca.divida_centavos
+            and pagamento.expira_em is not None
+            and pagamento.expira_em > agora
+        ):
+            return pagamento
+    return None
+
+
 def executar(
     acoes: list[Acao],
     cobranca: Cobranca,
@@ -98,27 +113,30 @@ def executar(
         )
         extras |= {"link_ctn": link.url, "forma": FormaPagamento.LINK_CTN}
     if Acao.GENERATE_PIX in acoes:
-        # O Pix paga sempre o integral (D34).
-        pix = deps.pix.criar_cobranca(
-            gerar_txid(cobranca.id),
-            divida,
-            timedelta(hours=politica.pix_validade_horas),
-            cobranca.cliente.nome,
-        )
-        cobranca.pagamentos.append(
-            Pagamento(
+        # O Pix paga sempre o integral (D34). O que ainda vale é reaproveitado: o 2º toque no
+        # botão não cria outra cobrança no banco.
+        vigente = pix_vigente(cobranca, agora)
+        if vigente is None:
+            pix = deps.pix.criar_cobranca(
+                gerar_txid(cobranca.id),
+                divida,
+                timedelta(hours=politica.pix_validade_horas),
+                cobranca.cliente.nome,
+            )
+            vigente = Pagamento(
                 forma=FormaPagamento.PIX,
                 valor_centavos=divida,
                 referencia=pix.txid,
                 status=StatusPagamento.PENDENTE,
                 criado_em=agora,
                 expira_em=pix.expira_em,
+                br_code=pix.br_code,
             )
-        )
+            cobranca.pagamentos.append(vigente)
         extras |= {
             "valor_pix_centavos": divida,
-            "br_code": pix.br_code,
-            "pix_vence_em": pix.expira_em.astimezone(politica.janela.zona),
+            "br_code": vigente.br_code,
+            "pix_vence_em": vigente.expira_em.astimezone(politica.janela.zona),
             "forma": FormaPagamento.PIX,
         }
     if "forma" in extras:

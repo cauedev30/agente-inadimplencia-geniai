@@ -2,7 +2,7 @@
 
 O segredo, o JSON, a conta, a inbox e o dedupe já ficaram no webhook (tarefa 3.4). Aqui ficam os
 gates do turno, nesta ordem: cobrança ativa, humano na conversa, reinício, anexo, janela de
-atendimento, janela de 24h do WhatsApp e teto.
+atendimento, janela de 24h do WhatsApp, teto e o toque no botão "Pagar com Pix".
 """
 
 from dataclasses import dataclass
@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
+from agente.abertura.disparar import BOTAO_PAGAR_PIX
 from agente.db.historico import mensagens_no_teto
 from agente.db.modelos import Conversa, Mensagem
 from agente.dominio.janela import dentro_da_janela, proxima_abertura
@@ -48,11 +49,16 @@ class Fixa:
 
 
 @dataclass(frozen=True)
+class PagarPix:
+    """O cliente tocou no botão "Pagar com Pix" (D26): vai direto para o GENERATE_PIX, sem o Jev."""
+
+
+@dataclass(frozen=True)
 class Reiniciar:
     """Comando de reinício, só para os telefones da equipe."""
 
 
-Gate = Seguir | Ignorar | Adiar | Retomar | Fixa | Reiniciar
+Gate = Seguir | Ignorar | Adiar | Retomar | Fixa | Reiniciar | PagarPix
 
 
 def _so_anexo_nao_aceito(mensagens: list[Mensagem], politica: Politica) -> bool:
@@ -62,6 +68,12 @@ def _so_anexo_nao_aceito(mensagens: list[Mensagem], politica: Politica) -> bool:
         if any(anexo.get("tipo") in politica.anexos_aceitos for anexo in mensagem.anexos):
             return False
     return True
+
+
+def _so_toque_no_botao_pix(mensagens: list[Mensagem]) -> bool:
+    """A rajada é só o toque no botão. Com outro texto junto, o Jev lê tudo (pode ser dúvida)."""
+    botao = BOTAO_PAGAR_PIX.texto.casefold()
+    return all(mensagem.texto.strip().casefold() == botao for mensagem in mensagens)
 
 
 def _ja_saiu_fixa(sessao: Session, conversa_id: int) -> bool:
@@ -107,6 +119,8 @@ def avaliar_gates(
         if _ja_saiu_fixa(sessao, conversa.id):
             return Ignorar("teto_encerrado")
         return Fixa(TipoFixa.CANAL_EXTERNO)
+    if _so_toque_no_botao_pix(mensagens):
+        return PagarPix()
     return Seguir()
 
 

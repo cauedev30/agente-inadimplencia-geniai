@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from agente.abertura.disparar import BOTAO_PAGAR_PIX
 from agente.config import Config
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Cliente, Cobranca, Conversa
@@ -38,6 +39,12 @@ def ler_evento(dados: dict) -> EventoMensagem | None:
     if dados.get("event") != "message_created":
         return None
     remetente = dados.get("sender") or {}
+    texto = dados.get("content") or ""
+    # O toque num botão de resposta do template chega com o texto do botão; se o Chatwoot
+    # entregar o payload, ele vale mais (a confirmar na T3, com o Chatwoot real).
+    payload = (dados.get("content_attributes") or {}).get("payload")
+    if payload == BOTAO_PAGAR_PIX.valor:
+        texto = BOTAO_PAGAR_PIX.texto
     return EventoMensagem(
         mensagem_id=str(dados["id"]),
         conversa_chatwoot_id=int(dados["conversation"]["id"]),
@@ -47,7 +54,7 @@ def ler_evento(dados: dict) -> EventoMensagem | None:
         privada=bool(dados.get("private")),
         remetente=remetente.get("type", ""),
         telefone=remetente.get("phone_number"),
-        texto=dados.get("content") or "",
+        texto=texto,
         anexos=[{"tipo": a.get("file_type")} for a in dados.get("attachments") or []],
     )
 

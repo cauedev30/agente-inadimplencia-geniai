@@ -54,6 +54,7 @@ from agente.turno.gates import (
     Fixa,
     Gate,
     Ignorar,
+    PagarPix,
     Reiniciar,
     Retomar,
     Seguir,
@@ -322,15 +323,20 @@ def _ja_saiu_resposta_segura(sessao: Session, conversa_id: int) -> bool:
     return bool(sessao.scalar(consulta))
 
 
-def _laudo_da_transicao(avaliacao: Avaliacao, ids: dict[tuple[BatchJev, str], int]) -> int:
-    """O risco aponta o laudo do Jev 1 que o causou; o resto, a decisão do Jev 2 (auditoria)."""
+def _laudo_da_transicao(avaliacao: Avaliacao, ids: dict[tuple[BatchJev, str], int]) -> int | None:
+    """O risco aponta o laudo do Jev 1 que o causou; o resto, a decisão do Jev 2 (auditoria).
+
+    O toque no botão não passa pelo Jev: a transição não tem laudo.
+    """
+    if avaliacao.leitura is None:
+        return None
     if avaliacao.em_risco:
         return ids[(BatchJev.JEV1, laudo_do_risco(avaliacao.leitura).pergunta)]
     return ids[(BatchJev.JEV2, "acao")]
 
 
 def _mudar_estado(
-    sessao: Session, conversa: Conversa, para: EstadoConversa, laudo_id: int, agora: datetime
+    sessao: Session, conversa: Conversa, para: EstadoConversa, laudo_id: int | None, agora: datetime
 ) -> None:
     if para is not conversa.estado:
         transicionar(sessao, conversa, para, None, laudo_id, momento=agora)
@@ -357,7 +363,7 @@ def _agir(
         conversa,
         deps,
         agora,
-        objecao=avaliacao.leitura.sim("objecao_valor"),
+        objecao=avaliacao.leitura is not None and avaliacao.leitura.sim("objecao_valor"),
     )
     destino = proximo_estado(conversa.estado, numeros.forma, avaliacao.em_risco)
     pedido = montar_pedido(
@@ -440,6 +446,25 @@ def _seguir(
         _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
         return _fechar(sessao, turno, ResultadoTurno.SEM_ENVIO, avaliacao, {}, agora)
     return _agir(sessao, conversa, turno, avaliacao, estado, historico, deps, ids, agora)
+
+
+def _pagar_pix(
+    sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
+) -> ResultadoTurno:
+    """O toque no botão "Pagar com Pix" (D26): GENERATE_PIX direto, sem o Jev 1 nem o Jev 2.
+
+    O pedido é inequívoco, então não há leitura nem decisão. O resto é o turno de sempre: o
+    backend gera (ou reaproveita) o Pix integral, o LLM redige, o Jev 3 valida e a mensagem conta
+    no teto. Em sombra, só a prévia é gravada.
+    """
+    avaliacao = Avaliacao(None, None, Acao.GENERATE_PIX, [], None)
+    cobranca = conversa.cobranca
+    if deps.modo is Modo.SOMBRA:
+        previstos = numeros_previstos(avaliacao, conversa, cobranca, deps.politica)
+        return _fechar(sessao, turno, ResultadoTurno.SOMBRA, avaliacao, previstos, agora)
+    historico = _historico(sessao, conversa.id)
+    estado = estado_jev(conversa, cobranca, historico, deps.politica)
+    return _agir(sessao, conversa, turno, avaliacao, estado, historico, deps, {}, agora)
 
 
 def _desistir(
@@ -726,6 +751,8 @@ def _rodar_turno(
         return fechar(ResultadoTurno.IGNORADO)
     if isinstance(gate, Seguir):
         return _seguir(sessao, conversa, turno, deps, agora)
+    if isinstance(gate, PagarPix):
+        return _pagar_pix(sessao, conversa, turno, deps, agora)
     if deps.modo is Modo.SOMBRA:
         return fechar(ResultadoTurno.SOMBRA)
     if isinstance(gate, Fixa) and gate.tipo is TipoFixa.CANAL_EXTERNO:
