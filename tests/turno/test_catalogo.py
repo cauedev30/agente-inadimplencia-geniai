@@ -60,7 +60,9 @@ def test_confirmacao_sem_valor_e_erro():
 
 
 def test_a_6a_mensagem_leva_o_link_com_um_token_valido_para_a_cobranca(politica):
-    webchat = ConfigWebchat("https://atendimento.exemplo.invalid/", "segredo-do-webchat")
+    webchat = ConfigWebchat(
+        "https://atendimento.exemplo.invalid/", "segredo-do-webchat-com-32-caracteres-ou-mais"
+    )
     link = link_canal_externo(webchat, politica, 42, AGORA)
 
     mensagem = mensagem_fixa(TipoFixa.CANAL_EXTERNO, replace(DADOS, link_canal_externo=link))
@@ -69,10 +71,15 @@ def test_a_6a_mensagem_leva_o_link_com_um_token_valido_para_a_cobranca(politica)
     assert botao.valor == link
     prefixo = "https://atendimento.exemplo.invalid/atendimento/"
     assert link.startswith(prefixo)
-    assert ler_token("segredo-do-webchat", link.removeprefix(prefixo), AGORA) == 42
+    assert (
+        ler_token("segredo-do-webchat-com-32-caracteres-ou-mais", link.removeprefix(prefixo), AGORA)
+        == 42
+    )
     validade = AGORA + timedelta(hours=politica.webchat_token_validade_horas)
     with pytest.raises(TokenInvalido):
-        ler_token("segredo-do-webchat", link.removeprefix(prefixo), validade)
+        ler_token(
+            "segredo-do-webchat-com-32-caracteres-ou-mais", link.removeprefix(prefixo), validade
+        )
 
 
 def test_sem_o_dominio_do_webchat_a_6a_mensagem_mantem_o_link_provisorio(politica):

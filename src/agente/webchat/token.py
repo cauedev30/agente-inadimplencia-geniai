@@ -43,7 +43,7 @@ def _tag(segredo: str, corpo: bytes) -> bytes:
 
 
 def emitir_token(segredo: str, cobranca_id: int, expira_em: datetime) -> str:
-    if not segredo:
+    if not segredo.strip():
         raise ValueError("o segredo do webchat está vazio")
     if expira_em.tzinfo is None:
         raise ValueError("a validade do token precisa do fuso horário")
@@ -56,7 +56,7 @@ def emitir_token(segredo: str, cobranca_id: int, expira_em: datetime) -> str:
 
 def ler_token(segredo: str, token: str, agora: datetime) -> int:
     """O id da cobrança de um token íntegro e dentro da validade (sem olhar o banco)."""
-    if not segredo:
+    if not segredo.strip():
         raise TokenInvalido
     try:
         bruto = base64.urlsafe_b64decode(token.encode("ascii") + b"=" * (-len(token) % 4))

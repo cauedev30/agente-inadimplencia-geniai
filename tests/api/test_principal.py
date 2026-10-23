@@ -11,6 +11,14 @@ from agente.webchat.link import ConfigWebchat
 
 from ..conftest import RAIZ
 
+WEBCHAT_COMPLETO = {
+    "webchat_url_base": "https://atendimento.exemplo.invalid",
+    "webchat_segredo": "segredo-do-webchat-com-32-caracteres-ou-mais",
+    "webchat_identidade_hmac": "chave-da-identidade",
+    "webchat_website_token": "token-do-site",
+    "chatwoot_url": "https://chat.invalid",
+}
+
 
 def _config(**campos):
     padrao = {
@@ -76,13 +84,31 @@ def test_app_de_producao_responde_a_saude():
 
 
 def test_com_dominio_e_segredo_o_handoff_leva_o_link_do_webchat():
-    config = _config(webchat_url_base="https://atendimento.exemplo.invalid", webchat_segredo="s")
+    config = _config(**WEBCHAT_COMPLETO)
 
     assert montar_dependencias(config).webchat == ConfigWebchat(
-        "https://atendimento.exemplo.invalid", "s"
+        "https://atendimento.exemplo.invalid", WEBCHAT_COMPLETO["webchat_segredo"]
     )
 
 
-@pytest.mark.parametrize("campos", [{}, {"webchat_url_base": "https://x.invalid"}])
-def test_sem_dominio_ou_sem_segredo_o_link_continua_provisorio(campos):
+@pytest.mark.parametrize(
+    "faltando",
+    [
+        "webchat_url_base",
+        "webchat_segredo",
+        "webchat_identidade_hmac",
+        "webchat_website_token",
+        "chatwoot_url",
+    ],
+)
+def test_com_a_pagina_desligada_o_link_continua_provisorio(faltando, caplog):
+    campos = {**WEBCHAT_COMPLETO}
+    del campos[faltando]
+
     assert montar_dependencias(_config(**campos)).webchat is None
+    if faltando != "webchat_url_base":
+        assert "webchat" in caplog.text.lower()
+
+
+def test_sem_nada_do_webchat_o_link_continua_provisorio():
+    assert montar_dependencias(_config()).webchat is None

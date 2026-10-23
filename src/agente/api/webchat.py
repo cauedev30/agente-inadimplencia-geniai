@@ -121,6 +121,14 @@ def _indisponivel() -> HTMLResponse:
     return _resposta(corpo, 503)
 
 
+def _sem_como_confirmar() -> HTMLResponse:
+    corpo = (
+        "<h1>Não foi possível continuar</h1>"
+        "<p>Não conseguimos confirmar os seus dados por aqui. Fale com a gente pelo WhatsApp.</p>"
+    )
+    return _resposta(corpo, 503)
+
+
 def _formulario(politica: Politica, aviso: str = "") -> HTMLResponse:
     avisos = f'<p class="erro">{html.escape(aviso)}</p>' if aviso else ""
     return _resposta(_FORMULARIO.format(digitos=politica.webchat_cpf_digitos, aviso=avisos))
@@ -136,13 +144,7 @@ def criar_rota_webchat(
 ) -> APIRouter:
     roteador = APIRouter()
     # Sem qualquer um destes, a rota fica desligada: um HMAC de chave vazia qualquer um calcula.
-    ligada = bool(
-        config.webchat_segredo
-        and config.webchat_identidade_hmac
-        and config.webchat_website_token
-        and config.chatwoot_url
-        and ctn is not None
-    )
+    ligada = config.webchat_ligado and ctn is not None
 
     def _entrada(token: str, agora: datetime) -> tuple[int | None, HTMLResponse | None]:
         """O id da cobrança do token, ou a resposta de recusa."""
@@ -188,6 +190,11 @@ def criar_rota_webchat(
             except (CTNIndisponivel, ClienteNaoEncontrado):
                 # Falha nossa, não do cliente: não gasta tentativa.
                 return _indisponivel()
+            if not cpf:
+                # Sem CPF no CTN a página nunca confirma: não adianta gastar as tentativas do
+                # cliente, o atendente é quem resolve.
+                log.warning("webchat: a cobrança %s não tem CPF no CTN", cobranca_id)
+                return _sem_como_confirmar()
             # A tentativa é gasta antes de comparar e o UPDATE confere o limite, para as
             # requisições em paralelo não passarem do teto. O mesmo UPDATE que gasta a última
             # tentativa grava o fim do bloqueio.

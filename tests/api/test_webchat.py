@@ -19,7 +19,7 @@ from agente.tipos import EstadoConversa, StatusCobranca
 from agente.webchat.token import emitir_token
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
-SEGREDO = "segredo-do-token"
+SEGREDO = "segredo-do-webchat-com-32-caracteres-ou-mais"
 CHAVE_HMAC = "chave-hmac-da-inbox-super-secreta"
 WEBSITE_TOKEN = "token-publico-da-inbox"
 CPF = "12345678909"
@@ -249,14 +249,19 @@ def test_o_bloqueio_vale_por_cobranca_e_nao_por_token(http, token):
     assert _confirmar(http, outro, CPF[:3]).status_code == 403
 
 
-def test_cliente_sem_cpf_no_ctn_nunca_abre(fabrica, politica):
+def test_cliente_sem_cpf_no_ctn_nao_abre_nem_gasta_as_tentativas(fabrica, politica):
     ctn = CTNFalso([ClienteCTN("F-1", NOME, TELEFONE, cpf=None)])
     token = emitir_token(SEGREDO, 1, AGORA + timedelta(days=1))
     with TestClient(_app(fabrica, politica, ctn)) as http:
-        resposta = _confirmar(http, token, "000")
+        for _ in range(5):
+            resposta = _confirmar(http, token, "000")
 
-    assert resposta.status_code == 200
-    assert "sdk.js" not in resposta.text
+            assert resposta.status_code == 503
+            assert "sdk.js" not in resposta.text
+            assert "WhatsApp" in resposta.text
+            assert "CPF" not in resposta.text
+    with fabrica() as sessao:
+        assert sessao.get(Cobranca, 1).webchat_tentativas_cpf == 0
 
 
 def test_ctn_fora_do_ar_responde_503_sem_gastar_tentativa(http, ctn, token):

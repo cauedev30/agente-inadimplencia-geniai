@@ -6,7 +6,7 @@ import pytest
 from agente.tipos import EstadoConversa, StatusCobranca
 from agente.webchat.token import TokenInvalido, emitir_token, ler_token, validar_token
 
-SEGREDO = "segredo-do-webchat"
+SEGREDO = "segredo-do-webchat-com-32-caracteres-ou-mais"
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 VALIDADE = AGORA + timedelta(days=30)
 
@@ -66,6 +66,13 @@ def test_segredo_vazio_nao_emite_nem_valida():
     token = emitir_token(SEGREDO, 1, VALIDADE)
     with pytest.raises(TokenInvalido):
         ler_token("", token, AGORA)
+
+
+def test_segredo_so_de_espacos_nao_emite_nem_valida():
+    with pytest.raises(ValueError, match="segredo"):
+        emitir_token("   ", 1, VALIDADE)
+    with pytest.raises(TokenInvalido):
+        ler_token("   ", emitir_token(SEGREDO, 1, VALIDADE), AGORA)
 
 
 def test_a_validade_precisa_de_fuso():

@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_SEGREDO_WEBCHAT_MINIMO = 32
+
 
 class ConfigPolitica(BaseSettings):
     """Só o caminho da política, para os comandos que não usam o banco (`agente simular`)."""
@@ -61,6 +63,27 @@ class Config(ConfigRedator):
         # O .env copiado do .env.example traz a variável vazia: um HMAC de chave vazia é calculável
         # por qualquer um, então o vazio vale como sem segredo.
         return valor if valor and valor.strip() else None
+
+    @field_validator("webchat_segredo")
+    @classmethod
+    def _segredo_do_webchat_longo(cls, valor: str | None) -> str | None:
+        # Com um token na mão, um segredo curto se quebra offline e deixa forjar o de qualquer
+        # cobrança.
+        if valor is not None and len(valor) < _SEGREDO_WEBCHAT_MINIMO:
+            raise ValueError(
+                f"o segredo do webchat precisa de ao menos {_SEGREDO_WEBCHAT_MINIMO} caracteres"
+            )
+        return valor
+
+    @property
+    def webchat_ligado(self) -> bool:
+        """A página /atendimento e o link da 6ª mensagem só valem com tudo isto presente."""
+        return bool(
+            self.webchat_segredo
+            and self.webchat_identidade_hmac
+            and self.webchat_website_token
+            and self.chatwoot_url
+        )
 
 
 def carregar_config(**kwargs) -> Config:

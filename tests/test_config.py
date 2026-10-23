@@ -73,6 +73,25 @@ def test_config_le_a_chave_e_o_modelo_do_groq(monkeypatch):
     assert config.groq_modelo == "openai/gpt-oss-120b"
 
 
+def test_o_segredo_curto_do_webchat_e_recusado():
+    with pytest.raises(ValidationError, match="32"):
+        carregar_config(database_url="sqlite://", webchat_segredo="curto")
+    carregar_config(database_url="sqlite://", webchat_segredo="x" * 32)
+
+
+def test_webchat_ligado_exige_todos_os_segredos_e_o_chatwoot():
+    completo = {
+        "webchat_segredo": "x" * 32,
+        "webchat_identidade_hmac": "h",
+        "webchat_website_token": "t",
+        "chatwoot_url": "https://chat.invalid",
+    }
+    assert carregar_config(database_url="sqlite://", **completo).webchat_ligado
+    for faltando in completo:
+        parcial = {k: v for k, v in completo.items() if k != faltando}
+        assert not carregar_config(database_url="sqlite://", **parcial).webchat_ligado
+
+
 def test_segredos_do_webchat_vazios_valem_como_ausentes():
     config = carregar_config(
         database_url="sqlite://",

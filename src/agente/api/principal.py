@@ -33,11 +33,16 @@ def _redator(config: Config) -> Redator:
 
 
 def _webchat(config: Config) -> ConfigWebchat | None:
-    if config.webchat_url_base and config.webchat_segredo:
-        return ConfigWebchat(config.webchat_url_base, config.webchat_segredo)
-    if config.webchat_url_base:
-        log.warning("AGENTE_WEBCHAT_SEGREDO ausente: a 6ª mensagem leva o link provisório")
-    return None
+    """O link do webchat só sai se a página estiver ligada: senão o cliente cai num 503."""
+    if not config.webchat_url_base:
+        return None
+    if not config.webchat_ligado:
+        log.warning(
+            "AGENTE_WEBCHAT_URL_BASE sem o resto da configuração do webchat (segredo, chave da "
+            "identidade, token do site e AGENTE_CHATWOOT_URL): a 6ª mensagem leva o link provisório"
+        )
+        return None
+    return ConfigWebchat(config.webchat_url_base, config.webchat_segredo)
 
 
 def montar_dependencias(config: Config) -> Dependencias:

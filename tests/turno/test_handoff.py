@@ -116,7 +116,9 @@ def test_com_handoff_expira_pix_o_handoff_expira_o_pendente(sessao, conversa, po
 def test_o_handoff_com_webchat_manda_o_link_com_o_token_da_cobranca(sessao, conversa, politica):
     conversa.chatwoot_conversa_id = 555
     chatwoot = ChatwootFalso()
-    webchat = ConfigWebchat("https://atendimento.exemplo.invalid", "segredo-do-webchat")
+    webchat = ConfigWebchat(
+        "https://atendimento.exemplo.invalid", "segredo-do-webchat-com-32-caracteres-ou-mais"
+    )
 
     fazer_handoff(
         sessao, chatwoot, conversa, MotivoHumano.TETO, [], politica, 4, AGORA, webchat=webchat
@@ -126,7 +128,10 @@ def test_o_handoff_com_webchat_manda_o_link_com_o_token_da_cobranca(sessao, conv
     prefixo = "https://atendimento.exemplo.invalid/atendimento/"
     assert botao.valor.startswith(prefixo)
     token = botao.valor.removeprefix(prefixo)
-    assert validar_token(sessao, "segredo-do-webchat", token, AGORA) == conversa.cobranca_id
+    assert (
+        validar_token(sessao, "segredo-do-webchat-com-32-caracteres-ou-mais", token, AGORA)
+        == conversa.cobranca_id
+    )
 
 
 def test_o_handoff_sem_webchat_mantem_o_link_provisorio(sessao, conversa, politica):
