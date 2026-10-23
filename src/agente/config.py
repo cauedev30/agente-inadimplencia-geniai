@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +39,13 @@ class Config(ConfigRedator):
     # Webhooks de pagamento (T1 e T9): sem o segredo, o webhook fica desligado.
     pix_webhook_segredo: str | None = None
     ctn_webhook_segredo: str | None = None
+
+    @field_validator("webhook_segredo", "pix_webhook_segredo", "ctn_webhook_segredo")
+    @classmethod
+    def _segredo_vazio_e_desligado(cls, valor: str | None) -> str | None:
+        # O .env copiado do .env.example traz a variável vazia: um HMAC de chave vazia é calculável
+        # por qualquer um, então o vazio vale como sem segredo.
+        return valor if valor and valor.strip() else None
 
 
 def carregar_config(**kwargs) -> Config:

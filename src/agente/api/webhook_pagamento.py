@@ -66,7 +66,7 @@ def criar_rota(
 
     @roteador.post(caminho)
     async def webhook(request: Request) -> dict:
-        if segredo is None or dependencias is None:
+        if not segredo or dependencias is None:
             raise HTTPException(503, f"o webhook {origem} está desligado")
         corpo = await request.body()
         if not assinatura_valida(corpo, segredo, request.headers.get(CABECALHO_ASSINATURA)):

@@ -119,6 +119,35 @@ def test_sem_segredo_configurado_o_webhook_fica_desligado(politica, chamadas, or
     assert chamadas["chamadas"] == []
 
 
+@pytest.mark.parametrize("origem", ["pix", "ctn"])
+def test_segredo_vazio_no_ambiente_desliga_o_webhook(politica, chamadas, monkeypatch, origem):
+    # O .env copiado do .env.example traz a variável vazia: não pode ligar o HMAC com chave vazia.
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite://")
+    monkeypatch.setenv(f"AGENTE_{origem.upper()}_WEBHOOK_SEGREDO", "")
+    fabrica = criar_sessao("sqlite://")
+    Base.metadata.create_all(fabrica.kw["bind"])
+    app = criar_app(
+        fabrica, politica, Config(_env_file=None), dependencias="deps", iniciar_trabalhador=False
+    )
+    corpo = json.dumps(PAYLOAD).encode()
+    with TestClient(app) as cliente:
+        resposta = cliente.post(
+            f"/webhooks/{origem}", content=corpo, headers={"X-Assinatura": _assinar(corpo, "")}
+        )
+    assert resposta.status_code == 503
+    assert chamadas["chamadas"] == []
+
+
+@pytest.mark.parametrize("origem", ["pix", "ctn"])
+def test_segredo_vazio_na_rota_tambem_desliga_o_webhook(politica, chamadas, origem):
+    with TestClient(_app(politica, **{f"{origem}_webhook_segredo": ""})) as cliente:
+        corpo = json.dumps(PAYLOAD).encode()
+        resposta = cliente.post(
+            f"/webhooks/{origem}", content=corpo, headers={"X-Assinatura": _assinar(corpo, "")}
+        )
+    assert resposta.status_code == 503
+
+
 def test_so_o_webhook_sem_segredo_fica_desligado(politica, chamadas):
     with TestClient(_app(politica, ctn_webhook_segredo=None)) as cliente:
         assert _post(cliente, "pix").status_code == 200

@@ -24,6 +24,18 @@ def test_config_diz_qual_variavel_falta(monkeypatch):
         carregar_config(_env_file=None)
 
 
+@pytest.mark.parametrize(
+    "variavel", ["PIX_WEBHOOK_SEGREDO", "CTN_WEBHOOK_SEGREDO", "WEBHOOK_SEGREDO"]
+)
+def test_segredo_vazio_vira_desligado(monkeypatch, variavel):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv(f"AGENTE_{variavel}", "  ")
+
+    config = carregar_config(_env_file=None)
+
+    assert getattr(config, variavel.lower()) is None
+
+
 def test_modo_invalido_e_recusado(monkeypatch):
     monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
     monkeypatch.setenv("AGENTE_MODO", "talvez")
