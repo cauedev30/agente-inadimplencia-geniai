@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from agente.db.historico import registrar_mensagem, transicionar
-from agente.db.modelos import Cliente, Conversa, Mensagem, Pagamento
+from agente.db.modelos import Cliente, Cobranca, Conversa, Mensagem, Pagamento
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNIndisponivel
@@ -179,6 +179,28 @@ def _gravar_confirmacao(
     )
 
 
+def _travar(sessao: Session, pagamento: Pagamento) -> Pagamento:
+    """Trava a cobrança e o pagamento e os relê já travados, para a confirmação não correr em dobro.
+
+    O Postgres lê em READ COMMITTED: dois webhooks iguais em paralelo leriam PENDENTE e mandariam
+    duas confirmações, e o pagamento do Pix e o do link da mesma cobrança dariam duas baixas. O 2º
+    espera na trava e lê PAGO. A cobrança vem primeiro, na mesma ordem do turno (que escreve nela
+    antes de tocar nos pagamentos), para as duas transações não se travarem uma à outra.
+    """
+    sessao.execute(
+        select(Cobranca)
+        .where(Cobranca.id == pagamento.cobranca_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return sessao.scalars(
+        select(Pagamento)
+        .where(Pagamento.id == pagamento.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one()
+
+
 def confirmar_pagamento(
     sessao: Session,
     deps: DependenciasConfirmar,
@@ -198,6 +220,7 @@ def confirmar_pagamento(
     pagamento = sessao.scalar(select(Pagamento).where(Pagamento.referencia == referencia))
     if pagamento is None:
         return ResultadoConfirmacao.DESCONHECIDO
+    pagamento = _travar(sessao, pagamento)
     if pagamento.status is StatusPagamento.PAGO:
         return ResultadoConfirmacao.JA_CONFIRMADO
     agora = _agora()

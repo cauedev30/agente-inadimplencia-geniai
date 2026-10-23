@@ -4,7 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
+from sqlalchemy.dialects import postgresql
 
 from agente.db.historico import mensagens_no_teto, registrar_mensagem
 from agente.db.modelos import Mensagem, Pagamento, Transicao
@@ -524,3 +525,19 @@ def test_a_conclusao_que_nao_sai_vira_erro_no_log_depois_das_tentativas(
     erros = [r for r in caplog.records if r.levelname == "ERROR"]
     assert len(erros) == 1 and "conferir à mão" in erros[0].getMessage()
     assert txid not in erros[0].getMessage()
+
+
+def test_a_confirmacao_trava_a_cobranca_e_o_pagamento_antes_de_ler(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+    comandos = []
+
+    def capturar(estado):
+        comandos.append(estado.statement.compile(dialect=postgresql.dialect()).string)
+
+    event.listen(sessao, "do_orm_execute", capturar)
+
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+
+    travados = [c for c in comandos if c.rstrip().endswith("FOR UPDATE")]
+    assert any("FROM cobranca" in c for c in travados)
+    assert any("FROM pagamento" in c for c in travados)

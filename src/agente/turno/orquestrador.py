@@ -195,6 +195,27 @@ def _fechar(
     return resultado
 
 
+def _fechar_ignorado(
+    sessao: Session,
+    turno: Turno,
+    avaliacao: Avaliacao,
+    agora: datetime,
+    *,
+    nao_executado: bool = False,
+) -> ResultadoTurno:
+    """A cobrança fechou durante o turno (o pagamento chegou): nada do turno vale nem sai."""
+    return _fechar(
+        sessao,
+        turno,
+        ResultadoTurno.IGNORADO,
+        avaliacao,
+        {"executado": False} if nao_executado else {},
+        agora,
+        redacao={"saida": "IGNORADO", "motivo": "sem_cobranca_ativa"},
+        rotulo=avaliacao.rotulo_nao_executado if nao_executado else None,
+    )
+
+
 def _handoff(
     sessao: Session,
     conversa: Conversa,
@@ -319,6 +340,20 @@ def _mudar_estado(
         transicionar(sessao, conversa, para, None, laudo_id, momento=agora)
 
 
+def _cobranca_fechou_no_meio(sessao: Session, conversa: Conversa) -> bool:
+    """Relê a cobrança (com trava) e a conversa antes de o turno gravar o estado final.
+
+    O Jev e o LLM demoram, e o webhook de pagamento roda em outra transação: se ele confirmou nesse
+    meio tempo, a conversa que o turno tem na sessão está velha. Sem a releitura, o turno
+    sobrescreveria o ENCERRADO e mandaria o canal externo depois do "pagamento confirmado". A trava
+    da cobrança segura a confirmação seguinte até o commit do turno.
+    """
+    sessao.flush()
+    sessao.refresh(conversa.cobranca, with_for_update=True)
+    sessao.refresh(conversa)
+    return conversa.cobranca.status is not StatusCobranca.ATIVA
+
+
 def _agir(
     sessao: Session,
     conversa: Conversa,
@@ -353,12 +388,15 @@ def _agir(
         deps.politica,
     )
     redacao = redigir_validado(deps.redator, deps.jev, pedido, numeros, estado)
-    if redacao.texto is None:
+    fechou = _cobranca_fechou_no_meio(sessao, conversa)
+    if redacao.texto is None or fechou:
         # O degrau, a objeção, a forma e o Pix pendente voltam atrás.
         ponto.rollback()
     else:
         ponto.commit()
     reprovados = _gravar_jev3(sessao, turno.id, redacao, deps.jev.origem)
+    if fechou:
+        return _fechar_ignorado(sessao, turno, avaliacao, agora, nao_executado=True)
 
     texto = redacao.texto
     if texto is not None:
@@ -407,6 +445,8 @@ def _seguir(
     if deps.modo is Modo.SOMBRA:
         previstos = numeros_previstos(avaliacao, conversa, cobranca, deps.politica)
         return _fechar(sessao, turno, ResultadoTurno.SOMBRA, avaliacao, previstos, agora)
+    if _cobranca_fechou_no_meio(sessao, conversa):
+        return _fechar_ignorado(sessao, turno, avaliacao, agora)
     if avaliacao.motivo is not None:
         laudos, laudo_id = [], None
         if avaliacao.causa is not None:
