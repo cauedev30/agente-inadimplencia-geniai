@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -27,12 +28,12 @@ from agente.tipos import (
     TipoFixa,
 )
 from agente.turno.fila import mensagens_pendentes
-from agente.turno.gates import Fixa, PagarPix, Seguir, avaliar_gates
+from agente.turno.gates import Adiar, Fixa, Ignorar, PagarPix, Seguir, avaliar_gates
 from agente.turno.jev3 import aprovar_tudo
 from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
-from .test_orquestrador_gates import SEGUNDA_10H
+from .test_orquestrador_gates import DOMINGO, SEGUNDA_10H
 
 TOQUE = BOTAO_PAGAR_PIX.texto
 
@@ -240,3 +241,78 @@ def test_em_sombra_o_toque_nao_gera_pix_nem_envia(sessao, ligada, cliente, polit
     assert turno.numeros["valor_pix_centavos"] == ligada.cobranca.divida_centavos
     do_agente = select(Mensagem).where(Mensagem.origem == OrigemMensagem.AGENTE)
     assert sessao.scalars(do_agente).all() == []
+
+
+# --- fora da janela de atendimento (D40) ---
+
+
+def _gate_em(sessao, conversa, politica, agora, *textos):
+    for i, texto in enumerate(textos):
+        registrar_mensagem(
+            sessao, conversa.id, OrigemMensagem.CLIENTE, texto, f"d-{i}", False, agora
+        )
+    return avaliar_gates(
+        conversa, mensagens_pendentes(sessao, conversa.id), agora, politica, sessao
+    )
+
+
+def test_fora_da_janela_o_toque_no_botao_e_respondido_na_hora(sessao, ligada, politica):
+    assert _gate_em(sessao, ligada, politica, DOMINGO, TOQUE) == PagarPix()
+
+
+def test_fora_da_janela_outra_mensagem_continua_adiada(sessao, ligada, politica):
+    gate = _gate_em(sessao, ligada, politica, DOMINGO, "tá caro", TOQUE)
+    assert isinstance(gate, Adiar)
+
+
+def test_fora_da_janela_o_toque_ainda_respeita_o_humano_e_o_teto(sessao, ligada, politica):
+    for _ in range(politica.teto_resolucao):
+        registrar_mensagem(
+            sessao, ligada.id, OrigemMensagem.AGENTE, "resposta", None, True, DOMINGO
+        )
+    assert _gate_em(sessao, ligada, politica, DOMINGO, TOQUE) == Fixa(TipoFixa.CANAL_EXTERNO)
+
+
+def test_fora_da_janela_o_toque_com_o_humano_na_conversa_e_ignorado(sessao, ligada, politica):
+    ligada.human_owned = True
+    gate = _gate_em(sessao, ligada, politica, DOMINGO, TOQUE)
+    assert gate == Ignorar("humano_na_conversa")
+
+
+def test_fora_da_janela_o_pix_do_toque_sai_na_hora(sessao, ligada, politica):
+    deps = _deps(politica)
+    deps.pix = PixFalso(agora=lambda: DOMINGO)
+    registrar_mensagem(sessao, ligada.id, OrigemMensagem.CLIENTE, TOQUE, "cw-1", False, DOMINGO)
+
+    resultado = processar_turno(sessao, ligada.id, DOMINGO, deps)
+
+    assert resultado is ResultadoTurno.ENVIADO
+    [pix] = deps.pix.cobrancas.values()
+    [texto] = deps.chatwoot.enviadas(555)
+    assert pix.br_code in texto
+    assert mensagens_no_teto(sessao, ligada.id) == 1
+
+
+class _ChatwootQueFalhaUmaVez(ChatwootFalso):
+    def __init__(self):
+        super().__init__()
+        self.falhou = False
+
+    def enviar_mensagem(self, conversa_id, texto, botoes=None):
+        if not self.falhou:
+            self.falhou = True
+            raise httpx.ConnectError("o Chatwoot não respondeu")
+        return super().enviar_mensagem(conversa_id, texto, botoes)
+
+
+def test_fora_da_janela_o_reenvio_da_resposta_ao_toque_tambem_sai_na_hora(sessao, ligada, politica):
+    deps = _deps(politica)
+    deps.pix = PixFalso(agora=lambda: DOMINGO)
+    deps.chatwoot = _ChatwootQueFalhaUmaVez()
+    registrar_mensagem(sessao, ligada.id, OrigemMensagem.CLIENTE, TOQUE, "cw-1", False, DOMINGO)
+    assert processar_turno(sessao, ligada.id, DOMINGO, deps) is ResultadoTurno.ERRO
+
+    resultado = processar_turno(sessao, ligada.id, ligada.turno_em, deps)
+
+    assert resultado is ResultadoTurno.ENVIADO
+    assert len(deps.chatwoot.enviadas(555)) == 1

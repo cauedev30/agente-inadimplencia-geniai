@@ -37,8 +37,8 @@ São certezas, não probabilidades, e por isso ficam fora do Jev:
 - comando de reinício;
 - tipo do anexo e duração do áudio (até 2 min);
 - **janela de atendimento**: segunda a sexta, das 8h às 18h; sábado, das 8h às 12h. Domingo e feriado
-  ficam fora. Fora da janela, nada é enviado (D11, D16). O desenho dizia "seg–sáb, 08h–20h"; valem as
-  decisões.
+  ficam fora. Fora da janela, nada é enviado (D11, D16), salvo a resposta ao toque no botão "Pagar
+  com Pix", que sai na hora (D40). O desenho dizia "seg–sáb, 08h–20h"; valem as decisões.
 - janela de 24h do WhatsApp e template;
 - **teto de 5 mensagens de resolução**, com a 6ª fixa: a confirmação, se o cliente pagou, ou o canal
   externo (D33, D19). A abertura não conta. A confirmação de pagamento sai sempre, fora do teto.

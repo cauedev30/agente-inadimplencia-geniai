@@ -2,7 +2,8 @@
 
 O segredo, o JSON, a conta, a inbox e o dedupe já ficaram no webhook (tarefa 3.4). Aqui ficam os
 gates do turno, nesta ordem: cobrança ativa, humano na conversa, reinício, anexo, janela de
-atendimento, janela de 24h do WhatsApp, teto e o toque no botão "Pagar com Pix".
+atendimento, janela de 24h do WhatsApp, teto e o toque no botão "Pagar com Pix". O toque no botão
+é a única mensagem que dispensa a janela de atendimento (D40).
 """
 
 from dataclasses import dataclass
@@ -111,7 +112,10 @@ def avaliar_gates(
         return Reiniciar()
     if _so_anexo_nao_aceito(mensagens, politica):
         return Ignorar("anexo_nao_aceito")
-    if not dentro_da_janela(agora, politica):
+    toque = _so_toque_no_botao_pix(mensagens)
+    if not toque and not dentro_da_janela(agora, politica):
+        # O toque no botão é a exceção à D16 (D40): quem toca quer pagar agora, e a resposta é uma
+        # mensagem só. Os outros gates (humano, 24h, teto) continuam valendo.
         return Adiar(proxima_abertura(agora, politica))
     if agora - max(mensagem.momento for mensagem in mensagens) > JANELA_WHATSAPP:
         return Retomar()
@@ -119,9 +123,24 @@ def avaliar_gates(
         if _ja_saiu_fixa(sessao, conversa.id):
             return Ignorar("teto_encerrado")
         return Fixa(TipoFixa.CANAL_EXTERNO)
-    if _so_toque_no_botao_pix(mensagens):
+    if toque:
         return PagarPix()
     return Seguir()
+
+
+def _resposta_ao_toque(sessao: Session, mensagem: Mensagem) -> bool:
+    """A mensagem do agente responde só ao toque no botão (D40): a rajada que ela responde."""
+    anteriores = sessao.scalars(
+        select(Mensagem)
+        .where(Mensagem.conversa_id == mensagem.conversa_id, Mensagem.id < mensagem.id)
+        .order_by(Mensagem.id.desc())
+    )
+    rajada = []
+    for anterior in anteriores:
+        if anterior.origem is not OrigemMensagem.CLIENTE:
+            break
+        rajada.append(anterior)
+    return bool(rajada) and _so_toque_no_botao_pix(rajada)
 
 
 def avaliar_envio(
@@ -136,7 +155,7 @@ def avaliar_envio(
         return Ignorar("sem_cobranca_ativa")
     if humano_na_conversa(conversa):
         return Ignorar("humano_na_conversa")
-    if not dentro_da_janela(agora, politica):
+    if not dentro_da_janela(agora, politica) and not _resposta_ao_toque(sessao, mensagem):
         return Adiar(proxima_abertura(agora, politica))
     ultima = sessao.scalar(
         select(func.max(Mensagem.momento)).where(
