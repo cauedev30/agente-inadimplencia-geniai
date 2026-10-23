@@ -68,5 +68,6 @@ def montar_app(config: Config | None = None, *, iniciar_trabalhador: bool = True
         deps.politica,
         config,
         processar=criar_processador(deps),
+        dependencias=deps,
         iniciar_trabalhador=iniciar_trabalhador,
     )

@@ -30,6 +30,11 @@ class ClienteNaoEncontrado(LookupError):
     """A matrícula não existe no CTN."""
 
 
+class CTNIndisponivel(Exception):
+    """O CTN não respondeu (fora do ar, prazo estourado ou erro 5xx). Toda implementação do `CTN`
+    levanta esta exceção nessa falha; o turno a trata como integração fora do ar."""
+
+
 class CTN(Protocol):
     def consultar_cliente(self, matricula: str) -> ClienteCTN: ...
 
@@ -73,8 +78,15 @@ class CTNFalso:
         self.hoje = hoje or date.today()
         self.links: dict[str, tuple[str, int | None, int | None]] = {}
         self.baixas: list[tuple[str, int, datetime, str]] = []
+        # Liga a falha do CTN: toda chamada levanta CTNIndisponivel.
+        self.fora_do_ar = False
+
+    def _exigir_no_ar(self) -> None:
+        if self.fora_do_ar:
+            raise CTNIndisponivel("CTN fora do ar (simulado)")
 
     def consultar_cliente(self, matricula: str) -> ClienteCTN:
+        self._exigir_no_ar()
         try:
             return self.clientes[matricula]
         except KeyError:

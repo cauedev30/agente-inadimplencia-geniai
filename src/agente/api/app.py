@@ -1,16 +1,19 @@
-"""O serviço HTTP: o webhook do Chatwoot, a saúde e o laço que roda os turnos."""
+"""O serviço HTTP: os webhooks do Chatwoot e dos pagamentos, a saúde e o laço que roda os turnos."""
 
 import hmac
 import json
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from agente.api.chatwoot_webhook import receber_evento
+from agente.api.ctn_webhook import criar_rota_ctn
+from agente.api.pix_webhook import criar_rota_pix
 from agente.config import Config
 from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
@@ -29,7 +32,9 @@ def criar_app(
     processar: Processar = processar_sem_acao,
     relogio: Callable[[], datetime] = _agora,
     iniciar_trabalhador: bool = True,
+    dependencias: Any | None = None,
 ) -> FastAPI:
+    """`dependencias` são as do turno; os webhooks de pagamento as passam ao confirmar_pagamento."""
     trabalhador = Trabalhador(fabrica, processar, relogio, rotinas=[expirar_pix])
 
     @asynccontextmanager
@@ -67,4 +72,6 @@ def criar_app(
 
         return {"resultado": await run_in_threadpool(_tratar)}
 
+    app.include_router(criar_rota_pix(fabrica, config.pix_webhook_segredo, dependencias))
+    app.include_router(criar_rota_ctn(fabrica, config.ctn_webhook_segredo, dependencias))
     return app

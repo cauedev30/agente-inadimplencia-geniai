@@ -26,10 +26,10 @@ from agente.db.historico import (
 from agente.db.modelos import Conversa, Mensagem, Turno
 from agente.dominio.janela import dentro_da_janela, proxima_abertura
 from agente.integracoes.chatwoot import Chatwoot
-from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNFalso
+from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNFalso, CTNIndisponivel
 from agente.integracoes.disparador import Disparador, FalhaNoEnvio
 from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
-from agente.integracoes.pix import PixBanco, PixFalso
+from agente.integracoes.pix import PixBanco, PixFalso, PixIndisponivel
 from agente.integracoes.redator import Redator, RedatorFalso, RedatorIndisponivel
 from agente.politica import Politica
 from agente.tipos import (
@@ -74,8 +74,10 @@ log = logging.getLogger(__name__)
 _FALHAS_DE_INTEGRACAO = (
     httpx.HTTPError,
     ClienteNaoEncontrado,
+    CTNIndisponivel,
     FalhaNoEnvio,
     JevIndisponivel,
+    PixIndisponivel,
     RedatorIndisponivel,
 )
 
