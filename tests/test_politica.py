@@ -16,6 +16,20 @@ def test_arquivo_padrao_carrega(politica):
     assert politica.confianca_minima == 0.60
 
 
+def test_o_link_baixa_sozinho_no_ctn_por_padrao(politica):
+    assert politica.agente_da_baixa_no_link is False
+
+
+def test_o_nome_antigo_da_baixa_no_link_e_recusado(tmp_path):
+    texto = ARQUIVO_PADRAO.read_text(encoding="utf-8").replace(
+        "agente_da_baixa_no_link", "ctn_baixa_no_link"
+    )
+    arquivo = tmp_path / "politica.toml"
+    arquivo.write_text(texto, encoding="utf-8")
+    with pytest.raises(PoliticaInvalida, match="agente_da_baixa_no_link"):
+        carregar_politica(arquivo)
+
+
 @pytest.mark.parametrize(
     ("regua", "desconto"),
     [

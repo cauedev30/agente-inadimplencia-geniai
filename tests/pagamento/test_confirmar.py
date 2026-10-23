@@ -211,7 +211,7 @@ def test_o_link_nao_da_baixa_com_o_padrao_e_o_valor_e_o_do_degrau(sessao, ligada
 
 
 def test_o_link_da_baixa_quando_o_parametro_manda(sessao, ligada, politica):
-    deps = _deps(politica, ctn_baixa_no_link=True)
+    deps = _deps(politica, agente_da_baixa_no_link=True)
     id_externo = _link(sessao, ligada, deps)
 
     confirmar_pagamento(sessao, deps, id_externo, DIVIDA, PAGO_EM)

@@ -160,7 +160,8 @@ def confirmar_pagamento(
     """Confirma o pagamento da referência (o txid do Pix ou o id do link do CTN). É idempotente.
 
     A sequência: o pagamento vira pago e a conversa vai para PAGO; sai a baixa no CTN (sempre no
-    Pix; no link, conforme `ctn_baixa_no_link`); sai a mensagem fixa; a conversa vai para ENCERRADO.
+    Pix; no link, conforme `agente_da_baixa_no_link`); sai a mensagem fixa; a conversa vai para
+    ENCERRADO.
     A conversa com o humano também confirma e sai. Os outros pagamentos pendentes da cobrança ficam
     como estão. O segundo pagamento de uma cobrança já paga só é marcado como pago: não repete a
     baixa nem a mensagem, e o aviso no log fica para a conferência humana.
@@ -187,7 +188,7 @@ def confirmar_pagamento(
     if conversa is not None:
         transicionar(sessao, conversa, EstadoConversa.PAGO, None, None, momento=agora)
 
-    if pagamento.forma is FormaPagamento.PIX or deps.politica.ctn_baixa_no_link:
+    if pagamento.forma is FormaPagamento.PIX or deps.politica.agente_da_baixa_no_link:
         deps.ctn.registrar_baixa(
             cobranca.cliente.matricula_ctn, valor_centavos, pago_em, pagamento.referencia
         )
