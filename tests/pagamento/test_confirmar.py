@@ -308,3 +308,20 @@ def test_sem_conversa_so_confirma_e_da_a_baixa(sessao, conversa, deps):
     assert resultado is ResultadoConfirmacao.CONFIRMADO
     assert len(deps.ctn.baixas) == 1
     assert deps.chatwoot.chamadas == [] and deps.disparador.envios == []
+
+
+def test_o_pix_expirado_que_o_banco_confirma_pago_segue_a_sequencia_normal(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+    sessao.scalars(select(Pagamento)).one().status = StatusPagamento.EXPIRADO
+
+    resultado = confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+
+    assert resultado is ResultadoConfirmacao.CONFIRMADO
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert (pagamento.status, pagamento.pago_em) == (StatusPagamento.PAGO, PAGO_EM)
+    assert deps.ctn.baixas == [("M-0001", DIVIDA, PAGO_EM, txid)]
+    assert len(deps.chatwoot.enviadas(555)) == 1
+    assert ligada.estado is EstadoConversa.ENCERRADO
+    assert confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM) is (
+        ResultadoConfirmacao.JA_CONFIRMADO
+    )
