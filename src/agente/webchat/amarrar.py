@@ -1,0 +1,174 @@
+"""Amarra a conversa do webchat à cobrança, para o atendente ter um ticket só (tarefa 7.3).
+
+O cliente entra no widget identificado por `cobranca-<id>` (ver `identidade`). Quando a conversa do
+webchat abre, o backend a liga à cobrança: grava o id nos atributos, deixa a nota com o resumo,
+etiqueta e atribui ao mesmo time, e marca a conversa do WhatsApp como transferida.
+"""
+
+import logging
+from datetime import datetime
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from agente.config import Config
+from agente.db.modelos import Cobranca, Conversa, LaudoGravado, Mensagem, Turno
+from agente.dominio.dinheiro import formatar_reais
+from agente.integracoes.chatwoot import Chatwoot
+from agente.tipos import OrigemMensagem
+from agente.webchat.identidade import cobranca_do_identificador
+
+log = logging.getLogger(__name__)
+
+ETIQUETA_WEBCHAT = "webchat"
+ETIQUETA_TRANSFERIDA = "transferida_webchat"
+
+
+def _link(url_conversas: str | None, conversa_id: int) -> str:
+    return f"{url_conversas.rstrip('/')}/{conversa_id}" if url_conversas else f"#{conversa_id}"
+
+
+def _laudos_do_ultimo_turno(sessao: Session, conversa: Conversa) -> list[LaudoGravado]:
+    turno_id = sessao.scalar(
+        select(Turno.id)
+        .join(LaudoGravado)
+        .where(Turno.conversa_id == conversa.id)
+        .order_by(Turno.id.desc())
+        .limit(1)
+    )
+    if turno_id is None:
+        return []
+    return list(
+        sessao.scalars(
+            select(LaudoGravado).where(LaudoGravado.turno_id == turno_id).order_by(LaudoGravado.id)
+        )
+    )
+
+
+def _resumo(
+    sessao: Session, cobranca: Cobranca, whatsapp: Conversa | None, url_conversas: str | None
+) -> str:
+    linhas = [
+        "Conversa do webchat, amarrada à cobrança do WhatsApp.",
+        f"Cliente: {cobranca.cliente.nome}",
+        f"Dívida: {formatar_reais(cobranca.divida_centavos)} "
+        f"({cobranca.mensalidades_abertas} mensalidade(s) em aberto, régua {cobranca.regua.value})",
+    ]
+    if whatsapp is None:
+        linhas.append("Conversa do WhatsApp: ainda não ligada ao Chatwoot.")
+        return "\n".join(linhas)
+    enviadas = sessao.scalars(
+        select(Mensagem.id).where(
+            Mensagem.conversa_id == whatsapp.id, Mensagem.origem == OrigemMensagem.AGENTE
+        )
+    ).all()
+    forma = whatsapp.forma_enviada.value if whatsapp.forma_enviada else "nenhuma"
+    linhas.append(
+        f"Propostas: degrau {whatsapp.degrau_atual}; forma de pagamento enviada: {forma}; "
+        f"mensagens do agente: {len(enviadas)}"
+    )
+    if whatsapp.motivo_humano:
+        linhas.append(f"Motivo da saída para o humano: {whatsapp.motivo_humano.value}")
+    laudos = _laudos_do_ultimo_turno(sessao, whatsapp)
+    if laudos:
+        linhas.append("Laudo do Jev no último turno:")
+        linhas += [
+            f"- {laudo.pergunta}: {laudo.valor} (p={laudo.probabilidade:.2f}, "
+            f"c={laudo.confianca:.2f})"
+            for laudo in laudos
+        ]
+    linhas.append(f"Conversa do WhatsApp: {_link(url_conversas, whatsapp.chatwoot_conversa_id)}")
+    return "\n".join(linhas)
+
+
+def amarrar_conversa_webchat(
+    sessao: Session,
+    chatwoot: Chatwoot,
+    conversa_webchat_id: int,
+    cobranca_id: int,
+    *,
+    time_id: int | None,
+    agora: datetime,
+    url_conversas: str | None = None,
+) -> None:
+    """Liga a conversa do webchat à cobrança. Repetir para a mesma conversa não faz nada.
+
+    A marca fica no banco (`cobranca.webchat_conversa_id`) e só é gravada depois das chamadas ao
+    Chatwoot: se uma falhar, a repetição refaz tudo (pode duplicar a nota) em vez de deixar o
+    atendente sem o resumo.
+    """
+    cobranca = sessao.get(Cobranca, cobranca_id)
+    if cobranca is None:
+        raise ValueError(f"a cobrança {cobranca_id} não existe")
+    if cobranca.webchat_conversa_id == conversa_webchat_id:
+        return
+    whatsapp = sessao.scalar(
+        select(Conversa)
+        .where(Conversa.cobranca_id == cobranca_id, Conversa.chatwoot_conversa_id.is_not(None))
+        .order_by(Conversa.id.desc())
+    )
+
+    chatwoot.gravar_atributos(conversa_webchat_id, {"cobranca_id": cobranca_id})
+    chatwoot.nota_privada(conversa_webchat_id, _resumo(sessao, cobranca, whatsapp, url_conversas))
+    etiquetas = [ETIQUETA_WEBCHAT]
+    if whatsapp is not None and whatsapp.motivo_humano is not None:
+        etiquetas.append(whatsapp.motivo_humano.value.lower())
+    chatwoot.etiquetar(conversa_webchat_id, etiquetas)
+    if time_id is not None:
+        chatwoot.atribuir(conversa_webchat_id, time_id)
+    chatwoot.mudar_status(conversa_webchat_id, "open")
+    if whatsapp is not None:
+        origem = whatsapp.chatwoot_conversa_id
+        chatwoot.etiquetar(origem, [ETIQUETA_TRANSFERIDA])
+        chatwoot.gravar_atributos(
+            origem, {"transferida_webchat": True, "conversa_webchat_id": conversa_webchat_id}
+        )
+        chatwoot.nota_privada(
+            origem,
+            f"Atendimento transferido para o webchat: {_link(url_conversas, conversa_webchat_id)}",
+        )
+    cobranca.webchat_conversa_id = conversa_webchat_id
+    sessao.commit()
+    log.info("webchat: conversa %s amarrada à cobrança %s", conversa_webchat_id, cobranca_id)
+
+
+def tratar_conversa_criada(
+    sessao: Session,
+    chatwoot: Chatwoot,
+    dados: dict,
+    config: Config,
+    time_id: int | None,
+    agora: datetime,
+) -> str:
+    """O evento `conversation_created` da inbox Website. Devolve `amarrada` ou `ignorado`.
+
+    O formato do evento (o `identifier` do contato em `meta.sender`) é o da documentação do
+    Chatwoot, a confirmar na T3 com o Chatwoot real.
+    """
+    if dados.get("event") != "conversation_created" or config.webchat_inbox is None:
+        return "ignorado"
+    inbox = dados.get("inbox_id") or (dados.get("inbox") or {}).get("id")
+    conta = (dados.get("account") or {}).get("id")
+    if inbox != config.webchat_inbox:
+        return "ignorado"
+    if config.chatwoot_conta is not None and conta is not None and conta != config.chatwoot_conta:
+        return "ignorado"
+    sender = (dados.get("meta") or {}).get("sender") or {}
+    cobranca_id = cobranca_do_identificador(sender.get("identifier"))
+    if cobranca_id is None or sessao.get(Cobranca, cobranca_id) is None:
+        return "ignorado"
+    url = None
+    if config.chatwoot_url and config.chatwoot_conta is not None:
+        url = (
+            f"{config.chatwoot_url.rstrip('/')}/app/accounts/{config.chatwoot_conta}/conversations"
+        )
+    amarrar_conversa_webchat(
+        sessao,
+        chatwoot,
+        int(dados["id"]),
+        cobranca_id,
+        time_id=time_id,
+        agora=agora,
+        url_conversas=url,
+    )
+    return "amarrada"

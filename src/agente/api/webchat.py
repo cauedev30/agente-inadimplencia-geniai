@@ -7,7 +7,6 @@ telefone ou do CPF vai ao HTML, ao título ou à URL, e toda resposta sai com `n
 Token inválido, vencido ou revogado dá sempre o mesmo 404.
 """
 
-import hashlib
 import hmac
 import html
 import json
@@ -27,6 +26,7 @@ from agente.config import Config
 from agente.db.modelos import Cobranca
 from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNIndisponivel
 from agente.politica import Politica
+from agente.webchat.identidade import hash_de_identidade, identificador_do_chatwoot
 from agente.webchat.token import TokenInvalido, validar_token
 
 log = logging.getLogger(__name__)
@@ -95,16 +95,6 @@ window.chatwootSettings = {{locale: "pt_BR"}};
 def _js(valor: str) -> str:
     """O texto como literal de JavaScript, sem poder fechar o <script>."""
     return json.dumps(valor).replace("<", "\\u003c").replace(">", "\\u003e")
-
-
-def identificador_do_chatwoot(cobranca_id: int) -> str:
-    """O `identifier` do contato no widget: opaco, sem nome nem telefone. O amarrador o lê."""
-    return f"cobranca-{cobranca_id}"
-
-
-def hash_de_identidade(chave: str, identificador: str) -> str:
-    """O `identifier_hash` da validação de identidade do Chatwoot: HMAC-SHA256 em hexadecimal."""
-    return hmac.new(chave.encode(), identificador.encode(), hashlib.sha256).hexdigest()
 
 
 def _resposta(corpo: str, status: int = 200, script: str = "") -> HTMLResponse:

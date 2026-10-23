@@ -25,6 +25,7 @@ from agente.pagamento.concluir import (
 from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
 from agente.turno.fila import Processar, Rotina, Trabalhador, a_cada, processar_sem_acao
+from agente.webchat.amarrar import tratar_conversa_criada
 
 log = logging.getLogger(__name__)
 
@@ -107,6 +108,18 @@ def criar_app(
 
         def _tratar() -> str:
             with fabrica() as sessao:
+                if dados.get("event") == "conversation_created":
+                    # A conversa nova do webchat: a amarração à cobrança (tarefa 7.3).
+                    if dependencias is None:
+                        return "ignorado"
+                    return tratar_conversa_criada(
+                        sessao,
+                        dependencias.chatwoot,
+                        dados,
+                        config,
+                        dependencias.time_humano,
+                        relogio(),
+                    )
                 return receber_evento(sessao, dados, politica, config, relogio())
 
         return {"resultado": await run_in_threadpool(_tratar)}
