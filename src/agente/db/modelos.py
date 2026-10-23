@@ -86,6 +86,10 @@ class Cobranca(Base):
         _enum(StatusCobranca), default=StatusCobranca.ATIVA
     )
     criada_em: Mapped[datetime] = mapped_column(default=_agora)
+    # Os erros no CPF da página do webchat; ao chegar no limite do politica.toml, o link bloqueia.
+    webchat_tentativas_cpf: Mapped[int] = mapped_column(default=0)
+    # A conversa do webchat já amarrada a esta cobrança (a amarração repetida não duplica a nota).
+    webchat_conversa_id: Mapped[int | None]
 
     cliente: Mapped[Cliente] = relationship(back_populates="cobrancas")
     conversas: Mapped[list["Conversa"]] = relationship(back_populates="cobranca")

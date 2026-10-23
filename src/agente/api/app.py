@@ -14,7 +14,9 @@ from starlette.concurrency import run_in_threadpool
 from agente.api.chatwoot_webhook import receber_evento
 from agente.api.ctn_webhook import criar_rota_ctn
 from agente.api.pix_webhook import criar_rota_pix
+from agente.api.webchat import criar_rota_webchat
 from agente.config import Config
+from agente.integracoes.ctn import CTN
 from agente.pagamento.concluir import (
     DependenciasPagamento,
     concluir_pagamentos,
@@ -54,8 +56,12 @@ def criar_app(
     relogio: Callable[[], datetime] = _agora,
     iniciar_trabalhador: bool = True,
     dependencias: DependenciasPagamento | None = None,
+    ctn: CTN | None = None,
 ) -> FastAPI:
-    """`dependencias` são as do turno; os webhooks de pagamento as passam ao confirmar_pagamento."""
+    """`dependencias` são as do turno; os webhooks de pagamento as passam ao confirmar_pagamento.
+
+    `ctn` confere o CPF da página do webchat; sem ele (ou sem os segredos), a página fica desligada.
+    """
     trabalhador = Trabalhador(fabrica, processar, relogio, rotinas=_rotinas(dependencias))
 
     @asynccontextmanager
@@ -107,4 +113,5 @@ def criar_app(
 
     app.include_router(criar_rota_pix(fabrica, config.pix_webhook_segredo, dependencias))
     app.include_router(criar_rota_ctn(fabrica, config.ctn_webhook_segredo, dependencias))
+    app.include_router(criar_rota_webchat(fabrica, politica, config, ctn, relogio))
     return app

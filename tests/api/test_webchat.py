@@ -1,0 +1,265 @@
+import hashlib
+import hmac
+import re
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from fastapi.testclient import TestClient
+
+from agente.api.app import criar_app
+from agente.config import Config
+from agente.db.modelos import Base, Cliente, Cobranca, Conversa
+from agente.db.sessao import criar_sessao
+from agente.integracoes.ctn import ClienteCTN, CTNFalso
+from agente.politica import Regua
+from agente.tipos import EstadoConversa, StatusCobranca
+from agente.webchat.token import emitir_token
+
+AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
+SEGREDO = "segredo-do-token"
+CHAVE_HMAC = "chave-hmac-da-inbox-super-secreta"
+WEBSITE_TOKEN = "token-publico-da-inbox"
+CPF = "12345678909"
+NOME = "Maria Fictícia da Silva"
+TELEFONE = "+5583999990001"
+
+
+@pytest.fixture
+def fabrica():
+    fabrica = criar_sessao("sqlite://")
+    Base.metadata.create_all(fabrica.kw["bind"])
+    with fabrica() as sessao:
+        cliente = Cliente(matricula_ctn="F-1", nome=NOME, telefone=TELEFONE)
+        cobranca = Cobranca(
+            cliente=cliente,
+            regua=Regua.R3,
+            mensalidades_abertas=3,
+            divida_centavos=10020,
+            propenso_cartao=False,
+            campanha="outubro",
+        )
+        sessao.add(
+            Conversa(
+                cobranca=cobranca,
+                chatwoot_conversa_id=555,
+                estado=EstadoConversa.ATENDIMENTO_HUMANO,
+            )
+        )
+        sessao.commit()
+    return fabrica
+
+
+@pytest.fixture
+def ctn():
+    return CTNFalso([ClienteCTN("F-1", NOME, TELEFONE, cpf=CPF)])
+
+
+def _app(fabrica, politica, ctn, **config):
+    campos = {
+        "database_url": "sqlite://",
+        "chatwoot_url": "https://chat.invalid",
+        "webchat_segredo": SEGREDO,
+        "webchat_identidade_hmac": CHAVE_HMAC,
+        "webchat_website_token": WEBSITE_TOKEN,
+    }
+    return criar_app(
+        fabrica,
+        politica,
+        Config(**{**campos, **config}),
+        relogio=lambda: AGORA,
+        iniciar_trabalhador=False,
+        ctn=ctn,
+    )
+
+
+@pytest.fixture
+def http(fabrica, politica, ctn):
+    with TestClient(_app(fabrica, politica, ctn)) as cliente:
+        yield cliente
+
+
+@pytest.fixture
+def token():
+    return emitir_token(SEGREDO, 1, AGORA + timedelta(days=30))
+
+
+def _confirmar(http, token, digitos):
+    return http.post(
+        f"/atendimento/{token}",
+        content=f"cpf={digitos}",
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+
+
+def _sem_cache(resposta):
+    assert resposta.headers["cache-control"] == "no-store"
+
+
+def test_o_token_valido_pede_os_digitos_do_cpf(http, token):
+    resposta = http.get(f"/atendimento/{token}")
+
+    assert resposta.status_code == 200
+    _sem_cache(resposta)
+    assert "text/html" in resposta.headers["content-type"]
+    assert 'name="cpf"' in resposta.text
+    assert "3 primeiros" in resposta.text
+    assert "sdk.js" not in resposta.text  # o widget só carrega depois do CPF
+
+
+@pytest.mark.parametrize("token_ruim", ["lixo", "A" * 60])
+def test_o_token_invalido_responde_404(http, token_ruim):
+    resposta = http.get(f"/atendimento/{token_ruim}")
+
+    assert resposta.status_code == 404
+    _sem_cache(resposta)
+    assert _confirmar(http, token_ruim, CPF[:3]).status_code == 404
+
+
+def test_o_token_vencido_responde_404(fabrica, politica, ctn):
+    vencido = emitir_token(SEGREDO, 1, AGORA - timedelta(seconds=1))
+    with TestClient(_app(fabrica, politica, ctn)) as http:
+        assert http.get(f"/atendimento/{vencido}").status_code == 404
+
+
+def test_o_token_revogado_responde_404_igual_ao_invalido(http, fabrica, token):
+    invalido = http.get("/atendimento/lixo")
+    with fabrica() as sessao:
+        sessao.get(Cobranca, 1).status = StatusCobranca.PAGA
+        sessao.commit()
+
+    revogado = http.get(f"/atendimento/{token}")
+
+    assert revogado.status_code == 404
+    assert revogado.text == invalido.text
+
+
+def test_os_digitos_certos_carregam_o_widget_com_a_identidade(http, token):
+    resposta = _confirmar(http, token, CPF[:3])
+
+    assert resposta.status_code == 200
+    _sem_cache(resposta)
+    esperado = hmac.new(CHAVE_HMAC.encode(), b"cobranca-1", hashlib.sha256).hexdigest()
+    assert WEBSITE_TOKEN in resposta.text
+    assert "https://chat.invalid" in resposta.text
+    assert "/packs/js/sdk.js" in resposta.text
+    assert "cobranca-1" in resposta.text
+    assert esperado in resposta.text
+    assert "setUser" in resposta.text
+
+
+def test_a_chave_do_hmac_e_o_segredo_nunca_aparecem(http, token):
+    for resposta in (http.get(f"/atendimento/{token}"), _confirmar(http, token, CPF[:3])):
+        assert CHAVE_HMAC not in resposta.text
+        assert SEGREDO not in resposta.text
+        assert CHAVE_HMAC not in str(resposta.headers)
+
+
+def test_nao_ha_dado_sensivel_no_html_nem_na_url(http, token):
+    for resposta in (
+        http.get(f"/atendimento/{token}"),
+        _confirmar(http, token, CPF[:3]),
+        _confirmar(http, token, "000"),
+    ):
+        corpo = resposta.text
+        assert "100,20" not in corpo and "10020" not in corpo and "R$" not in corpo
+        assert NOME not in corpo and "Maria" not in corpo
+        assert TELEFONE not in corpo and "999990001" not in corpo
+        assert CPF not in corpo
+        assert "<title>Atendimento</title>" in corpo
+        assert resposta.headers["referrer-policy"] == "no-referrer"
+        assert "noindex" in resposta.headers["x-robots-tag"]
+    assert "10020" not in token and "Maria" not in token
+
+
+def test_digitos_errados_nao_carregam_o_widget(http, token):
+    resposta = _confirmar(http, token, "000")
+
+    assert resposta.status_code == 200
+    assert "sdk.js" not in resposta.text
+    assert "não conferem" in resposta.text
+    assert 'name="cpf"' in resposta.text
+
+
+def test_tres_erros_bloqueiam_ate_o_digito_certo(http, token):
+    for _ in range(3):
+        assert _confirmar(http, token, "000").status_code == 200
+
+    for digitos in ("000", CPF[:3]):
+        resposta = _confirmar(http, token, digitos)
+        assert resposta.status_code == 403
+        assert "sdk.js" not in resposta.text
+        _sem_cache(resposta)
+    assert http.get(f"/atendimento/{token}").status_code == 403
+
+
+def test_o_acerto_zera_as_tentativas(http, token):
+    for _ in range(2):
+        _confirmar(http, token, "000")
+    assert "sdk.js" in _confirmar(http, token, CPF[:3]).text
+
+    for _ in range(2):
+        assert _confirmar(http, token, "000").status_code == 200
+    assert "sdk.js" in _confirmar(http, token, CPF[:3]).text
+
+
+@pytest.mark.parametrize("digitos", ["", "12", "1234", "abc", "１２３", "000"])
+def test_o_formato_errado_conta_como_erro(http, token, digitos):
+    resposta = _confirmar(http, token, digitos)
+
+    assert resposta.status_code == 200
+    assert "sdk.js" not in resposta.text
+
+
+def test_o_bloqueio_vale_por_cobranca_e_nao_por_token(http, token):
+    for _ in range(3):
+        _confirmar(http, token, "000")
+    outro = emitir_token(SEGREDO, 1, AGORA + timedelta(days=5))
+
+    assert _confirmar(http, outro, CPF[:3]).status_code == 403
+
+
+def test_cliente_sem_cpf_no_ctn_nunca_abre(fabrica, politica):
+    ctn = CTNFalso([ClienteCTN("F-1", NOME, TELEFONE, cpf=None)])
+    token = emitir_token(SEGREDO, 1, AGORA + timedelta(days=1))
+    with TestClient(_app(fabrica, politica, ctn)) as http:
+        resposta = _confirmar(http, token, "000")
+
+    assert resposta.status_code == 200
+    assert "sdk.js" not in resposta.text
+
+
+def test_ctn_fora_do_ar_responde_503_sem_gastar_tentativa(http, ctn, token):
+    ctn.fora_do_ar = True
+    assert _confirmar(http, token, CPF[:3]).status_code == 503
+
+    ctn.fora_do_ar = False
+    for _ in range(2):
+        _confirmar(http, token, "000")
+    assert "sdk.js" in _confirmar(http, token, CPF[:3]).text
+
+
+@pytest.mark.parametrize(
+    "faltando", ["webchat_segredo", "webchat_identidade_hmac", "webchat_website_token"]
+)
+def test_sem_segredo_ou_vazio_a_pagina_fica_desligada(fabrica, politica, ctn, faltando):
+    token = emitir_token(SEGREDO, 1, AGORA + timedelta(days=1))
+    for valor in (None, "", "  "):
+        with TestClient(_app(fabrica, politica, ctn, **{faltando: valor})) as http:
+            assert http.get(f"/atendimento/{token}").status_code == 503
+            assert _confirmar(http, token, CPF[:3]).status_code == 503
+
+
+def test_sem_o_chatwoot_ou_o_ctn_a_pagina_fica_desligada(fabrica, politica, ctn, token):
+    with TestClient(_app(fabrica, politica, ctn, chatwoot_url=None)) as http:
+        assert http.get(f"/atendimento/{token}").status_code == 503
+    with TestClient(_app(fabrica, politica, None)) as http:
+        assert http.get(f"/atendimento/{token}").status_code == 503
+
+
+def test_os_valores_no_script_nao_quebram_o_html(fabrica, politica, ctn, token):
+    config = {"webchat_website_token": "</script><b>x"}
+    with TestClient(_app(fabrica, politica, ctn, **config)) as http:
+        corpo = _confirmar(http, token, CPF[:3]).text
+
+    assert "</script><b>" not in corpo
+    assert len(re.findall("</script>", corpo)) == len(re.findall("<script", corpo))
