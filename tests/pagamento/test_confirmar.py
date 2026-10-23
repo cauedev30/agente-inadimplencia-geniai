@@ -16,7 +16,7 @@ from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevFalso
 from agente.integracoes.pix import PixFalso, StatusPix
 from agente.pagamento import confirmar
-from agente.pagamento.concluir import concluir_pagamentos
+from agente.pagamento.concluir import concluir_pagamentos, contar_sem_concluir
 from agente.pagamento.confirmar import ResultadoConfirmacao, confirmar_pagamento
 from agente.tipos import (
     EstadoConversa,
@@ -707,3 +707,80 @@ def test_o_pagamento_que_outra_instancia_acabou_de_reagendar_nao_e_refeito(
 
     assert concluir_pagamentos(sessao, deps, AGORA) == 0
     assert deps.ctn.baixas == [] and deps.chatwoot.enviadas(555) == []
+
+
+def _esgotar(sessao, deps, tentativas=None):
+    """Roda a rotina até o fim das tentativas. Devolve o instante da última rodada."""
+    agora = sessao.scalars(select(Pagamento)).one().proxima_tentativa_em or AGORA
+    for _ in range(tentativas or deps.politica.integracao_tentativas):
+        concluir_pagamentos(sessao, deps, agora)
+        agora = sessao.scalars(select(Pagamento)).one().proxima_tentativa_em or agora
+    return agora
+
+
+def test_esgotadas_as_tentativas_a_conversa_reabre_com_nota_e_etiqueta(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.ctn.fora_do_ar = True
+    antes = len([c for c in deps.chatwoot.chamadas if c[0] != "enviar_mensagem"])
+    assert antes == 0
+
+    _esgotar(sessao, deps, deps.politica.integracao_tentativas - 1)
+    assert [c for c in deps.chatwoot.chamadas if c[0] != "enviar_mensagem"] == []
+    _esgotar(sessao, deps, 1)
+
+    avisos = [c for c in deps.chatwoot.chamadas if c[0] != "enviar_mensagem"]
+    assert [c[0] for c in avisos] == ["etiquetar", "atribuir", "mudar_status", "nota_privada"]
+    assert avisos[0][2] == ["pagamento_sem_concluir"]
+    assert txid in avisos[-1][2] and "BAIXA" in avisos[-1][2]
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert pagamento.atencao_em is not None and pagamento.pendencias == [Pendencia.BAIXA.value]
+    assert contar_sem_concluir(sessao) == 1
+
+
+def test_o_aviso_de_esgotado_sai_uma_vez_so_e_o_pagamento_sai_da_contagem_ao_concluir(
+    sessao, ligada, deps
+):
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.ctn.fora_do_ar = True
+    agora = _esgotar(sessao, deps, deps.politica.integracao_tentativas + 2)
+
+    assert [c[0] for c in deps.chatwoot.chamadas].count("nota_privada") == 1
+    assert contar_sem_concluir(sessao) == 1
+
+    deps.ctn.fora_do_ar = False
+    concluir_pagamentos(sessao, deps, agora)
+
+    assert len(deps.ctn.baixas) == 1
+    assert contar_sem_concluir(sessao) == 0
+
+
+def test_o_aviso_de_esgotado_com_o_chatwoot_fora_fica_pendente_ate_sair(sessao, ligada, politica):
+    deps = _deps(politica)
+    deps.chatwoot = ChatwootInstavel()
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.ctn.fora_do_ar = True
+    deps.chatwoot.fora = True
+    agora = _esgotar(sessao, deps)
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert pagamento.atencao_em is None and Pendencia.AVISO_ESGOTADO.value in pagamento.pendencias
+
+    deps.chatwoot.fora = False
+    concluir_pagamentos(sessao, deps, agora)
+
+    assert pagamento.atencao_em is not None
+    assert Pendencia.AVISO_ESGOTADO.value not in pagamento.pendencias
+    assert [c[0] for c in deps.chatwoot.chamadas].count("nota_privada") == 1
+    assert contar_sem_concluir(sessao) == 1
+
+
+def test_o_pagamento_que_conclui_a_tempo_nao_chama_ninguem(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+
+    concluir_pagamentos(sessao, deps, AGORA)
+
+    assert [c for c in deps.chatwoot.chamadas if c[0] != "enviar_mensagem"] == []
+    assert contar_sem_concluir(sessao) == 0

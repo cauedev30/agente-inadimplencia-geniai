@@ -102,6 +102,8 @@ class Pendencia(StrEnum):
     AVISO_DIVERGENTE = "AVISO_DIVERGENTE"
     # O cliente confirmou o pagamento com um atendente na conversa: nota para ele saber.
     AVISO_HUMANO = "AVISO_HUMANO"
+    # As tentativas da conclusão se esgotaram: a conversa reabre com nota e etiqueta (como a D39).
+    AVISO_ESGOTADO = "AVISO_ESGOTADO"
 
 
 class OrigemMensagem(StrEnum):

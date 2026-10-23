@@ -333,3 +333,22 @@ def test_o_webhook_de_uma_forma_nao_confirma_a_referencia_da_outra(a):
         StatusPagamento.PENDENTE,
     )
     assert a.webhook("pix", txid).status_code == 200
+
+
+def test_o_saude_conta_os_pagamentos_pagos_que_nao_concluem(a):
+    assert a.http.get("/saude").json() == {"status": "ok", "pagamentos_sem_concluir": 0}
+    a.tocar_no_botao()
+    [txid] = a.pix.cobrancas
+    a.pix.simular_pagamento(txid)
+    a.ctn.fora_do_ar = True
+    a.webhook("pix", txid)
+
+    for _ in range(a.deps.politica.integracao_tentativas + 1):
+        a.avancar(timedelta(hours=2))
+        a.trabalhador.rodar_uma_vez()
+
+    assert a.http.get("/saude").json() == {"status": "ok", "pagamentos_sem_concluir": 1}
+    a.ctn.fora_do_ar = False
+    a.avancar(timedelta(hours=2))
+    a.trabalhador.rodar_uma_vez()
+    assert a.http.get("/saude").json()["pagamentos_sem_concluir"] == 0

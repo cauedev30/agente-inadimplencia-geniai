@@ -211,7 +211,7 @@ def test_agendar_turno_empurra_para_frente(fabrica):
 
 
 def test_saude(cliente_http):
-    assert cliente_http.get("/saude").json() == {"status": "ok"}
+    assert cliente_http.get("/saude").json() == {"status": "ok", "pagamentos_sem_concluir": 0}
 
 
 def test_trabalhador_roda_os_vencidos_e_uma_falha_nao_para_os_outros(fabrica, politica):

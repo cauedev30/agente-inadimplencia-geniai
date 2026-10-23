@@ -23,6 +23,7 @@ def upgrade() -> None:
             sa.Column("tentativas_conclusao", sa.Integer(), nullable=False, server_default="0")
         )
         batch_op.add_column(sa.Column("proxima_tentativa_em", sa.DateTime(), nullable=True))
+        batch_op.add_column(sa.Column("atencao_em", sa.DateTime(), nullable=True))
         batch_op.add_column(sa.Column("divergente_centavos", sa.Integer(), nullable=True))
         batch_op.create_index(
             batch_op.f("ix_pagamento_proxima_tentativa_em"), ["proxima_tentativa_em"], unique=False
@@ -33,6 +34,7 @@ def downgrade() -> None:
     with op.batch_alter_table("pagamento", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_pagamento_proxima_tentativa_em"))
         batch_op.drop_column("divergente_centavos")
+        batch_op.drop_column("atencao_em")
         batch_op.drop_column("proxima_tentativa_em")
         batch_op.drop_column("tentativas_conclusao")
         batch_op.drop_column("pendencias")

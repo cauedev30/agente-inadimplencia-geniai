@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Protocol
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from agente.db.modelos import Mensagem, Pagamento
@@ -35,6 +35,7 @@ from agente.turno.entrega import confirmar_envio, entregue
 log = logging.getLogger(__name__)
 
 _ETIQUETA_DUPLICADO = "pagamento_duplicado"
+_ETIQUETA_ESGOTADO = "pagamento_sem_concluir"
 
 # O que conta como integração fora do ar: fica para a próxima tentativa. Qualquer outro erro é bug
 # de código: também fica para a próxima, mas com o stack trace no log.
@@ -181,29 +182,66 @@ def _avisar_humano(
     )
 
 
+def _avisar_esgotado(
+    sessao: Session, deps: DependenciasConcluir, pagamento: Pagamento, agora: datetime
+) -> None:
+    """As tentativas se esgotaram: a conversa reabre com nota e etiqueta, como no pagamento dobrado.
+
+    O pagamento fica contado no /saude (`atencao_em`) até a conclusão sair. A nota vai por
+    último.
+    """
+    pagamento.atencao_em = agora
+    conversa = conversa_da_cobranca(pagamento)
+    if conversa is None or conversa.chatwoot_conversa_id is None:
+        log.warning("pagamento %s pago e sem concluir, sem conversa: conferir à mão", pagamento.id)
+        return
+    chatwoot_id = conversa.chatwoot_conversa_id
+    faltando = [nome for nome in pagamento.pendencias if nome != Pendencia.AVISO_ESGOTADO.value]
+    deps.chatwoot.etiquetar(chatwoot_id, [_ETIQUETA_ESGOTADO])
+    if deps.time_humano is not None:
+        deps.chatwoot.atribuir(chatwoot_id, deps.time_humano)
+    deps.chatwoot.mudar_status(chatwoot_id, "open")
+    deps.chatwoot.nota_privada(
+        chatwoot_id,
+        f"Pagamento confirmado, mas sem concluir depois de {pagamento.tentativas_conclusao} "
+        f"tentativas: referência {pagamento.referencia} ({pagamento.forma.value}), "
+        f"{formatar_reais(pagamento.valor_centavos)}. Falta: {', '.join(faltando) or '-'} "
+        "(BAIXA é a baixa no CTN; MENSAGEM é a confirmação ao cliente). O robô segue tentando.",
+    )
+
+
 _PASSOS: dict[Pendencia, Callable[[Session, DependenciasConcluir, Pagamento, datetime], None]] = {
     Pendencia.BAIXA: _dar_baixa,
     Pendencia.MENSAGEM: _enviar_confirmacao,
     Pendencia.AVISO_DUPLICADO: _avisar_duplicado,
     Pendencia.AVISO_DIVERGENTE: _avisar_divergente,
     Pendencia.AVISO_HUMANO: _avisar_humano,
+    Pendencia.AVISO_ESGOTADO: _avisar_esgotado,
 }
+
+
+def _passo(
+    sessao: Session, deps: DependenciasConcluir, pagamento: Pagamento, nome: str, agora: datetime
+) -> bool:
+    """Roda uma pendência num savepoint. Devolve False se falhou: ela fica para a próxima."""
+    try:
+        with sessao.begin_nested():
+            _PASSOS[Pendencia(nome)](sessao, deps, pagamento, agora)
+    except _FALHAS_DE_INTEGRACAO as erro:
+        log.warning("pagamento %s: %s falhou (%s)", pagamento.id, nome, type(erro).__name__)
+        return False
+    except Exception:
+        log.exception("pagamento %s: %s falhou por erro de código", pagamento.id, nome)
+        return False
+    return True
 
 
 def _concluir(
     sessao: Session, deps: DependenciasConcluir, pagamento: Pagamento, agora: datetime
 ) -> None:
-    restantes = []
-    for nome in pagamento.pendencias:
-        try:
-            with sessao.begin_nested():
-                _PASSOS[Pendencia(nome)](sessao, deps, pagamento, agora)
-        except _FALHAS_DE_INTEGRACAO as erro:
-            log.warning("pagamento %s: %s falhou (%s)", pagamento.id, nome, type(erro).__name__)
-            restantes.append(nome)
-        except Exception:
-            log.exception("pagamento %s: %s falhou por erro de código", pagamento.id, nome)
-            restantes.append(nome)
+    restantes = [
+        nome for nome in pagamento.pendencias if not _passo(sessao, deps, pagamento, nome, agora)
+    ]
     pagamento.pendencias = restantes
     if not restantes:
         pagamento.proxima_tentativa_em = None
@@ -212,13 +250,17 @@ def _concluir(
     pagamento.proxima_tentativa_em = agora + deps.politica.espera_integracao(
         pagamento.tentativas_conclusao
     )
-    if pagamento.tentativas_conclusao >= deps.politica.integracao_tentativas:
+    esgotou = pagamento.tentativas_conclusao >= deps.politica.integracao_tentativas
+    aviso = Pendencia.AVISO_ESGOTADO.value
+    if esgotou and pagamento.atencao_em is None and aviso not in restantes:
         log.error(
             "pagamento %s pago, mas sem concluir %s depois de %s tentativas: conferir à mão",
             pagamento.id,
             restantes,
             pagamento.tentativas_conclusao,
         )
+        if not _passo(sessao, deps, pagamento, aviso, agora):
+            pagamento.pendencias = [*restantes, aviso]
 
 
 def concluir_pagamentos(sessao: Session, deps: DependenciasConcluir, agora: datetime) -> int:
@@ -251,3 +293,12 @@ def concluir_pagamentos(sessao: Session, deps: DependenciasConcluir, agora: date
         sessao.commit()
         tratados += 1
     return tratados
+
+
+def contar_sem_concluir(sessao: Session) -> int:
+    """Os pagamentos pagos cuja conclusão esgotou as tentativas e segue pendente (o /saude)."""
+    return sessao.scalar(
+        select(func.count(Pagamento.id)).where(
+            Pagamento.atencao_em.is_not(None), Pagamento.proxima_tentativa_em.is_not(None)
+        )
+    )

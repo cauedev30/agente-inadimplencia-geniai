@@ -2,6 +2,7 @@
 
 import hmac
 import json
+import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -14,10 +15,16 @@ from agente.api.chatwoot_webhook import receber_evento
 from agente.api.ctn_webhook import criar_rota_ctn
 from agente.api.pix_webhook import criar_rota_pix
 from agente.config import Config
-from agente.pagamento.concluir import DependenciasPagamento, concluir_pagamentos
+from agente.pagamento.concluir import (
+    DependenciasPagamento,
+    concluir_pagamentos,
+    contar_sem_concluir,
+)
 from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
 from agente.turno.fila import Processar, Rotina, Trabalhador, a_cada, processar_sem_acao
+
+log = logging.getLogger(__name__)
 
 # O Pix vencido não tem pressa (G2.4): uma varredura por minuto basta.
 INTERVALO_EXPIRAR_PIX = timedelta(minutes=1)
@@ -65,7 +72,14 @@ def criar_app(
 
     @app.get("/saude")
     def saude() -> dict:
-        return {"status": "ok"}
+        # Os pagamentos pagos que a conclusão não consegue terminar: precisam de gente.
+        try:
+            with fabrica() as sessao:
+                sem_concluir = contar_sem_concluir(sessao)
+        except Exception:  # a saúde do processo não cai junto com a consulta
+            log.exception("a contagem dos pagamentos sem concluir falhou")
+            sem_concluir = None
+        return {"status": "ok", "pagamentos_sem_concluir": sem_concluir}
 
     @app.post("/webhooks/chatwoot/{segredo}")
     async def webhook_chatwoot(segredo: str, request: Request) -> dict:
