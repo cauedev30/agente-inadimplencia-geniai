@@ -164,9 +164,19 @@ def criar_rota_webchat(
                 )
                 sessao.commit()
                 return cobranca_id, None
-            bloqueada = ate is not None or (
-                cobranca.webchat_tentativas_cpf >= politica.webchat_cpf_tentativas
-            )
+            bloqueada = ate is not None
+            if ate is None and cobranca.webchat_tentativas_cpf >= politica.webchat_cpf_tentativas:
+                # Erros acumulados acima de um teto que baixou: o bloqueio começa agora, com prazo.
+                sessao.execute(
+                    update(Cobranca)
+                    .where(Cobranca.id == cobranca_id, Cobranca.webchat_bloqueado_ate.is_(None))
+                    .values(
+                        webchat_bloqueado_ate=agora
+                        + timedelta(hours=politica.webchat_cpf_bloqueio_horas)
+                    )
+                )
+                sessao.commit()
+                bloqueada = True
         return (None, _bloqueado()) if bloqueada else (cobranca_id, None)
 
     def _avisar(sessao: Session, cobranca_id: int, tentativas: int) -> None:

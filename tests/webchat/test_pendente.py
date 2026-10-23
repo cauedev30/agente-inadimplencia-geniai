@@ -253,3 +253,148 @@ def test_o_saude_do_webchat_conta_as_amarracoes_sem_concluir(fabrica, politica):
         resposta = http.get("/saude/webchat")
 
     assert resposta.json() == {"amarracoes_sem_concluir": 1}
+
+
+def _conversa_criada(conversa_id, identificador="cobranca-1"):
+    return {**_criada(identificador), "id": conversa_id}
+
+
+def test_cada_acerto_do_cpf_vale_uma_conversa_so(sessao, politica):
+    chatwoot = ChatwootFalso()
+    assert _tratar(sessao, chatwoot, _criada(), politica) == "amarrada"
+    assert sessao.get(Cobranca, 1).webchat_verificado_em is None
+    antes = list(chatwoot.chamadas)
+
+    forjada = _conversa_criada(999)
+    agora = AGORA + timedelta(minutes=30)
+    assert _tratar(sessao, chatwoot, forjada, politica, agora) == "ignorado"
+    assert _tratar(sessao, chatwoot, _mensagem(conversation={"id": 999}), politica, agora) == (
+        "ignorado"
+    )
+
+    assert sessao.get(Cobranca, 1).webchat_conversa_id == WEBCHAT
+    assert chatwoot.chamadas == antes
+
+
+def test_a_mesma_conversa_repetida_continua_idempotente(sessao, politica):
+    chatwoot = ChatwootFalso()
+    _tratar(sessao, chatwoot, _criada(), politica)
+    antes = list(chatwoot.chamadas)
+
+    assert _tratar(sessao, chatwoot, _mensagem(), politica) == "ignorado"
+
+    assert chatwoot.chamadas == antes
+
+
+def test_a_verificacao_nova_amarra_a_conversa_nova(sessao, politica):
+    chatwoot = ChatwootFalso()
+    _tratar(sessao, chatwoot, _criada(), politica)
+    sessao.get(Cobranca, 1).webchat_verificado_em = AGORA + timedelta(minutes=10)
+    sessao.commit()
+
+    resultado = _tratar(
+        sessao, chatwoot, _conversa_criada(999), politica, AGORA + timedelta(minutes=11)
+    )
+
+    assert resultado == "amarrada"
+    assert sessao.get(Cobranca, 1).webchat_conversa_id == 999
+
+
+def test_a_pendente_consome_a_verificacao_e_a_forjada_nao_cria_outra(sessao, politica):
+    chatwoot = ChatwootInstavel()
+    chatwoot.fora = True
+    assert _tratar(sessao, chatwoot, _criada(), politica) == "pendente"
+    assert sessao.get(Cobranca, 1).webchat_verificado_em is None
+
+    forjada = _conversa_criada(999)
+    assert _tratar(sessao, chatwoot, forjada, politica) == "ignorado"
+    # A mensagem da própria conversa pendente segue autorizada e espera a rotina.
+    assert _tratar(sessao, chatwoot, _mensagem(), politica) == "pendente"
+
+    [pendente] = sessao.scalars(select(AmarracaoWebchat)).all()
+    assert pendente.conversa_webchat_id == WEBCHAT
+
+
+class ChatwootQueFalhaNoMeio(ChatwootFalso):
+    """Falha numa chamada depois das notas, `falhas` vezes."""
+
+    def __init__(self, chamada, falhas):
+        super().__init__()
+        self.chamada = chamada
+        self.falhas = falhas
+
+    def _passar(self, nome):
+        if nome == self.chamada and self.falhas > 0:
+            self.falhas -= 1
+            raise httpx.ConnectError("fora do ar")
+
+    def mudar_status(self, conversa_id, status):
+        self._passar("mudar_status")
+        super().mudar_status(conversa_id, status)
+
+    def gravar_atributos(self, conversa_id, dados):
+        if conversa_id == WHATSAPP:
+            self._passar("atributos_origem")
+        super().gravar_atributos(conversa_id, dados)
+
+
+def _notas(chatwoot, conversa):
+    return [c for c in chatwoot.chamadas if c[0] == "nota_privada" and c[1] == conversa]
+
+
+def test_a_falha_depois_da_nota_nao_repete_a_nota_nas_tentativas_seguintes(sessao, politica):
+    chatwoot = ChatwootQueFalhaNoMeio("mudar_status", falhas=3)
+    assert _tratar(sessao, chatwoot, _criada(), politica) == "pendente"
+    agora = AGORA
+    for _ in range(2):
+        [pendente] = sessao.scalars(select(AmarracaoWebchat)).all()
+        agora = pendente.proxima_tentativa_em
+        refazer_amarracoes(sessao, chatwoot, _config(), politica, TIME, agora)
+    assert len(_notas(chatwoot, WEBCHAT)) == 1
+
+    [pendente] = sessao.scalars(select(AmarracaoWebchat)).all()
+    assert (
+        refazer_amarracoes(
+            sessao, chatwoot, _config(), politica, TIME, pendente.proxima_tentativa_em
+        )
+        == 1
+    )
+
+    assert len(_notas(chatwoot, WEBCHAT)) == 1
+    assert len(_notas(chatwoot, WHATSAPP)) == 1
+    assert sessao.get(Cobranca, 1).webchat_conversa_id == WEBCHAT
+
+
+def test_a_nota_da_origem_tambem_sai_uma_vez_so(sessao, politica):
+    chatwoot = ChatwootQueFalhaNoMeio("atributos_origem", falhas=1)
+    assert _tratar(sessao, chatwoot, _criada(), politica) == "pendente"
+    [pendente] = sessao.scalars(select(AmarracaoWebchat)).all()
+
+    refazer_amarracoes(sessao, chatwoot, _config(), politica, TIME, pendente.proxima_tentativa_em)
+
+    assert len(_notas(chatwoot, WEBCHAT)) == 1
+    assert len(_notas(chatwoot, WHATSAPP)) == 1
+
+
+def test_a_corrida_da_pendente_duplicada_nao_vira_erro(fabrica, sessao, politica):
+    class ChatwootComCorrida(ChatwootInstavel):
+        """Enquanto esta falha, outro processo grava a pendente da mesma conversa."""
+
+        def etiquetar(self, conversa_id, etiquetas):
+            with fabrica() as outra:
+                outra.add(
+                    AmarracaoWebchat(
+                        cobranca_id=1,
+                        conversa_webchat_id=WEBCHAT,
+                        tentativas=1,
+                        proxima_tentativa_em=AGORA + timedelta(minutes=5),
+                    )
+                )
+                outra.commit()
+            raise httpx.ConnectError("fora do ar")
+
+    resultado = _tratar(sessao, ChatwootComCorrida(), _criada(), politica)
+
+    assert resultado == "pendente"
+    [pendente] = sessao.scalars(select(AmarracaoWebchat)).all()
+    assert pendente.tentativas == 2

@@ -34,6 +34,8 @@ def upgrade() -> None:
         sa.Column("tentativas", sa.Integer(), nullable=False),
         sa.Column("proxima_tentativa_em", agente.db.modelos.MomentoUTC(), nullable=False),
         sa.Column("atencao_em", agente.db.modelos.MomentoUTC(), nullable=True),
+        sa.Column("nota_webchat_enviada", sa.Boolean(), nullable=False),
+        sa.Column("nota_origem_enviada", sa.Boolean(), nullable=False),
         sa.ForeignKeyConstraint(["cobranca_id"], ["cobranca.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("conversa_webchat_id"),

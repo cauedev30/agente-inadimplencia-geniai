@@ -250,3 +250,6 @@ class AmarracaoWebchat(Base):
     tentativas: Mapped[int] = mapped_column(default=0)
     proxima_tentativa_em: Mapped[datetime] = mapped_column(index=True)
     atencao_em: Mapped[datetime | None]
+    # As notas privadas que já saíram: a tentativa seguinte não as repete.
+    nota_webchat_enviada: Mapped[bool] = mapped_column(default=False)
+    nota_origem_enviada: Mapped[bool] = mapped_column(default=False)

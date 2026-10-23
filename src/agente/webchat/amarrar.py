@@ -6,10 +6,12 @@ etiqueta e atribui ao mesmo time, e marca a conversa do WhatsApp como transferid
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import httpx
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from agente.config import Config
@@ -90,6 +92,14 @@ def _resumo(
     return "\n".join(linhas)
 
 
+@dataclass
+class Progresso:
+    """As notas que já saíram, para a tentativa seguinte não repeti-las."""
+
+    nota_webchat: bool = False
+    nota_origem: bool = False
+
+
 def amarrar_conversa_webchat(
     sessao: Session,
     chatwoot: Chatwoot,
@@ -99,13 +109,15 @@ def amarrar_conversa_webchat(
     time_id: int | None,
     agora: datetime,
     url_conversas: str | None = None,
+    progresso: Progresso | None = None,
 ) -> None:
     """Liga a conversa do webchat à cobrança. Repetir para a mesma conversa não faz nada.
 
     A marca fica no banco (`cobranca.webchat_conversa_id`) e só é gravada depois das chamadas ao
-    Chatwoot: se uma falhar, a repetição refaz tudo (pode duplicar a nota) em vez de deixar o
-    atendente sem o resumo.
+    Chatwoot, e consome a verificação do CPF (cada acerto vale uma conversa só). Se uma chamada
+    falhar, a repetição refaz o resto; `progresso` diz quais notas já saíram e as pula.
     """
+    progresso = progresso if progresso is not None else Progresso()
     cobranca = sessao.get(Cobranca, cobranca_id)
     if cobranca is None:
         raise ValueError(f"a cobrança {cobranca_id} não existe")
@@ -118,7 +130,11 @@ def amarrar_conversa_webchat(
     )
 
     chatwoot.gravar_atributos(conversa_webchat_id, {"cobranca_id": cobranca_id})
-    chatwoot.nota_privada(conversa_webchat_id, _resumo(sessao, cobranca, whatsapp, url_conversas))
+    if not progresso.nota_webchat:
+        chatwoot.nota_privada(
+            conversa_webchat_id, _resumo(sessao, cobranca, whatsapp, url_conversas)
+        )
+        progresso.nota_webchat = True
     etiquetas = [ETIQUETA_WEBCHAT]
     if whatsapp is not None and whatsapp.motivo_humano is not None:
         etiquetas.append(whatsapp.motivo_humano.value.lower())
@@ -132,11 +148,15 @@ def amarrar_conversa_webchat(
         chatwoot.gravar_atributos(
             origem, {"transferida_webchat": True, "conversa_webchat_id": conversa_webchat_id}
         )
-        chatwoot.nota_privada(
-            origem,
-            f"Atendimento transferido para o webchat: {_link(url_conversas, conversa_webchat_id)}",
-        )
+        if not progresso.nota_origem:
+            chatwoot.nota_privada(
+                origem,
+                "Atendimento transferido para o webchat: "
+                f"{_link(url_conversas, conversa_webchat_id)}",
+            )
+            progresso.nota_origem = True
     cobranca.webchat_conversa_id = conversa_webchat_id
+    cobranca.webchat_verificado_em = None
     sessao.commit()
     log.info("webchat: conversa %s amarrada à cobrança %s", conversa_webchat_id, cobranca_id)
 
@@ -156,13 +176,18 @@ def _guardar_falha(
     conversa_webchat_id: int,
     politica: Politica,
     agora: datetime,
+    progresso: Progresso,
 ) -> AmarracaoWebchat:
     """Registra uma tentativa que falhou: a próxima espera mais (`espera_integracao`)."""
     if pendente is None:
         pendente = AmarracaoWebchat(
             cobranca_id=cobranca_id, conversa_webchat_id=conversa_webchat_id, tentativas=0
         )
+        # A pendente já gastou o acerto do CPF: outra conversa não pega carona nele.
+        sessao.get(Cobranca, cobranca_id).webchat_verificado_em = None
         sessao.add(pendente)
+    pendente.nota_webchat_enviada = pendente.nota_webchat_enviada or progresso.nota_webchat
+    pendente.nota_origem_enviada = pendente.nota_origem_enviada or progresso.nota_origem
     pendente.tentativas += 1
     pendente.proxima_tentativa_em = agora + politica.espera_integracao(pendente.tentativas)
     if pendente.tentativas >= politica.integracao_tentativas and pendente.atencao_em is None:
@@ -174,6 +199,34 @@ def _guardar_falha(
             pendente.tentativas,
         )
     return pendente
+
+
+def _gravar_falha(
+    sessao: Session,
+    pendente: AmarracaoWebchat | None,
+    cobranca_id: int,
+    conversa_webchat_id: int,
+    politica: Politica,
+    agora: datetime,
+    progresso: Progresso,
+) -> None:
+    """Grava a falha. Se outro processo criou a pendente desta conversa no meio, relê e soma."""
+    try:
+        _guardar_falha(
+            sessao, pendente, cobranca_id, conversa_webchat_id, politica, agora, progresso
+        )
+        sessao.commit()
+    except IntegrityError:
+        sessao.rollback()
+        existente = sessao.scalar(
+            select(AmarracaoWebchat).where(
+                AmarracaoWebchat.conversa_webchat_id == conversa_webchat_id
+            )
+        )
+        _guardar_falha(
+            sessao, existente, cobranca_id, conversa_webchat_id, politica, agora, progresso
+        )
+        sessao.commit()
 
 
 def _tentar(
@@ -188,6 +241,10 @@ def _tentar(
     agora: datetime,
 ) -> bool:
     """Amarra; se o Chatwoot falha, deixa a amarração pendente. Devolve se concluiu."""
+    progresso = Progresso(
+        nota_webchat=pendente.nota_webchat_enviada if pendente else False,
+        nota_origem=pendente.nota_origem_enviada if pendente else False,
+    )
     try:
         amarrar_conversa_webchat(
             sessao,
@@ -197,6 +254,7 @@ def _tentar(
             time_id=time_id,
             agora=agora,
             url_conversas=_url_das_conversas(config),
+            progresso=progresso,
         )
     except Exception as erro:
         sessao.rollback()
@@ -206,8 +264,9 @@ def _tentar(
             log.exception("webchat: amarração da conversa %s falhou", conversa_webchat_id)
         if pendente is not None:
             pendente = sessao.get(AmarracaoWebchat, pendente.id)
-        _guardar_falha(sessao, pendente, cobranca_id, conversa_webchat_id, politica, agora)
-        sessao.commit()
+        _gravar_falha(
+            sessao, pendente, cobranca_id, conversa_webchat_id, politica, agora, progresso
+        )
         return False
     if pendente is not None:
         sessao.delete(sessao.get(AmarracaoWebchat, pendente.id))
@@ -318,15 +377,22 @@ def tratar_evento_webchat(
     cobranca = sessao.get(Cobranca, cobranca_id) if cobranca_id is not None else None
     if cobranca is None or cobranca.webchat_conversa_id == conversa_webchat_id:
         return "ignorado"
-    # O `identifier` (cobranca-<id>) é adivinhável e, sem a validação obrigatória, forjável: só
-    # amarra a cobrança que acertou o CPF na página há pouco.
-    validade = timedelta(minutes=politica.webchat_verificacao_validade_minutos)
-    if cobranca.webchat_verificado_em is None or agora - cobranca.webchat_verificado_em > validade:
-        log.warning("webchat: identifier da cobrança %s sem verificação recente", cobranca_id)
-        return "ignorado"
     pendente = sessao.scalar(
         select(AmarracaoWebchat).where(AmarracaoWebchat.conversa_webchat_id == conversa_webchat_id)
     )
+    if pendente is None:
+        # O `identifier` (cobranca-<id>) é adivinhável e, sem a validação obrigatória, forjável:
+        # só amarra a cobrança que acertou o CPF na página há pouco, e cada acerto vale uma
+        # conversa só (a amarração, ou a pendente, o consome). A pendente já foi autorizada.
+        validade = timedelta(minutes=politica.webchat_verificacao_validade_minutos)
+        verificado = cobranca.webchat_verificado_em
+        if verificado is None or agora - verificado > validade:
+            log.warning(
+                "webchat: conversa %s com identifier da cobrança %s sem verificação recente",
+                conversa_webchat_id,
+                cobranca_id,
+            )
+            return "ignorado"
     if pendente is not None and pendente.proxima_tentativa_em > agora:
         return "pendente"  # a rotina cuida; não bate no Chatwoot a cada mensagem
     concluiu = _tentar(

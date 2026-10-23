@@ -375,3 +375,19 @@ def test_o_chatwoot_fora_no_aviso_nao_derruba_a_pagina(fabrica, politica, ctn, t
 
         assert resposta.status_code == 403
         assert _confirmar(http, token, CPF[:3]).status_code == 403
+
+
+def test_erros_acumulados_acima_de_um_teto_menor_ganham_prazo_e_nao_prendem(
+    http_com_relogio, fabrica, relogio, token
+):
+    with fabrica() as sessao:
+        sessao.get(Cobranca, 1).webchat_tentativas_cpf = 3  # o teto já foi 5, por exemplo
+        sessao.commit()
+
+    assert http_com_relogio.get(f"/atendimento/{token}").status_code == 403
+    with fabrica() as sessao:
+        assert sessao.get(Cobranca, 1).webchat_bloqueado_ate == AGORA + timedelta(hours=1)
+
+    relogio.agora = AGORA + timedelta(hours=1, seconds=1)
+    assert http_com_relogio.get(f"/atendimento/{token}").status_code == 200
+    assert "sdk.js" in _confirmar(http_com_relogio, token, CPF[:3]).text
