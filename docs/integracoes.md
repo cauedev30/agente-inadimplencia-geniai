@@ -126,6 +126,10 @@ pago_em}`. A assinatura é o HMAC-SHA256 do corpo no cabeçalho `X-Assinatura`, 
 
 ## T9 — CTN (tarefa 6.5)
 
+**Como vai ser (2026-10-26):** não teremos acesso ao CTN. O desenvolvedor do Cartão de Todos está
+fazendo **uma API só para o agente**, e todos os dados reais passam por ela. Ela vai além da consulta. A
+lista abaixo é o que ela precisa oferecer; falta conferir item a item com o dev.
+
 **Precisamos de:**
 - confirmar que "CTM" e "CTN" são o mesmo sistema;
 - a API: consulta do cliente pela matrícula, **histórico de pagamentos com a forma e a data**, **link

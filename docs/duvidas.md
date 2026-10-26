@@ -226,6 +226,10 @@ do João Pessoa Sul**, ou falta alguma (desconto à vista, por exemplo)? Depende
 
 ### T9. CTM
 
+**Atualização de 2026-10-26:** o Cauê não terá acesso ao CTN. O dev do Cartão de Todos está fazendo uma
+API só para o agente, e os dados reais vêm por ela. O que ela precisa oferecer está na T9 de
+[`integracoes.md`](integracoes.md).
+
 Pelo que o Cauê sabe em 2026-10-20, o **CTM** é o sistema de registro do Cartão de Todos, um histórico
 grande de tudo, e **tem API para consulta** ("varredura"). Ainda não se sabe se o agente vai trabalhar
 direto nele.
