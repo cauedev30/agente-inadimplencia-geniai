@@ -55,8 +55,9 @@ _LINK = re.compile(
     r"|link|info|biz|gov|edu|xyz|site|online|dev|invalid|example))\b",
     re.IGNORECASE,
 )
-# "agora.Com o valor": o ponto final sem espaço, com a próxima frase começando em maiúscula.
-_FRASE_COLADA = re.compile(r"\.[A-Z][a-z]+\s+[a-z]")
+# "agora.Com o valor": o ponto final sem espaço, com a próxima frase começando em maiúscula. Só
+# "Com" e "Me" abrem frase em português; os outros TLDs ("Online", "Site", "Link") ficam barrados.
+_FRASE_COLADA = re.compile(r"\.(?:Com|Me)\s+[a-z]")
 
 
 # Todo marcador que o LLM pode usar. O valor de cada um vem do backend, em `valores`.
@@ -129,8 +130,8 @@ def _sem_acento(texto: str) -> str:
 def _tem_link(texto: str) -> bool:
     """Link ou domínio no texto (sem acento, com a caixa original).
 
-    "agora.Com o valor" é o ponto sem espaço entre duas frases, não um domínio: o TLD em
-    maiúscula-e-minúsculas, depois de letra minúscula e antes de uma palavra minúscula.
+    "agora.Com o valor" é o ponto sem espaço entre duas frases, não um domínio: "Com" ou "Me" com a
+    inicial maiúscula, depois de letra minúscula e antes de uma palavra minúscula.
     """
     for achado in _LINK.finditer(texto):
         inicio = achado.start("tld") if achado.group("tld") else None

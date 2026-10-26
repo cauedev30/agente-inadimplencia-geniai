@@ -149,6 +149,8 @@ def test_link_ou_dominio_inventado_e_barrado(texto):
         "Pague em pagamento.Com. {divida}",
         "Pague em pagamento.Com",
         "Veja www.Exemplo.Com {divida}",
+        "Veja portal.Online agora {divida}",
+        "Entre em atendimento.Site hoje {divida}",
     ],
 )
 def test_link_em_maiuscula_continua_barrado(texto):
