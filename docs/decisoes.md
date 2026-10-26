@@ -45,6 +45,7 @@ a revisou.
 | D38 | 2026-10-22 | **Saídas do turno ativo, aprovadas pelo Cauê.** O desconto barrado (sem objeção ou com os degraus esgotados) vai para o **humano**. Quando o Jev 2 decide NONE, o agente **não responde**. O **EM_RISCO** tem 1 turno para melhorar; sem melhora, humano. Se o Jev 3 reprova o texto duas vezes, sai uma **resposta segura** (uma vez por conversa); na segunda vez, humano. O LLM, o CTN ou o Pix fora do ar: **3 tentativas**, depois humano. Responde a C4 e o caso dos degraus esgotados da G1.1 |
 | D39 | 2026-10-22 | **Pagamento em dobro vai para o humano.** Se o cliente paga duas vezes a mesma cobrança (o Pix e o link, ou o Pix vencido e o novo), o 2º pagamento fica registrado como pago, sem nova baixa e sem nova mensagem, e a conversa ganha uma **nota privada e a etiqueta** no Chatwoot para o atendente cuidar da devolução |
 | D40 | 2026-10-22 | **O toque no botão "Pagar com Pix" é respondido na hora, mesmo fora da janela.** É a exceção à D16: o cliente que toca quer pagar agora, e a resposta é uma mensagem só, que conta no teto (D26) |
+| D41 | 2026-10-25 | **O áudio do cliente é transcrito pelo LLM**, e o texto segue o turno normal: o Jev 1 lê a transcrição como leria a mensagem escrita. O Jev continua lendo só texto. Responde a T11 e substitui o padrão de pedir a mensagem em texto. Ler imagem (vision) ainda está em análise pelo Cauê |
 
 ## Análise do D7: Go × Python
 

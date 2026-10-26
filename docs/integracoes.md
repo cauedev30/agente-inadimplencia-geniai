@@ -33,7 +33,7 @@ traz os nomes, sem os valores. O repositório é público: nenhum dado real de c
 | T4 | Disparador | API, templates aprovados | `integracoes/disparador_http.py` | abertura real |
 | T10 | Jev | como chamar do Python | `integracoes/jev_<forma>.py` | modo ativo |
 | T6 | LLM (Groq) | chave, retenção de dados | — (cliente pronto) | redação real |
-| T11 | Transcrição de áudio | o serviço | interface nova | áudio do cliente |
+| T11 | Transcrição de áudio | o LLM (D41) | interface nova | áudio do cliente |
 
 A ordem que destrava mais: **T2 e T3** (o agente sobe em sombra no JP Sul, só lendo), depois **T10**
 (sem o Jev real o modo ativo é recusado), depois **T1, T9 e T4** (pagamento e abertura reais).
@@ -230,12 +230,15 @@ backend preenche os números.
 
 ## T11 — Transcrição de áudio
 
-**Precisamos de:** o serviço que transcreve áudios de até 2 minutos.
+**Decidido (D41):** o LLM transcreve os áudios de até 2 minutos, e o texto segue o turno normal; o Jev
+lê a transcrição.
 
-**Hoje:** o áudio é aceito como anexo (`anexos_aceitos` no `politica.toml`), mas o Jev só lê texto,
-então um áudio sem texto não é entendido. O padrão da [`duvidas.md`](duvidas.md) é pedir a mensagem em
-texto, e ele ainda não está no código. Também não existe interface; ela entra quando o serviço for
-escolhido, no mesmo padrão das outras (`audio_max_segundos = 120`).
+**Precisamos de:** confirmar, na T6, que o modelo escolhido aceita áudio, e como o áudio chega a ele (o
+anexo do Chatwoot baixado pela URL).
+
+**Hoje:** o áudio é aceito como anexo (`anexos_aceitos` no `politica.toml`), mas ainda não é transcrito,
+então um áudio sem texto não é entendido. A interface de transcrição ainda não existe; ela entra no
+mesmo padrão das outras, com uma falsa até a T6 (`audio_max_segundos = 120`).
 
 ---
 
@@ -249,4 +252,4 @@ escolhido, no mesmo padrão das outras (`audio_max_segundos = 120`).
 - [ ] T9: o CTN real passa no `ContratoCTN`; o webhook com o formato real (tarefa 6.5)
 - [ ] T4: o disparador real e os templates aprovados
 - [ ] T6: a chave do Groq e a retenção de dados confirmada
-- [ ] T11: o serviço de transcrição
+- [ ] T11: a transcrição pelo LLM (D41), com o modelo da T6

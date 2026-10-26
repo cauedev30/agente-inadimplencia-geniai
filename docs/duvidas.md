@@ -248,6 +248,9 @@ responder, o Jev entra como interface falsa (arquitetura, seção 10).
 
 ### T11. Transcrição de áudio
 
+**Respondida em 2026-10-25 → D41:** o LLM transcreve o áudio, e o Jev lê o texto. Falta confirmar na T6
+que o modelo escolhido aceita áudio.
+
 O cliente pode mandar áudio de até 2 min (arquitetura, seção 1), mas o Jev lê texto. **Qual serviço
 transcreve?** **Padrão até lá:** o agente responde pedindo a mensagem em texto.
 
