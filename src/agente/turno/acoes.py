@@ -56,22 +56,22 @@ def aplicar_precondicoes(
     """O desconto só sai com objeção, na régua com desconto e com um degrau seguinte.
 
     Na régua sem desconto, a objeção recebe o débito com a explicação da condição, e a que chega
-    ao limite da política (`objecoes_sem_desconto_ate_humano`) vai para o humano.
+    ao limite da política (`objecoes_sem_desconto_ate_humano`) vai para o humano. Na régua com
+    desconto, a objeção depois do último degrau também vai (D38), seja qual for a ação escolhida.
     """
     objecao = leitura.sim("objecao_valor")
     if objecao and politica.reguas[cobranca.regua].desconto_max_centavos == 0:
         if conversa.objecoes_sem_desconto + 1 >= politica.objecoes_sem_desconto_ate_humano:
             return MotivoHumano.OBJECAO_SEM_DESCONTO
         return Acao.INFORM_DEBT if acao is Acao.OFFER_DISCOUNT else acao
-    if acao is Acao.OFFER_DISCOUNT:
-        if not objecao:
-            # O Jev 2 quis o desconto sem o Jev 1 ver objeção: o robô não chuta.
-            return MotivoHumano.BAIXA_CONFIANCA
-        oferta = proxima_oferta(
-            cobranca.regua, cobranca.divida_centavos, conversa.degrau_atual, politica
-        )
-        if oferta is None:
-            return MotivoHumano.OBJECAO_SEM_DESCONTO
+    oferta = proxima_oferta(
+        cobranca.regua, cobranca.divida_centavos, conversa.degrau_atual, politica
+    )
+    if acao is Acao.OFFER_DISCOUNT and not objecao:
+        # O Jev 2 quis o desconto sem o Jev 1 ver objeção: o robô não chuta.
+        return MotivoHumano.BAIXA_CONFIANCA
+    if objecao and oferta is None:
+        return MotivoHumano.OBJECAO_SEM_DESCONTO
     return acao
 
 

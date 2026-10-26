@@ -34,7 +34,7 @@ from agente.integracoes.redator import Redator, RedatorFalso
 from agente.politica import Politica, Regua
 from agente.tipos import BatchJev, EstadoConversa, Modo, MotivoHumano, OrigemMensagem
 from agente.turno.acoes import Acao
-from agente.turno.avaliacao import NAO_EXECUTADA
+from agente.turno.avaliacao import NAO_EXECUTADA, rotulo_humano
 from agente.turno.jev1 import PERGUNTAS_JEV1
 from agente.turno.jev2 import PERGUNTAS_JEV2
 from agente.turno.jev3 import aprovar_tudo
@@ -63,7 +63,7 @@ class Esperado(_Imutavel):
 
     @property
     def rotulo(self) -> str:
-        return self.acao.value if self.acao is not None else f"HUMAN:{self.gatilho.value}"
+        return self.acao.value if self.acao is not None else rotulo_humano(self.gatilho)
 
 
 class TurnoCaso(_Imutavel):
@@ -77,9 +77,7 @@ class TurnoCaso(_Imutavel):
             pergunta = _PERGUNTAS.get(nome)
             if pergunta is None:
                 raise ValueError(f"pergunta desconhecida: {nome}")
-            if pergunta.tipo == "bool" and not isinstance(valor, bool):
-                raise ValueError(f"valor inválido para {nome}: {valor!r} (sim/não)")
-            if pergunta.tipo != "bool" and valor not in (pergunta.opcoes or ()):
+            if not pergunta.aceita(valor):
                 raise ValueError(f"valor inválido para {nome}: {valor!r}")
         return self
 

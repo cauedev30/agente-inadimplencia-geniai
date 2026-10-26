@@ -1,5 +1,7 @@
 """Contrato do Jev. A falsa passa agora; a real (T10) herda de ContratoJev."""
 
+import threading
+
 import pytest
 
 from agente.integracoes.jev import (
@@ -114,6 +116,39 @@ class TestJevComPrazo(ContratoJev):
         with pytest.raises(JevIndisponivel, match="acao"):
             JevComPrazo(JevIncompleto(), timeout_ms=1000).avaliar(PERGUNTAS, ESTADO)
 
+    def test_laudo_malformado_da_real_vira_jev_indisponivel(self):
+        # Probabilidade que não é número, ou objeto que não é Laudo: nada de TypeError no turno.
+        class JevMalformado:
+            def __init__(self, laudos):
+                self.laudos = laudos
+
+            def avaliar(self, perguntas, estado):
+                return self.laudos
+
+        bom = JevFalso().avaliar(PERGUNTAS, ESTADO)
+        sem_numero = [Laudo("risco_juridico", True, "alta", 0.9), *bom[1:]]
+        for laudos in (sem_numero, ["sim", "sim", "sim"], None):
+            with pytest.raises(JevIndisponivel):
+                JevComPrazo(JevMalformado(laudos), timeout_ms=1000).avaliar(PERGUNTAS, ESTADO)
+
+    def test_a_chamada_atrasada_roda_em_thread_daemon(self):
+        # Uma chamada travada não pode segurar o desligamento do processo.
+        visto = []
+        solta = threading.Event()
+
+        class JevTravado:
+            def avaliar(self, perguntas, estado):
+                visto.append(threading.current_thread().daemon)
+                solta.wait(5)
+                return []
+
+        try:
+            with pytest.raises(JevIndisponivel, match="20 ms"):
+                JevComPrazo(JevTravado(), timeout_ms=20).avaliar(PERGUNTAS, ESTADO)
+        finally:
+            solta.set()
+        assert visto == [True]
+
 
 def test_conferir_recusa_valor_fora_das_opcoes():
     laudos = [
@@ -137,6 +172,12 @@ def test_conferir_recusa_probabilidade_fora_de_0_a_1():
     laudos[0] = Laudo("risco_juridico", True, 1.2, 0.9)
     with pytest.raises(JevIndisponivel, match="probabilidade"):
         conferir_laudos(PERGUNTAS, laudos)
+
+
+def test_a_pergunta_aceita_so_o_valor_do_seu_tipo():
+    juridico, tom, _ = PERGUNTAS
+    assert juridico.aceita(True) and not juridico.aceita("sim") and not juridico.aceita(1)
+    assert tom.aceita("neutro") and not tom.aceita("furioso")
 
 
 def test_pergunta_de_escolha_exige_opcoes():

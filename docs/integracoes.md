@@ -197,6 +197,10 @@ O prazo (`jev_timeout_ms`) e a conferência dos laudos já são aplicados pelo `
 não precisa repetir. A semântica da probabilidade de cada laudo precisa ser conferida com a do
 `ContratoJev`.
 
+O `JevComPrazo` não espera a chamada atrasada: ela segue numa thread daemon, sem segurar o desligamento
+do processo. Por isso o cliente HTTP do Jev real deve ter um timeout próprio, menor que o
+`jev_timeout_ms`, para a chamada não ficar viva depois do turno.
+
 **Teste:** herdar `ContratoJev` (`tests/integracoes/test_jev.py`).
 
 **Ligar:** em `montar_dependencias`, trocar o `JevFalso()` e tirar a recusa do modo ativo. Hoje o modo

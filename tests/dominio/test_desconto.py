@@ -1,6 +1,6 @@
 import pytest
 
-from agente.dominio.desconto import Oferta, proxima_oferta, valor_com_desconto
+from agente.dominio.desconto import Oferta, oferta_no_degrau, proxima_oferta, valor_com_desconto
 from agente.politica import Regua
 
 
@@ -64,3 +64,8 @@ def test_valor_com_desconto(politica):
 def test_degrau_fora_da_regua_e_erro(politica, degrau):
     with pytest.raises(ValueError, match="degrau"):
         valor_com_desconto(Regua.R3, 10020, degrau, politica)
+
+
+def test_oferta_no_degrau_e_a_que_ja_foi_feita(politica):
+    assert oferta_no_degrau(Regua.R3, 10020, 2, politica) == Oferta(2, 6000, 4020)
+    assert oferta_no_degrau(Regua.R3, 10020, 0, politica) is None

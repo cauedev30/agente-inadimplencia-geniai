@@ -149,7 +149,8 @@ def test_em_sombra_o_jev_indisponivel_fica_registrado_no_turno(sessao, ligada, p
     assert ligada.estado is EstadoConversa.INICIADO
     turno = _turno(sessao)
     assert turno.acao_principal == "HUMAN:JEV_INDISPONIVEL"
-    assert "gateway fora" in turno.numeros["erro"]
+    assert "gateway fora" in turno.redacao["erro"]
+    assert turno.numeros == {}
 
 
 def test_jev2_indisponivel_guarda_a_leitura_do_jev1(sessao, ligada, politica):

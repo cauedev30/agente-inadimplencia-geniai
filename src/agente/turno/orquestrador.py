@@ -183,6 +183,9 @@ def _fechar(
     rotulo: str | None = None,
 ) -> ResultadoTurno:
     rotulo = rotulo or avaliacao.rotulo
+    if avaliacao.erro:
+        # O erro do Jev é texto, não número: fica na redação, que já guarda os erros do turno.
+        redacao = {**(redacao or {}), "erro": avaliacao.erro}
     fechar_turno(
         sessao,
         turno.id,
@@ -461,8 +464,7 @@ def _seguir(
             batch, laudo = avaliacao.causa
             laudos, laudo_id = [laudo], ids[(batch, laudo.pergunta)]
         _handoff(sessao, conversa, avaliacao.motivo, deps, agora, laudos, laudo_id)
-        erro = {"erro": avaliacao.erro} if avaliacao.erro else {}
-        return _fechar(sessao, turno, ResultadoTurno.HANDOFF, avaliacao, erro, agora)
+        return _fechar(sessao, turno, ResultadoTurno.HANDOFF, avaliacao, {}, agora)
     if avaliacao.acao is Acao.NONE:
         # Não agir: nada é redigido nem enviado, mas a objeção respondida com NONE também conta.
         if avaliacao.leitura.sim("objecao_valor"):

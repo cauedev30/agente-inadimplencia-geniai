@@ -5,9 +5,10 @@ A implementação real liga Zero Data Retention e No Training em toda chamada (D
 envolve qualquer Jev com o `jev_timeout_ms` e o contrato (arquitetura, seção 9).
 """
 
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future
 from concurrent.futures import TimeoutError as TempoEsgotado
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
@@ -33,6 +34,12 @@ class Pergunta:
             raise ValueError(f"a pergunta {self.nome} é sim/não e não leva opções")
         if self.tipo != "bool" and not self.opcoes:
             raise ValueError(f"a pergunta {self.nome} ({self.tipo}) precisa das opções")
+
+    def aceita(self, valor) -> bool:
+        """O valor tem o tipo da pergunta: sim/não de verdade, ou uma das opções."""
+        if self.tipo == "bool":
+            return isinstance(valor, bool)
+        return valor in (self.opcoes or ())
 
 
 @dataclass(frozen=True)
@@ -67,12 +74,6 @@ class Jev(Protocol):
         ...
 
 
-def _valor_valido(pergunta: Pergunta, valor) -> bool:
-    if pergunta.tipo == "bool":
-        return isinstance(valor, bool)
-    return valor in (pergunta.opcoes or ())
-
-
 def conferir_laudos(perguntas: Sequence[Pergunta], laudos: Sequence[Laudo]) -> list[Laudo]:
     """Confere o contrato: um laudo por pergunta, na ordem, com o valor do tipo certo."""
     nomes = [laudo.pergunta for laudo in laudos]
@@ -81,7 +82,7 @@ def conferir_laudos(perguntas: Sequence[Pergunta], laudos: Sequence[Laudo]) -> l
         faltando = [nome for nome in esperados if nome not in nomes]
         raise JevIndisponivel(f"laudos fora do contrato; faltando: {', '.join(faltando) or '-'}")
     for pergunta, laudo in zip(perguntas, laudos, strict=True):
-        if not _valor_valido(pergunta, laudo.valor):
+        if not pergunta.aceita(laudo.valor):
             raise JevIndisponivel(f"valor inválido para {pergunta.nome}: {laudo.valor!r}")
         if not (0 <= laudo.probabilidade <= 1 and 0 <= laudo.confianca <= 1):
             raise JevIndisponivel(f"probabilidade ou confiança fora de 0 a 1 em {pergunta.nome}")
@@ -100,20 +101,27 @@ class JevComPrazo:
         return self.jev.origem
 
     def avaliar(self, perguntas: Sequence[Pergunta], estado: EstadoJev) -> list[Laudo]:
-        executor = ThreadPoolExecutor(max_workers=1)
-        futuro = executor.submit(self.jev.avaliar, perguntas, estado)
+        futuro: Future[list[Laudo]] = Future()
+
+        def chamar() -> None:
+            try:
+                futuro.set_result(self.jev.avaliar(perguntas, estado))
+            except BaseException as erro:
+                futuro.set_exception(erro)
+
+        # Thread daemon: a chamada atrasada segue sem o turno e não segura o desligamento do
+        # processo (a do ThreadPoolExecutor é juntada na saída). A real (T10) precisa de um
+        # timeout HTTP próprio, menor que o `jev_timeout_ms`, para a chamada não ficar viva.
+        threading.Thread(target=chamar, name="jev", daemon=True).start()
         try:
-            laudos = futuro.result(timeout=self.timeout_ms / 1000)
+            return conferir_laudos(perguntas, futuro.result(timeout=self.timeout_ms / 1000))
         except TempoEsgotado:
             raise JevIndisponivel(f"o Jev passou de {self.timeout_ms} ms") from None
         except JevIndisponivel:
             raise
         except Exception as erro:
+            # Inclui o laudo malformado da real (probabilidade que não é número, objeto errado).
             raise JevIndisponivel(f"o Jev falhou: {erro}") from erro
-        finally:
-            # Não espera a chamada atrasada: o turno segue sem ela.
-            executor.shutdown(wait=False)
-        return conferir_laudos(perguntas, laudos)
 
 
 Regra = Callable[[Pergunta, EstadoJev], Laudo | None]

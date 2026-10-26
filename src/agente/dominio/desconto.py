@@ -29,6 +29,16 @@ def valor_com_desconto(regua: Regua, divida_centavos: int, degrau: int, politica
     return divida_centavos - _desconto(regua, divida_centavos, degrau, politica)
 
 
+def oferta_no_degrau(
+    regua: Regua, divida_centavos: int, degrau: int, politica: Politica
+) -> Oferta | None:
+    """A oferta já feita no degrau, ou None no degrau 0 (nada foi oferecido)."""
+    if degrau == 0:
+        return None
+    desconto = _desconto(regua, divida_centavos, degrau, politica)
+    return Oferta(degrau, desconto, divida_centavos - desconto)
+
+
 def proxima_oferta(
     regua: Regua, divida_centavos: int, degrau_atual: int, politica: Politica
 ) -> Oferta | None:
@@ -36,6 +46,4 @@ def proxima_oferta(
     parametros = politica.reguas[regua]
     if parametros.desconto_max_centavos == 0 or degrau_atual >= parametros.n_degraus:
         return None
-    degrau = degrau_atual + 1
-    desconto = _desconto(regua, divida_centavos, degrau, politica)
-    return Oferta(degrau, desconto, divida_centavos - desconto)
+    return oferta_no_degrau(regua, divida_centavos, degrau_atual + 1, politica)

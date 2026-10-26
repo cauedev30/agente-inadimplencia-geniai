@@ -277,6 +277,25 @@ def test_jev3_indisponivel_vai_para_o_humano_sem_enviar_o_texto(sessao, ligada, 
     assert "2000 ms" in _turno(sessao).redacao["erro"]
 
 
+class Jev2Fora(JevFalso):
+    def avaliar(self, perguntas, estado):
+        if perguntas[0].nome == "acao":
+            raise JevIndisponivel("o Jev passou de 2000 ms")
+        return super().avaliar(perguntas, estado)
+
+
+def test_jev2_indisponivel_grava_o_erro_na_redacao_e_nao_nos_numeros(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica, jev=Jev2Fora())
+
+    assert cliente("quanto eu devo?", deps) is ResultadoTurno.HANDOFF
+
+    turno = _turno(sessao)
+    assert "2000 ms" in turno.redacao["erro"]
+    assert turno.numeros == {}
+
+
 def test_redator_indisponivel_vai_para_o_humano(sessao, ligada, cliente, politica):
     redator = RedatorFalso(falha=RedatorIndisponivel("o LLM respondeu 503"))
     deps = _deps(politica, redator=redator)

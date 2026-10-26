@@ -9,7 +9,7 @@ Com o Jev indisponível, o turno vai para o humano, nunca para o robô sem avali
 from dataclasses import dataclass
 
 from agente.db.modelos import Cobranca, Conversa
-from agente.dominio.desconto import Oferta, proxima_oferta, valor_com_desconto
+from agente.dominio.desconto import oferta_no_degrau, proxima_oferta, valor_com_desconto
 from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
 from agente.politica import Politica
 from agente.tipos import BatchJev, EstadoConversa, Laudo, MotivoHumano
@@ -28,6 +28,11 @@ from agente.turno.jev2 import decidir
 NAO_EXECUTADA = "NAO_EXECUTADA:"
 
 
+def rotulo_humano(motivo: MotivoHumano) -> str:
+    """O rótulo da saída para o humano: `HUMAN:<motivo>`."""
+    return f"HUMAN:{motivo.value}"
+
+
 @dataclass(frozen=True)
 class Avaliacao:
     """A ação autorizada e os anexos, ou o motivo de ir para o humano."""
@@ -42,7 +47,7 @@ class Avaliacao:
     @property
     def rotulo(self) -> str:
         """O que o turno grava como ação principal: a ação ou `HUMAN:<motivo>`."""
-        return self.acao.value if self.acao is not None else f"HUMAN:{self.motivo.value}"
+        return self.acao.value if self.acao is not None else rotulo_humano(self.motivo)
 
     @property
     def rotulo_nao_executado(self) -> str:
@@ -69,13 +74,6 @@ class Avaliacao:
         return self.leitura is not None and em_risco(self.leitura)
 
 
-def oferta_no_degrau(cobranca: Cobranca, degrau: int, politica: Politica) -> Oferta | None:
-    if degrau == 0:
-        return None
-    valor = valor_com_desconto(cobranca.regua, cobranca.divida_centavos, degrau, politica)
-    return Oferta(degrau, cobranca.divida_centavos - valor, valor)
-
-
 def estado_jev(
     conversa: Conversa,
     cobranca: Cobranca,
@@ -87,7 +85,9 @@ def estado_jev(
         regua=cobranca.regua,
         divida_centavos=cobranca.divida_centavos,
         estado_conversa=conversa.estado,
-        oferta_atual=oferta_no_degrau(cobranca, conversa.degrau_atual, politica),
+        oferta_atual=oferta_no_degrau(
+            cobranca.regua, cobranca.divida_centavos, conversa.degrau_atual, politica
+        ),
     )
 
 
@@ -121,7 +121,7 @@ def numeros_previstos(
     No modo ativo, quem gera os números de verdade é o `executar`.
     """
     if avaliacao.acao is None:
-        return {"erro": avaliacao.erro} if avaliacao.erro else {}
+        return {}
     acoes = [avaliacao.acao, *avaliacao.anexos]
     numeros: dict = {"divida_centavos": cobranca.divida_centavos}
     degrau = conversa.degrau_atual

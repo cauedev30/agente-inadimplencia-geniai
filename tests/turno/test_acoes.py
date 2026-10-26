@@ -120,6 +120,33 @@ def test_offer_discount_sem_degrau_seguinte_e_barrado(politica):
     assert acao is MotivoHumano.OBJECAO_SEM_DESCONTO
 
 
+@pytest.mark.parametrize("escolhida", [Acao.INFORM_DEBT, Acao.GENERATE_PIX, Acao.NONE])
+def test_objecao_com_os_degraus_esgotados_vai_para_o_humano_seja_qual_for_a_acao(
+    politica, escolhida
+):
+    # Como na NR (D38): o cliente que objeta de novo depois do último degrau não segue no robô.
+    n_degraus = politica.reguas[Regua.R3].n_degraus
+    acao = aplicar_precondicoes(
+        escolhida, _conversa(degrau=n_degraus), _cobranca(), _leitura(objecao=True), politica
+    )
+    assert acao is MotivoHumano.OBJECAO_SEM_DESCONTO
+
+
+def test_sem_objecao_com_os_degraus_esgotados_as_acoes_passam(politica):
+    n_degraus = politica.reguas[Regua.R3].n_degraus
+    acao = aplicar_precondicoes(
+        Acao.INFORM_DEBT, _conversa(degrau=n_degraus), _cobranca(), _leitura(), politica
+    )
+    assert acao is Acao.INFORM_DEBT
+
+
+def test_objecao_com_degrau_seguinte_o_inform_debt_passa(politica):
+    acao = aplicar_precondicoes(
+        Acao.INFORM_DEBT, _conversa(degrau=1), _cobranca(), _leitura(objecao=True), politica
+    )
+    assert acao is Acao.INFORM_DEBT
+
+
 def test_offer_discount_sem_objecao_e_barrado(politica):
     acao = aplicar_precondicoes(
         Acao.OFFER_DISCOUNT, _conversa(), _cobranca(), _leitura(objecao=False), politica
