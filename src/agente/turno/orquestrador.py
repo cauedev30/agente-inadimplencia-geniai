@@ -535,7 +535,7 @@ def _seguir(
     return _agir(sessao, conversa, turno, avaliacao, estado, historico, deps, ids, agora)
 
 
-def _ja_pediu_texto(sessao: Session, conversa_id: int) -> bool:
+def _ja_pediu_texto(sessao: Session, conversa_id: int, modo: Modo) -> bool:
     """Já houve, nesta conversa e neste modo, um turno que pediu (ou pediria) o texto do áudio.
 
     O modo conta: o pedido que só a sombra gravou nunca chegou ao cliente, então o ativo não o
@@ -545,6 +545,7 @@ def _ja_pediu_texto(sessao: Session, conversa_id: int) -> bool:
     consulta = select(
         exists().where(
             Turno.conversa_id == conversa_id,
+            Turno.modo == modo,
             Turno.acao_principal == ROTULO_PEDIR_TEXTO,
             Turno.resultado.in_((ResultadoTurno.FIXA, ResultadoTurno.SOMBRA)),
         )
@@ -576,7 +577,7 @@ def _pedir_texto(
             momento=agora,
         )
         return ResultadoTurno.IGNORADO
-    if _ja_pediu_texto(sessao, conversa.id):
+    if _ja_pediu_texto(sessao, conversa.id, deps.modo):
         rotulo = rotulo_humano(MotivoHumano.AUDIO)
         if deps.modo is Modo.SOMBRA:
             fechar_turno(

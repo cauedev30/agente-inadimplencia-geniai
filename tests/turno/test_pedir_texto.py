@@ -367,6 +367,27 @@ class TestOPagamentoNoMeioDoTurno:
         assert sessao.get_one(type(ligada), ligada.id).motivo_humano is None
 
 
+class TestOPedidoDaSombraNaoContaNoAtivo:
+    def test_o_pedido_gravado_em_sombra_nao_e_a_1a_vez_do_ativo(self, sessao, ligada, politica):
+        sombra = _deps(politica, transcritor=None, modo=Modo.SOMBRA)
+        _cliente(sessao, ligada, anexos=[_audio()])
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, sombra)
+        assert _rotulos(sessao) == ["FIXA:PEDIR_TEXTO"]
+
+        # A liberação gradual leva a conversa ao modo ativo: o cliente nunca viu o pedido.
+        ativo = _deps(politica, transcritor=None)
+        agora = SEGUNDA_10H + timedelta(minutes=2)
+        _cliente(sessao, ligada, anexos=[_audio()], momento=agora, mid="cw-2")
+
+        resultado = processar_turno(sessao, ligada.id, agora, ativo)
+
+        assert resultado is ResultadoTurno.ENVIADO
+        assert ativo.chatwoot.enviadas(555) == [FALHOU]
+        assert (
+            ligada.estado is not EstadoConversa.ATENDIMENTO_HUMANO and ligada.motivo_humano is None
+        )
+
+
 class TestAvaliarEnvioDoPedidoPendente:
     """O pedido gravado PENDENTE passa pelos mesmos gates das outras mensagens do agente."""
 
