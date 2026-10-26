@@ -1,6 +1,6 @@
 # Guia de integração: ligar os sistemas reais
 
-A v1 está pronta em código (etapas 1 a 7), mas roda com **implementações falsas** dos sistemas de fora.
+A v1 está pronta em código (etapas 1 a 8), mas roda com **implementações falsas** dos sistemas de fora.
 Este guia diz, para cada um, **o que precisamos receber**, **onde entra no código** e **como saber que
 ficou pronto**. As perguntas originais estão em [`duvidas.md`](duvidas.md) (T1 a T11).
 
@@ -32,8 +32,8 @@ traz os nomes, sem os valores. O repositório é público: nenhum dado real de c
 | T9 | CTN | API, ambiente de teste, webhook | `integracoes/ctn_http.py` | tarefa 6.5 |
 | T4 | Disparador | API, templates aprovados | `integracoes/disparador_http.py` | abertura real |
 | T10 | Jev | como chamar do Python | `integracoes/jev_<forma>.py` | modo ativo |
-| T6 | LLM (`gpt-6-luna`, D42) | chave, retenção de dados | cliente OpenAI novo | redação real |
-| T11 | Transcrição de áudio | `gpt-4o-mini-transcribe` (D43) | interface nova | áudio do cliente |
+| T6 | LLM (`gpt-6-luna`, D42) | chave, retenção de dados | — (`RedatorOpenAI` pronto) | redação real |
+| T11 | Transcrição de áudio | chave da OpenAI (D43) | — (`TranscritorOpenAI` pronto) | áudio do cliente |
 
 A ordem que destrava mais: **T2 e T3** (o agente sobe em sombra no JP Sul, só lendo), depois **T10**
 (sem o Jev real o modo ativo é recusado), depois **T1, T9 e T4** (pagamento e abertura reais).
@@ -228,23 +228,69 @@ tests/conversas`) rodam com ele.
 **Precisamos de:** a chave e a confirmação da retenção de dados. O histórico da conversa vai à OpenAI a
 cada turno, então é preciso saber se dá para desligar o uso para treino (LGPD).
 
-**Hoje:** o cliente pronto é o `RedatorGroq` (`integracoes/redator.py`), da decisão anterior (D6). Ele
-precisa de um irmão para a OpenAI, no mesmo contrato do `Redator`. O LLM só escreve marcadores
-(`{valor_final}`), e o backend preenche os números.
+**Hoje:** o cliente está pronto: `RedatorOpenAI` (`integracoes/redator.py`), no contrato do `Redator`.
+O LLM só escreve marcadores (`{valor_final}`), e o backend preenche os números. Sem a chave, o serviço
+usa o redator falso.
 
-**Comparar candidatos:** `agente comparar-redatores tests/conversas`.
+**Ligar, só com a chave** (variáveis no [`.env.example`](../.env.example)):
+
+| Variável | Padrão | Para quê |
+|---|---|---|
+| `AGENTE_LLM_API_KEY` | (vazio: redator falso) | a chave da OpenAI |
+| `AGENTE_LLM_URL` | `https://api.openai.com/v1` | a base da API de chat completions |
+| `AGENTE_LLM_MODELO` | `gpt-6-luna` | o modelo; trocar é só mudar isto |
+| `AGENTE_LLM_CORPO_EXTRA` | `{"reasoning_effort": "none"}` | JSON que entra no corpo de todo pedido |
+
+**Atenção ao `reasoning_effort`:** o Luna **recusa a temperatura** (HTTP 400, e toda chamada falha)
+sem o `reasoning_effort: "none"`; foi medido no outro agente da GeniAI. O padrão já o manda. Se mudar o
+modelo ou o provedor, confira o que ele aceita no corpo.
+
+**A confirmar com a chave:** se o Luna aceita a `temperatura = 0.3` que o redator manda (no outro
+agente ele aceitou 0). Se recusar, muda o `temperatura` do `RedatorOpenAI` (hoje 0.3, parâmetro do
+construtor). Confirmar também a retenção de dados (LGPD) antes de ligar.
+
+**Comparar candidatos:** `agente comparar-redatores tests/conversas --modelo gpt-6-luna:0.10:0.50`
+(o `:entrada:saida` é o preço em US$ por milhão de tokens).
 
 ## T11 — Transcrição de áudio
 
 **Decidido (D43):** o `gpt-4o-mini-transcribe` transcreve os áudios de até 2 minutos, e o texto segue o
 turno normal; o Jev lê a transcrição. É a mesma chave da OpenAI da T6.
 
-**Precisamos de:** como o áudio chega ao serviço (o anexo do Chatwoot baixado pela URL, a confirmar na
-T3).
+**Precisamos de:** a chave da OpenAI para a transcrição e, na T3, o que o Chatwoot manda de verdade
+para o áudio do WhatsApp (o outro agente espera `audio/ogg`; o webhook traz o endereço em `data_url`).
 
-**Hoje:** o áudio é aceito como anexo (`anexos_aceitos` no `politica.toml`), mas ainda não é transcrito,
-então um áudio sem texto não é entendido. A interface de transcrição ainda não existe; ela entra no
-mesmo padrão das outras, com uma falsa até a chave (`audio_max_segundos = 120`).
+**Hoje:** a transcrição está pronta, com a interface `Transcritor` (`integracoes/transcritor.py`), o
+`TranscritorOpenAI` e o `TranscritorFalso`. O download do anexo é o `Chatwoot.baixar_anexo`: só da
+origem do Chatwoot recebe o token, no máximo 3 redirecionamentos, nunca de https para http, até 5 MB e
+com prazo único de 15 s. A falha é um resultado, nunca uma exceção.
+
+**Ligar, só com a chave.** São variáveis próprias, separadas das do LLM. Sem nenhuma, a transcrição fica
+desligada e o áudio cai no pedido de texto; com só parte delas, o serviço **não sobe** e diz quais
+faltam.
+
+| Variável | Padrão | Para quê |
+|---|---|---|
+| `AGENTE_TRANSCRICAO_URL` | (sem padrão) | a base da API, por exemplo `https://api.openai.com/v1` |
+| `AGENTE_TRANSCRICAO_API_KEY` | (sem padrão) | a chave |
+| `AGENTE_TRANSCRICAO_MODELO` | `gpt-4o-mini-transcribe` | o modelo |
+
+**O que o dev precisa saber do turno:**
+
+- o áudio entra no histórico como `[áudio transcrito: "<texto>"]` (o falho, como `[áudio — não foi
+  possível ouvir]`, e o longo demais, como `[áudio longo demais — não ouvido]`). O **prompt do Jev real
+  (T10) deve explicar esses rótulos**: é o que o cliente falou e pode ter erro de transcrição;
+- o texto transcrito é dado de cliente e **nunca vai ao log**; o endereço do áudio também não;
+- os limites estão no `politica.toml`: `audio_max_segundos` (120), `audio_max_bytes` (5 MB),
+  `audio_prazo_segundos` (15), `audio_sem_duracao_max_bytes` (2 MB, o teto do formato cuja duração não
+  se lê, fora do Ogg Opus), `transcricao_prazo_segundos` (15) e `transcricao_max_caracteres` (3000);
+- cada transcrição vira uma nota privada na conversa (`nota_transcricao_em_sombra = true` a mantém
+  também em sombra);
+- o áudio sem leitura leva o pedido de texto (`pedir_texto_audio_longo` e `pedir_texto_audio_falhou`),
+  fora do teto, e na 2ª vez o humano assume, com o motivo `AUDIO`.
+
+**Pronto quando:** o Cauê testa no piloto: o áudio curto, o longo, o "já paguei" falado e a nota no
+Chatwoot.
 
 ---
 
@@ -257,5 +303,5 @@ mesmo padrão das outras, com uma falsa até a chave (`audio_max_segundos = 120`
 - [ ] T1: o Pix real passa no `ContratoPix`; o webhook com o formato real (tarefa 6.4)
 - [ ] T9: o CTN real passa no `ContratoCTN`; o webhook com o formato real (tarefa 6.5)
 - [ ] T4: o disparador real e os templates aprovados
-- [ ] T6: o cliente do `gpt-6-luna`, a chave da OpenAI e a retenção de dados confirmada
-- [ ] T11: a transcrição pelo `gpt-4o-mini-transcribe` (D43)
+- [ ] T6: a chave da OpenAI em `AGENTE_LLM_API_KEY`, a temperatura aceita pelo Luna e a retenção de dados confirmada
+- [ ] T11: a chave da transcrição em `AGENTE_TRANSCRICAO_*`, o content-type real do áudio (T3) e o teste no piloto (D43)

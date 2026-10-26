@@ -75,6 +75,21 @@ O contêiner roda `alembic upgrade head` e depois o uvicorn. Sem Docker:
 
 As variáveis estão no [`.env.example`](.env.example).
 
+## LLM e transcrição do áudio (T6, T11)
+
+O redator é o `gpt-6-luna` da OpenAI (D42) e o áudio do cliente é transcrito pelo
+`gpt-4o-mini-transcribe` (D43). Sem as chaves, o serviço roda com as falsas: o redator falso e o áudio
+sem leitura (cai no pedido de texto). Para ligar:
+
+- `AGENTE_LLM_API_KEY` liga o redator. `AGENTE_LLM_URL`, `AGENTE_LLM_MODELO` e `AGENTE_LLM_CORPO_EXTRA`
+  já vêm com os padrões do Luna. O Luna recusa a temperatura sem o `reasoning_effort: "none"`, que o
+  corpo extra padrão manda;
+- `AGENTE_TRANSCRICAO_URL` e `AGENTE_TRANSCRICAO_API_KEY` ligam a transcrição, e
+  `AGENTE_TRANSCRICAO_MODELO` troca o modelo. Com só uma das duas, o serviço não sobe e diz qual falta;
+- os limites do áudio e os textos do pedido de texto estão no `politica.toml`.
+
+O passo a passo está em [`docs/integracoes.md`](docs/integracoes.md) (T6 e T11).
+
 ## Configuração do Chatwoot
 
 O que o serviço espera da conta do Chatwoot (T3). A conta, as inboxes e o time são criados na

@@ -22,8 +22,8 @@ segue a mesma lógica. Onde o desenho e as decisões divergem, valem as decisõe
 ## O turno, em uma linha
 
 ```
-mensagem do cliente → gates em código → JEV 1 (leitura) → JEV 2 (decisão) → backend calcula
-→ LLM redige → JEV 3 (validação) → Chatwoot → WhatsApp
+mensagem do cliente → gates em código → (áudio: baixa e transcreve) → JEV 1 (leitura) → JEV 2 (decisão)
+→ backend calcula → LLM redige → JEV 3 (validação) → Chatwoot → WhatsApp
 ```
 
 ## 1. Gates em código (determinísticos)
@@ -36,6 +36,16 @@ São certezas, não probabilidades, e por isso ficam fora do Jev:
 - um humano já está na conversa (`human_owned`);
 - comando de reinício;
 - tipo do anexo e duração do áudio (até 2 min);
+- **áudio do cliente** (D43): depois dos gates e antes do Jev 1, o áudio é baixado do Chatwoot (só da
+  origem dele, até 5 MB, no prazo de 15 s), medido e transcrito pelo `gpt-4o-mini-transcribe`. O
+  resultado (`transcrito`, `longo_demais` ou `falhou`) fica no anexo, e cada áudio é transcrito uma vez
+  só. O histórico que o Jev e o LLM leem mostra `[áudio transcrito: "<texto>"]`; o áudio que não foi
+  lido aparece como `[áudio longo demais — não ouvido]` ou `[áudio — não foi possível ouvir]`. Cada
+  transcrição vira uma nota privada na conversa. Os gates rodam antes: o áudio fora da janela ou das
+  24h só é transcrito quando o turno roda. Sem a chave da transcrição, o áudio não é lido;
+- **áudio sem leitura**: a rajada sem nenhum texto, sem outro anexo e sem áudio transcrito recebe a
+  fixa `PEDIR_TEXTO` ("Seu áudio passou de 2 minutos..." ou "Não consegui ouvir seu áudio..."), sem Jev
+  e sem LLM, **fora do teto**. Na 2ª vez da conversa, o humano assume, com o motivo `AUDIO` (D5);
 - **janela de atendimento**: segunda a sexta, das 8h às 18h; sábado, das 8h às 12h. Domingo e feriado
   ficam fora. Fora da janela, nada é enviado (D11, D16), salvo a resposta ao toque no botão "Pagar
   com Pix", que sai na hora (D40). O desenho dizia "seg–sáb, 08h–20h"; valem as decisões.
@@ -152,7 +162,9 @@ uma lista; o que vai junto na mesma mensagem é anexado pelo código (D37).
 - O **LLM** recebe a ação decidida, os números calculados, o tom-alvo (vindo do Jev 1), o estado e o
   histórico, e devolve só o texto. O modelo é o `gpt-6-luna` (D42).
 - O **áudio** do cliente é transcrito pelo `gpt-4o-mini-transcribe` antes do Jev 1, que lê o texto
-  (D43).
+  (D43; os gates da seção 1). As instruções do LLM explicam o rótulo `[áudio transcrito: "..."]`: é o
+  que o cliente falou e pode ter erro de transcrição. A imagem fica como está na v1: o comprovante vai
+  ao humano (CONCILIAÇÃO) e o pagamento se confirma pelo webhook.
 - Um número errado não tem por onde entrar: ele é interpolado no texto a partir do backend, e não
   gerado pelo LLM.
 
@@ -212,7 +224,8 @@ o resto do código.
 |---|---|---|
 | `CTN` | consulta do cliente, da matrícula e do histórico de pagamentos (forma e data); geração do link de pagamento com o valor; registro da baixa; webhook do pagamento pelo link | T9 |
 | `PixBanco` | cobrança Pix com txid e vencimento; webhook do Pix recebido | T1 |
-| `Chatwoot` | webhook de mensagem, envio, nota privada, etiqueta, atribuição e status (Agent Bot, D1) | T3 |
+| `Chatwoot` | webhook de mensagem, envio, nota privada, etiqueta, atribuição e status (Agent Bot, D1); download do anexo do cliente (o áudio), só da origem do Chatwoot | T3 |
 | `Disparador` | envio da abertura por template, com o botão "Pagar com Pix" (D3, D26) | T4 |
 | `Jev` | os 3 batches (leitura, decisão, validação), com o fallback da seção 9 | T5 |
-| `Redator` | o LLM que redige a partir das ações e dos números | T6 |
+| `Redator` | o LLM que redige a partir das ações e dos números (`RedatorOpenAI`, o `gpt-6-luna`, D42) | T6 |
+| `Transcritor` | o áudio do cliente em texto (`TranscritorOpenAI`, o `gpt-4o-mini-transcribe`, D43); a falha é um resultado, nunca uma exceção | T11 |
