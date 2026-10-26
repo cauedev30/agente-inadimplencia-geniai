@@ -190,15 +190,19 @@ Ela confirma entrega e leitura?
 ### T5. Contas e chaves
 
 Quem cria e paga as contas de cada serviço: **Vercel AI Gateway** (Jev), **Groq** (LLM) e o **PSP**?
+*(Desde a D42, o LLM e a transcrição usam a chave da OpenAI da empresa.)*
 
 ### T6. Escolha do LLM
+
+**Respondida em 2026-10-26 → D42:** o LLM é o `gpt-6-luna`, com a chave da empresa. Continua valendo
+o aviso abaixo, agora para a OpenAI.
 
 O LLM de redação é escolhido por teste (D6). **Como é esse teste**: quais conversas, quais critérios? E
 quem aprova o resultado?
 
 
 **Antes de ligar a chave em produção (2026-10-22):** o histórico da conversa vai para o Groq a cada
-turno. Falta confirmar a retenção de dados do Groq (LGPD) e se dá para desligar o uso para treino.
+turno. *(Desde a D42, a OpenAI.)* Falta confirmar a retenção de dados (LGPD) e se dá para desligar o uso para treino.
 
 ### T7. Entrada em fases
 
@@ -248,8 +252,8 @@ responder, o Jev entra como interface falsa (arquitetura, seção 10).
 
 ### T11. Transcrição de áudio
 
-**Respondida em 2026-10-25 → D41:** o LLM transcreve o áudio, e o Jev lê o texto. Falta confirmar na T6
-que o modelo escolhido aceita áudio.
+**Respondida em 2026-10-25 → D41, revisada pela D43:** o `gpt-4o-mini-transcribe` transcreve o áudio, e o
+Jev lê o texto.
 
 O cliente pode mandar áudio de até 2 min (arquitetura, seção 1), mas o Jev lê texto. **Qual serviço
 transcreve?** **Padrão até lá:** o agente responde pedindo a mensagem em texto.

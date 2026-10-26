@@ -32,8 +32,8 @@ traz os nomes, sem os valores. O repositório é público: nenhum dado real de c
 | T9 | CTN | API, ambiente de teste, webhook | `integracoes/ctn_http.py` | tarefa 6.5 |
 | T4 | Disparador | API, templates aprovados | `integracoes/disparador_http.py` | abertura real |
 | T10 | Jev | como chamar do Python | `integracoes/jev_<forma>.py` | modo ativo |
-| T6 | LLM (Groq) | chave, retenção de dados | — (cliente pronto) | redação real |
-| T11 | Transcrição de áudio | o LLM (D41) | interface nova | áudio do cliente |
+| T6 | LLM (`gpt-6-luna`, D42) | chave, retenção de dados | cliente OpenAI novo | redação real |
+| T11 | Transcrição de áudio | `gpt-4o-mini-transcribe` (D43) | interface nova | áudio do cliente |
 
 A ordem que destrava mais: **T2 e T3** (o agente sobe em sombra no JP Sul, só lendo), depois **T10**
 (sem o Jev real o modo ativo é recusado), depois **T1, T9 e T4** (pagamento e abertura reais).
@@ -217,28 +217,30 @@ ativo é recusado em produção enquanto o Jev for o falso.
 **Pronto quando:** o Jev real passa no contrato, e as conversas simuladas (`agente simular
 tests/conversas`) rodam com ele.
 
-## T6 — LLM (Groq)
+## T6 — LLM (`gpt-6-luna`)
 
-**Precisamos de:** a chave do Groq e a confirmação da retenção de dados. O histórico da conversa vai ao
-Groq a cada turno, então é preciso saber se dá para desligar o uso para treino (LGPD).
+**Decidido (D42):** o LLM é o `gpt-6-luna`, da OpenAI, com a chave da empresa.
 
-**Já pronto:** o `RedatorGroq` (`integracoes/redator.py`). Com a `AGENTE_GROQ_API_KEY`, ele substitui o
-falso sozinho; o modelo está em `AGENTE_GROQ_MODELO`. O LLM só escreve marcadores (`{valor_final}`), e o
-backend preenche os números.
+**Precisamos de:** a chave e a confirmação da retenção de dados. O histórico da conversa vai à OpenAI a
+cada turno, então é preciso saber se dá para desligar o uso para treino (LGPD).
+
+**Hoje:** o cliente pronto é o `RedatorGroq` (`integracoes/redator.py`), da decisão anterior (D6). Ele
+precisa de um irmão para a OpenAI, no mesmo contrato do `Redator`. O LLM só escreve marcadores
+(`{valor_final}`), e o backend preenche os números.
 
 **Comparar candidatos:** `agente comparar-redatores tests/conversas`.
 
 ## T11 — Transcrição de áudio
 
-**Decidido (D41):** o LLM transcreve os áudios de até 2 minutos, e o texto segue o turno normal; o Jev
-lê a transcrição.
+**Decidido (D43):** o `gpt-4o-mini-transcribe` transcreve os áudios de até 2 minutos, e o texto segue o
+turno normal; o Jev lê a transcrição. É a mesma chave da OpenAI da T6.
 
-**Precisamos de:** confirmar, na T6, que o modelo escolhido aceita áudio, e como o áudio chega a ele (o
-anexo do Chatwoot baixado pela URL).
+**Precisamos de:** como o áudio chega ao serviço (o anexo do Chatwoot baixado pela URL, a confirmar na
+T3).
 
 **Hoje:** o áudio é aceito como anexo (`anexos_aceitos` no `politica.toml`), mas ainda não é transcrito,
 então um áudio sem texto não é entendido. A interface de transcrição ainda não existe; ela entra no
-mesmo padrão das outras, com uma falsa até a T6 (`audio_max_segundos = 120`).
+mesmo padrão das outras, com uma falsa até a chave (`audio_max_segundos = 120`).
 
 ---
 
@@ -251,5 +253,5 @@ mesmo padrão das outras, com uma falsa até a T6 (`audio_max_segundos = 120`).
 - [ ] T1: o Pix real passa no `ContratoPix`; o webhook com o formato real (tarefa 6.4)
 - [ ] T9: o CTN real passa no `ContratoCTN`; o webhook com o formato real (tarefa 6.5)
 - [ ] T4: o disparador real e os templates aprovados
-- [ ] T6: a chave do Groq e a retenção de dados confirmada
-- [ ] T11: a transcrição pelo LLM (D41), com o modelo da T6
+- [ ] T6: o cliente do `gpt-6-luna`, a chave da OpenAI e a retenção de dados confirmada
+- [ ] T11: a transcrição pelo `gpt-4o-mini-transcribe` (D43)

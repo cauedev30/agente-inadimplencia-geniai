@@ -10,7 +10,7 @@ a revisou.
 | D3 | 2026-10-15 | O agente **dispara a mensagem de abertura** (a que cita a dívida) **pela API do disparador** |
 | D4 | 2026-10-15 | *(Revisada pela D22: o Pix vem do banco do Cartão de Todos, não de um PSP à parte.)* **Pix dinâmico** de um PSP com **webhook de confirmação**: um PSP só, recebendo na conta de cada franquia |
 | D5 | 2026-10-15 | Toda saída do robô, seja pelo teto ou por gatilho do Jev, manda o cliente para o **canal externo da franquia** |
-| D6 | 2026-10-15 | O LLM de redação é **escolhido por teste**. Candidato: Groq `gpt-oss-120b` |
+| D6 | 2026-10-15 | *(Revisada pela D42: o LLM é o `gpt-6-luna`, o mesmo de outro agente da GeniAI.)* O LLM de redação é **escolhido por teste**. Candidato: Groq `gpt-oss-120b` |
 | D7 | 2026-10-19 | **Stack em Python**, mesmo com outros projetos da GeniAI em Go. O Go entra só se surgir gargalo, porque tende a render mais com muitos clientes ao mesmo tempo. Ver a análise abaixo |
 | D8 | 2026-10-19 | **Teto de 3 mensagens de resolução** do agente. Na 4ª, o cliente é encaminhado para o canal externo. *(Em 2026-10-21 a operação recomendou cerca de 5; revisada pela D33: teto de 5.)* |
 | D9 | 2026-10-19 | Repositório: este, `cauedev30/agente-inadimplencia-geniai` |
@@ -45,7 +45,9 @@ a revisou.
 | D38 | 2026-10-22 | **Saídas do turno ativo, aprovadas pelo Cauê.** O desconto barrado (sem objeção ou com os degraus esgotados) vai para o **humano**. Quando o Jev 2 decide NONE, o agente **não responde**. O **EM_RISCO** tem 1 turno para melhorar; sem melhora, humano. Se o Jev 3 reprova o texto duas vezes, sai uma **resposta segura** (uma vez por conversa); na segunda vez, humano. O LLM, o CTN ou o Pix fora do ar: **3 tentativas**, depois humano. Responde a C4 e o caso dos degraus esgotados da G1.1 |
 | D39 | 2026-10-22 | **Pagamento em dobro vai para o humano.** Se o cliente paga duas vezes a mesma cobrança (o Pix e o link, ou o Pix vencido e o novo), o 2º pagamento fica registrado como pago, sem nova baixa e sem nova mensagem, e a conversa ganha uma **nota privada e a etiqueta** no Chatwoot para o atendente cuidar da devolução |
 | D40 | 2026-10-22 | **O toque no botão "Pagar com Pix" é respondido na hora, mesmo fora da janela.** É a exceção à D16: o cliente que toca quer pagar agora, e a resposta é uma mensagem só, que conta no teto (D26) |
-| D41 | 2026-10-25 | **O áudio do cliente é transcrito pelo LLM**, e o texto segue o turno normal: o Jev 1 lê a transcrição como leria a mensagem escrita. O Jev continua lendo só texto. Responde a T11 e substitui o padrão de pedir a mensagem em texto. Ler imagem (vision) ainda está em análise pelo Cauê |
+| D41 | 2026-10-25 | *(Revisada pela D43: quem transcreve é o `gpt-4o-mini-transcribe`, não o LLM de redação.)* **O áudio do cliente é transcrito pelo LLM**, e o texto segue o turno normal: o Jev 1 lê a transcrição como leria a mensagem escrita. O Jev continua lendo só texto. Responde a T11 e substitui o padrão de pedir a mensagem em texto. Ler imagem (vision) ainda está em análise pelo Cauê |
+| D42 | 2026-10-26 | **O LLM de redação é o `gpt-6-luna`** (OpenAI), com a chave da empresa, como em outro agente da GeniAI que já roda em produção. Revisa a D6: não há mais escolha por teste entre candidatos. Preço: US$ 0,10 por milhão de tokens de entrada e US$ 0,50 de saída. Falta confirmar a retenção de dados (LGPD) antes de ligar a chave |
+| D43 | 2026-10-26 | **O áudio é transcrito pelo `gpt-4o-mini-transcribe`**, e o texto segue o turno normal: o Jev lê a transcrição, e o Luna redige. É a mesma lógica do outro agente. Revisa a D41. **A imagem fica como está na v1:** o comprovante leva ao humano (CONCILIAÇÃO) e o pagamento se confirma pelo webhook; ler imagem fica para depois, com dado real |
 
 ## Análise do D7: Go × Python
 

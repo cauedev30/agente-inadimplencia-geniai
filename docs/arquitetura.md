@@ -150,8 +150,9 @@ uma lista; o que vai junto na mesma mensagem é anexado pelo código (D37).
 - O **backend** executa a ação dentro da política e produz os números: a dívida (D24), o valor com o
   degrau do desconto (D35), o link do CTN, o BR Code do Pix e o vencimento do Pix.
 - O **LLM** recebe a ação decidida, os números calculados, o tom-alvo (vindo do Jev 1), o estado e o
-  histórico, e devolve só o texto. O candidato é o Groq `openai/gpt-oss-120b`, com escolha final por
-  teste (D6).
+  histórico, e devolve só o texto. O modelo é o `gpt-6-luna` (D42).
+- O **áudio** do cliente é transcrito pelo `gpt-4o-mini-transcribe` antes do Jev 1, que lê o texto
+  (D43).
 - Um número errado não tem por onde entrar: ele é interpolado no texto a partir do backend, e não
   gerado pelo LLM.
 
