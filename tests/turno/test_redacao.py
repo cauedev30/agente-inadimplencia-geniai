@@ -141,6 +141,33 @@ def test_link_ou_dominio_inventado_e_barrado(texto):
     assert "link_nao_autorizado" in erro.value.motivos
 
 
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Pague em PAGAMENTO.COM {divida}",
+        "Pague em pagamento.Com/pagar {divida}",
+        "Pague em pagamento.Com. {divida}",
+        "Pague em pagamento.Com",
+        "Veja www.Exemplo.Com {divida}",
+    ],
+)
+def test_link_em_maiuscula_continua_barrado(texto):
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar(texto, _numeros(Acao.INFORM_DEBT))
+    assert "link_nao_autorizado" in erro.value.motivos
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Combinado, vou verificar agora.Com isso fica resolvido. {divida}",
+        "Estou à disposição.Me avise se tiver dúvida. {divida}",
+    ],
+)
+def test_ponto_sem_espaco_entre_frases_nao_e_link(texto):
+    assert interpolar(texto, _numeros(Acao.INFORM_DEBT))
+
+
 def test_os_motivos_novos_se_somam_aos_antigos():
     with pytest.raises(RedacaoInvalida) as erro:
         interpolar("Fica setenta reais em www.x.com", _numeros(Acao.INFORM_DEBT))

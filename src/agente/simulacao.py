@@ -32,7 +32,14 @@ from agente.integracoes.jev import Jev, JevFalso, responder
 from agente.integracoes.pix import PixFalso
 from agente.integracoes.redator import Redator, RedatorFalso
 from agente.politica import Politica, Regua
-from agente.tipos import BatchJev, EstadoConversa, Modo, MotivoHumano, OrigemMensagem
+from agente.tipos import (
+    BatchJev,
+    EstadoConversa,
+    Modo,
+    MotivoHumano,
+    OrigemMensagem,
+    ResultadoTurno,
+)
 from agente.turno.acoes import Acao
 from agente.turno.avaliacao import NAO_EXECUTADA, rotulo_humano
 from agente.turno.jev1 import PERGUNTAS_JEV1
@@ -228,7 +235,8 @@ def _rodar_caso(
         ),
     )
     sessao.add(conversa)
-    sessao.flush()
+    # Commit, como no Trabalhador: o rollback do erro interno só desfaz o turno, não o caso.
+    sessao.commit()
     # Uma segunda-feira às 10h, ou a próxima abertura da janela, se a política a fechar.
     agora = proxima_abertura(datetime(2026, 10, 26, 10, tzinfo=politica.janela.zona), politica)
     inicio = agora
@@ -253,13 +261,21 @@ def _rodar_caso(
         registrar_mensagem(
             sessao, conversa.id, OrigemMensagem.CLIENTE, turno.cliente, None, False, agora
         )
+        sessao.commit()
         gabarito = [responder(nome, valor) for nome, valor in turno.perguntas.items()]
         jev = deps.jev or JevFalso([*gabarito, *aprovar_tudo()])
-        processar_turno(sessao, conversa.id, agora, replace(base, jev=jev))
+        resultado = processar_turno(sessao, conversa.id, agora, replace(base, jev=jev))
 
         gravado = sessao.scalars(
             select(Turno).where(Turno.conversa_id == conversa.id).order_by(Turno.id.desc())
         ).first()
+        if resultado is ResultadoTurno.ERRO:
+            # Erro de código no turno (só o tipo é gravado): o caso não segue.
+            erro = str(gravado.redacao.get("erro", "desconhecido"))
+            relatorio.divergencias.append(
+                Divergencia(caso.nome, numero, "erro", "turno sem erro", erro)
+            )
+            return
         _conferir(caso.nome, numero, turno, _respostas(sessao, gravado), gravado, relatorio)
         _contar_redacao(gravado, relatorio)
         if conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO:

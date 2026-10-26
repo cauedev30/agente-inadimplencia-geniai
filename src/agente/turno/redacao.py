@@ -51,9 +51,12 @@ _POR_EXTENSO = re.compile(
 )
 # Todo link vem do backend, em `{link_ctn}`: sobra "http", "www" e domínio solto.
 _LINK = re.compile(
-    r"\bhttps?\b|\bwww\b|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|br|io|app|me|co|ly|link"
-    r"|info|biz|gov|edu|xyz|site|online|dev|invalid|example)\b"
+    r"\bhttps?\b|\bwww\b|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*(?P<tld>\.(?:com|net|org|br|io|app|me|co|ly"
+    r"|link|info|biz|gov|edu|xyz|site|online|dev|invalid|example))\b",
+    re.IGNORECASE,
 )
+# "agora.Com o valor": o ponto final sem espaço, com a próxima frase começando em maiúscula.
+_FRASE_COLADA = re.compile(r"\.[A-Z][a-z]+\s+[a-z]")
 
 
 # Todo marcador que o LLM pode usar. O valor de cada um vem do backend, em `valores`.
@@ -123,6 +126,20 @@ def _sem_acento(texto: str) -> str:
     return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
 
 
+def _tem_link(texto: str) -> bool:
+    """Link ou domínio no texto (sem acento, com a caixa original).
+
+    "agora.Com o valor" é o ponto sem espaço entre duas frases, não um domínio: o TLD em
+    maiúscula-e-minúsculas, depois de letra minúscula e antes de uma palavra minúscula.
+    """
+    for achado in _LINK.finditer(texto):
+        inicio = achado.start("tld") if achado.group("tld") else None
+        if inicio and _FRASE_COLADA.match(texto, inicio) and texto[inicio - 1].islower():
+            continue
+        return True
+    return False
+
+
 def interpolar(texto: str, numeros: Numeros) -> str:
     """Troca os marcadores pelos números do backend, formatados em pt-BR."""
     motivos = []
@@ -132,7 +149,7 @@ def interpolar(texto: str, numeros: Numeros) -> str:
     simples = _sem_acento(fora).lower()
     if _POR_EXTENSO.search(simples):
         motivos.append("valor_por_extenso")
-    if _LINK.search(simples):
+    if _tem_link(_sem_acento(fora)):
         motivos.append("link_nao_autorizado")
     if "{" in fora or "}" in fora:
         motivos.append("marcador_malformado")

@@ -4,6 +4,7 @@ import pytest
 
 from agente.cli import main
 from agente.integracoes.jev import JevFalso, responder
+from agente.integracoes.redator import RedatorFalso
 from agente.politica import Regua
 from agente.simulacao import (
     CasoInvalido,
@@ -161,3 +162,15 @@ def test_comando_simular_le_a_politica_como_o_config(tmp_path, monkeypatch, caps
     monkeypatch.chdir(tmp_path)
     assert main(["simular", str(CONVERSAS)]) == 0
     assert "15 casos" in capsys.readouterr().out
+
+
+def test_erro_de_codigo_no_turno_vira_divergencia_e_nao_um_erro_de_banco(tmp_path, politica):
+    # O rollback do erro interno não pode apagar a conversa simulada e esconder o erro real.
+    casos = carregar_casos(_yaml(tmp_path, CASO_R3))
+    redator = RedatorFalso(falha=KeyError("defeito"))
+
+    relatorio = rodar_simulacao(casos, DependenciasSimulacao(politica, redator=redator))
+
+    assert [(d.caso, d.turno, d.campo, d.obtido) for d in relatorio.divergencias] == [
+        ("R3 com objeção", 1, "erro", "KeyError")
+    ]
