@@ -142,10 +142,16 @@ pago_em}`. A assinatura é o HMAC-SHA256 do corpo no cabeçalho `X-Assinatura`, 
 | `consultar_cliente(matricula) -> ClienteCTN` | nome, telefone e CPF; `ClienteNaoEncontrado` se não existe |
 | `historico_pagamentos(matricula, meses) -> list[PagamentoHistorico]` | do mais antigo ao mais novo, com a forma e a data (a propensão, D36) |
 | `gerar_link_pagamento(matricula, valor_centavos, cobranca_id) -> LinkPagamento` | o link em que o cliente paga e cadastra o cartão (D30); o `id_externo` é a referência do pagamento |
-| `gerar_link_cadastro_cartao(matricula) -> LinkPagamento` | o link só para cadastrar o cartão (G9.3) |
+| `gerar_link_cadastro_cartao(matricula) -> LinkPagamento` | o link só para cadastrar o cartão (G9.3); **sem efeito colateral e pedido quantas vezes for preciso**: a confirmação o pede antes das travas, e o link some se o webhook for repetido ou a janela de 24h fechar na espera |
 | `registrar_baixa(matricula, valor_centavos, pago_em, referencia) -> bool` | a baixa na aba de mensalidades; **idempotente pela referência**: devolve False se já tinha baixa |
 
 O CTN fora do ar levanta `CTNIndisponivel`.
+
+**A cuidar:** a confirmação do pagamento (`pagamento/confirmar.py`) pede o link do convite ao CTN antes
+das travas, dentro da transação do webhook, que não segura trava de linha mas segura a conexão do banco
+enquanto o CTN responde. Dois webhooks iguais em paralelo pedem o link os dois, e um deles o descarta.
+Se o CTN real for lento ou o link tiver efeito, o certo é gerar o convite na 2ª fase
+(`pagamento/concluir.py`), na hora de enviar a confirmação, e não na 1ª.
 
 **Teste:** herdar `ContratoCTN` (`tests/integracoes/test_contrato_ctn.py`) e definir as fixtures
 `ctn_e_matricula` e `ctn_fora_do_ar_e_matricula`.
