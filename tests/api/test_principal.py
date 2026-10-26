@@ -6,6 +6,7 @@ from agente.config import Config
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.jev import JevComPrazo, JevFalso
 from agente.integracoes.redator import RedatorFalso, RedatorOpenAI
+from agente.integracoes.transcritor import TranscritorOpenAI
 from agente.tipos import Modo
 from agente.webchat.link import ConfigWebchat
 
@@ -89,6 +90,23 @@ def test_a_troca_de_modelo_e_so_configuracao():
     assert deps.redator.corpo_extra == {}
     assert str(deps.redator._cliente.base_url) == "https://llm.invalid/v1/"
     deps.redator.fechar()
+
+
+def test_sem_a_transcricao_configurada_o_audio_nao_e_transcrito(caplog):
+    deps = montar_dependencias(_config())
+    assert deps.transcritor is None
+    assert "transcrição" in caplog.text.lower()
+
+
+def test_com_a_transcricao_configurada_o_transcritor_e_o_real():
+    config = _config(
+        transcricao_url="https://transcricao.invalid/v1", transcricao_api_key="chave-ficticia"
+    )
+    deps = montar_dependencias(config)
+    assert isinstance(deps.transcritor, TranscritorOpenAI)
+    assert deps.transcritor.modelo == "gpt-4o-mini-transcribe"
+    assert deps.transcritor.max_caracteres == deps.politica.transcricao_max_caracteres
+    deps.transcritor.fechar()
 
 
 def test_modo_ativo_sem_jev_real_e_recusado():

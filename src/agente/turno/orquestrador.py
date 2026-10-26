@@ -31,6 +31,7 @@ from agente.integracoes.disparador import Disparador, FalhaNoEnvio
 from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
 from agente.integracoes.pix import PixBanco, PixFalso, PixIndisponivel
 from agente.integracoes.redator import Redator, RedatorFalso, RedatorIndisponivel
+from agente.integracoes.transcritor import Transcritor
 from agente.politica import Politica
 from agente.tipos import (
     BatchJev,
@@ -96,6 +97,9 @@ class Dependencias:
     ctn: CTN = field(default_factory=CTNFalso)
     pix: PixBanco = field(default_factory=PixFalso)
     redator: Redator = field(default_factory=RedatorFalso)
+    # O áudio do cliente vira texto antes do Jev (D43). None: a transcrição está desligada (sem a
+    # chave) e o áudio cai no pedido de texto.
+    transcritor: Transcritor | None = None
     # O domínio e o segredo do link do webchat (G7); sem eles, a 6ª mensagem leva o link provisório.
     webchat: ConfigWebchat | None = None
 

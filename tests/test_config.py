@@ -114,3 +114,63 @@ def test_segredos_do_webchat_vazios_valem_como_ausentes():
     assert config.webchat_identidade_hmac is None
     assert config.webchat_website_token is None
     assert config.webchat_url_base is None
+
+
+def test_sem_nenhuma_variavel_da_transcricao_ela_fica_desligada():
+    config = carregar_config(database_url="sqlite://")
+
+    assert not config.transcricao_ligada
+
+
+def test_com_a_url_e_a_chave_a_transcricao_liga_com_o_modelo_padrao():
+    config = carregar_config(
+        database_url="sqlite://",
+        transcricao_url="https://transcricao.invalid/v1",
+        transcricao_api_key="chave-ficticia",
+    )
+
+    assert config.transcricao_ligada
+    assert config.transcricao_modelo_usado == "gpt-4o-mini-transcribe"
+
+
+def test_o_modelo_da_transcricao_pode_ser_trocado():
+    config = carregar_config(
+        database_url="sqlite://",
+        transcricao_url="https://transcricao.invalid/v1",
+        transcricao_api_key="chave-ficticia",
+        transcricao_modelo="outro-modelo",
+    )
+
+    assert config.transcricao_modelo_usado == "outro-modelo"
+
+
+@pytest.mark.parametrize(
+    ("dadas", "faltam"),
+    [
+        ({"transcricao_url": "https://t.invalid/v1"}, ["AGENTE_TRANSCRICAO_API_KEY"]),
+        ({"transcricao_api_key": "chave-ficticia"}, ["AGENTE_TRANSCRICAO_URL"]),
+        (
+            {"transcricao_modelo": "m"},
+            ["AGENTE_TRANSCRICAO_URL", "AGENTE_TRANSCRICAO_API_KEY"],
+        ),
+    ],
+)
+def test_a_transcricao_pela_metade_e_recusada_dizendo_o_que_falta(dadas, faltam):
+    with pytest.raises(ValidationError) as erro:
+        carregar_config(database_url="sqlite://", **dadas)
+
+    for nome in faltam:
+        assert nome in str(erro.value)
+    # O erro cita os nomes, nunca os valores.
+    assert "chave-ficticia" not in str(erro.value)
+
+
+def test_a_transcricao_vazia_vale_como_desligada():
+    config = carregar_config(
+        database_url="sqlite://",
+        transcricao_url="",
+        transcricao_api_key="  ",
+        transcricao_modelo="",
+    )
+
+    assert not config.transcricao_ligada

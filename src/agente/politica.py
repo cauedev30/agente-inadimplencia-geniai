@@ -144,6 +144,9 @@ class Politica(_Imutavel):
     audio_max_bytes: int = Field(ge=1)
     audio_prazo_segundos: int = Field(ge=1)
     audio_sem_duracao_max_bytes: int = Field(ge=1)
+    # A chamada de transcrição: o prazo e o tamanho do texto guardado (o resto é cortado).
+    transcricao_prazo_segundos: int = Field(ge=1)
+    transcricao_max_caracteres: int = Field(ge=2)
     jev_timeout_ms: int = Field(ge=1)
     integracao_tentativas: int = Field(ge=1)
     erro_interno_tentativas: int = Field(ge=1)

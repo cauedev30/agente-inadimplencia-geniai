@@ -2,7 +2,7 @@
 
 Rodar: `uvicorn agente.api.principal:montar_app --factory`. Sem o Chatwoot configurado (T3), o
 serviço só roda em modo sombra, com a interface falsa. Até a T10, o Jev também é o falso. Sem o
-AGENTE_LLM_API_KEY, o redator é o falso.
+AGENTE_LLM_API_KEY, o redator é o falso; sem o AGENTE_TRANSCRICAO_*, o áudio não é transcrito.
 """
 
 import logging
@@ -16,8 +16,9 @@ from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevComPrazo, JevFalso
 from agente.integracoes.redator import Redator, RedatorFalso, RedatorOpenAI
+from agente.integracoes.transcritor import Transcritor, TranscritorOpenAI
 from agente.logs import configurar_logging
-from agente.politica import carregar_politica
+from agente.politica import Politica, carregar_politica
 from agente.tipos import Modo
 from agente.turno.orquestrador import Dependencias, criar_processador
 from agente.webchat.link import ConfigWebchat
@@ -35,6 +36,21 @@ def _redator(config: Config) -> Redator:
         )
     log.warning("AGENTE_LLM_API_KEY não configurada: usando o redator falso (T6)")
     return RedatorFalso()
+
+
+def _transcritor(config: Config, politica: Politica) -> Transcritor | None:
+    if config.transcricao_ligada:
+        return TranscritorOpenAI(
+            config.transcricao_api_key,
+            config.transcricao_modelo_usado,
+            url=config.transcricao_url,
+            timeout=politica.transcricao_prazo_segundos,
+            max_caracteres=politica.transcricao_max_caracteres,
+        )
+    log.warning(
+        "transcrição do áudio desligada (AGENTE_TRANSCRICAO_*): o áudio cai no pedido de texto"
+    )
+    return None
 
 
 def _webchat(config: Config) -> ConfigWebchat | None:
@@ -75,6 +91,7 @@ def montar_dependencias(config: Config) -> Dependencias:
         modo=modo,
         jev=JevComPrazo(JevFalso(), politica.jev_timeout_ms),
         redator=_redator(config),
+        transcritor=_transcritor(config, politica),
         webchat=_webchat(config),
     )
 
