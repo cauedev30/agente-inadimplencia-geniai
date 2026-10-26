@@ -82,6 +82,8 @@ class MotivoHumano(StrEnum):
     DECISAO_JEV2 = "DECISAO_JEV2"
     # O valor pago não bate com o do Pix ou do link: a baixa fica com o humano (tarefa 6.1).
     PAGAMENTO_DIVERGENTE = "PAGAMENTO_DIVERGENTE"
+    # O cliente só manda áudio que não se lê, e já se pediu a mensagem em texto uma vez (D43).
+    AUDIO = "AUDIO"
 
 
 class FormaPagamento(StrEnum):
@@ -169,3 +171,5 @@ class TipoFixa(StrEnum):
     CONFIRMACAO = "CONFIRMACAO"
     CONFIRMACAO_CONVITE_CARTAO = "CONFIRMACAO_CONVITE_CARTAO"
     CANAL_EXTERNO = "CANAL_EXTERNO"
+    # A rajada ficou sem nada legível (só áudio que não foi lido): pede o texto, fora do teto (D43).
+    PEDIR_TEXTO = "PEDIR_TEXTO"

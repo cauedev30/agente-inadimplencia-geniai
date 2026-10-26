@@ -52,6 +52,26 @@ def texto_da_mensagem(mensagem: Mensagem) -> str:
     return " ".join(partes)
 
 
+def pedido_de_texto(mensagens: list[Mensagem]) -> str | None:
+    """Se a rajada ficou sem nada legível, o resultado que decide o texto do pedido.
+
+    Sem nada legível: nenhum texto, nenhum áudio transcrito e nenhum outro anexo (a imagem e o
+    arquivo seguem para o Jev, como na v1). Devolve `longo_demais` se algum áudio passou do limite
+    e `falhou` nos outros casos; None quando há o que ler.
+    """
+    anexos = [anexo for mensagem in mensagens for anexo in mensagem.anexos]
+    audios = [anexo for anexo in anexos if _e_audio(anexo)]
+    if not audios or len(audios) != len(anexos):
+        return None
+    if any(mensagem.texto.strip() for mensagem in mensagens):
+        return None
+    if any(anexo.get("resultado") == TRANSCRITO for anexo in audios):
+        return None
+    if any(anexo.get("resultado") == LONGO_DEMAIS for anexo in audios):
+        return LONGO_DEMAIS
+    return FALHOU
+
+
 def audios_sem_resultado(mensagens: list[Mensagem]) -> list[tuple[Mensagem, int]]:
     """Cada áudio do cliente que nenhum turno tentou: a mensagem e a posição do anexo."""
     return [

@@ -150,6 +150,9 @@ class Politica(_Imutavel):
     # A nota privada com o texto do áudio sai também em sombra: o atendente responde nessa fase e a
     # nota o poupa de ouvir o áudio. No modo ativo, sempre sai.
     nota_transcricao_em_sombra: bool
+    # Os pedidos de texto, quando a rajada fica sem nada legível (só áudio que não foi lido; D43).
+    pedir_texto_audio_longo: str = Field(min_length=1)
+    pedir_texto_audio_falhou: str = Field(min_length=1)
     jev_timeout_ms: int = Field(ge=1)
     integracao_tentativas: int = Field(ge=1)
     erro_interno_tentativas: int = Field(ge=1)

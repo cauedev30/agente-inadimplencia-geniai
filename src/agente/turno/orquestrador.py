@@ -46,8 +46,14 @@ from agente.tipos import (
     TipoFixa,
 )
 from agente.turno.acoes import Acao
-from agente.turno.avaliacao import Avaliacao, avaliar, estado_jev, numeros_previstos
-from agente.turno.catalogo import TEXTO_RESPOSTA_SEGURA
+from agente.turno.avaliacao import (
+    Avaliacao,
+    avaliar,
+    estado_jev,
+    numeros_previstos,
+    rotulo_humano,
+)
+from agente.turno.catalogo import TEXTO_RESPOSTA_SEGURA, DadosFixa, mensagem_fixa
 from agente.turno.entrega import confirmar_envio, entregue
 from agente.turno.executar import contar_objecao, executar, proximo_estado
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
@@ -68,10 +74,19 @@ from agente.turno.handoff import fazer_handoff
 from agente.turno.jev1 import laudo_do_risco
 from agente.turno.liberacao import modo_da_conversa
 from agente.turno.redacao import Redacao, montar_pedido, redigir_validado
-from agente.turno.transcricao import audios_sem_resultado, texto_da_mensagem, transcrever_audios
+from agente.turno.transcricao import (
+    LONGO_DEMAIS,
+    audios_sem_resultado,
+    pedido_de_texto,
+    texto_da_mensagem,
+    transcrever_audios,
+)
 from agente.webchat.link import ConfigWebchat
 
 log = logging.getLogger(__name__)
+
+# O que o turno grava como ação principal quando pede o texto do áudio que não foi lido (D43).
+ROTULO_PEDIR_TEXTO = f"FIXA:{TipoFixa.PEDIR_TEXTO.value}"
 
 # O que conta como integração fora do ar (CTN, Pix, Chatwoot, redator e Jev): é tentado de novo e
 # depois vai ao humano. Qualquer outro erro é bug de código: tem o próprio teto (`erros_turno`).
@@ -285,8 +300,11 @@ def _handoff(
     )
 
 
-def _gravar_envio(sessao: Session, conversa: Conversa, texto: str, agora: datetime) -> None:
-    """Grava a intenção de enviar a mensagem do agente. Ela já conta no teto (D33).
+def _gravar_envio(
+    sessao: Session, conversa: Conversa, texto: str, agora: datetime, *, conta_no_teto: bool = True
+) -> None:
+    """Grava a intenção de enviar a mensagem do agente. Ela já conta no teto (D33), menos o pedido
+    de texto do áudio, que sai fora dele (D43).
 
     O Chatwoot só a recebe depois, em `_despachar`, quando o turno já está gravado.
     """
@@ -298,7 +316,7 @@ def _gravar_envio(sessao: Session, conversa: Conversa, texto: str, agora: dateti
         OrigemMensagem.AGENTE,
         texto,
         None,
-        True,
+        conta_no_teto,
         agora,
         envio=EstadoEnvio.PENDENTE,
     )
@@ -323,7 +341,8 @@ def _entregue(
 def _descartar(sessao: Session, mensagem: Mensagem) -> None:
     """A mensagem nunca saiu e não vai mais sair: deixa de contar no teto.
 
-    O turno que a gerou fechou como ENVIADO, antes do envio: passa a dizer que o texto não saiu.
+    O turno que a gerou fechou como ENVIADO (ou FIXA, o pedido de texto), antes do envio: passa a
+    dizer que o texto não saiu.
     """
     mensagem.envio = EstadoEnvio.DESCARTADA
     mensagem.conta_no_teto = False
@@ -331,7 +350,8 @@ def _descartar(sessao: Session, mensagem: Mensagem) -> None:
         select(Turno)
         .where(
             Turno.conversa_id == mensagem.conversa_id,
-            Turno.resultado == ResultadoTurno.ENVIADO,
+            # O pedido de texto do áudio fecha como FIXA, com o texto enviado.
+            Turno.resultado.in_((ResultadoTurno.ENVIADO, ResultadoTurno.FIXA)),
             Turno.texto_enviado == mensagem.texto,
         )
         .order_by(Turno.id.desc())
@@ -513,6 +533,88 @@ def _seguir(
         _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
         return _fechar(sessao, turno, ResultadoTurno.SEM_ENVIO, avaliacao, {}, agora)
     return _agir(sessao, conversa, turno, avaliacao, estado, historico, deps, ids, agora)
+
+
+def _ja_pediu_texto(sessao: Session, conversa_id: int) -> bool:
+    """Já houve, nesta conversa, um turno que pediu (ou, em sombra, pediria) o texto do áudio.
+
+    O pedido descartado (o texto não saiu) não conta: o cliente nunca o viu.
+    """
+    consulta = select(
+        exists().where(
+            Turno.conversa_id == conversa_id,
+            Turno.acao_principal == ROTULO_PEDIR_TEXTO,
+            Turno.resultado.in_((ResultadoTurno.FIXA, ResultadoTurno.SOMBRA)),
+        )
+    )
+    return bool(sessao.scalar(consulta))
+
+
+def _pedir_texto(
+    sessao: Session,
+    conversa: Conversa,
+    turno: Turno,
+    pedido: str,
+    deps: Dependencias,
+    agora: datetime,
+) -> ResultadoTurno:
+    """A rajada ficou sem nada legível (só áudio que não foi lido): pede o texto (D43).
+
+    Sem Jev e sem LLM. Na 1ª vez da conversa sai a fixa PEDIR_TEXTO, fora do teto; na 2ª, o humano
+    assume pelo caminho de sempre (D5), com o motivo AUDIO. Em sombra, só grava o que faria.
+    """
+    if _ja_pediu_texto(sessao, conversa.id):
+        rotulo = rotulo_humano(MotivoHumano.AUDIO)
+        if deps.modo is Modo.SOMBRA:
+            fechar_turno(
+                sessao, turno.id, ResultadoTurno.SOMBRA, acao_principal=rotulo, momento=agora
+            )
+            return ResultadoTurno.SOMBRA
+        _handoff(sessao, conversa, MotivoHumano.AUDIO, deps, agora)
+        fechar_turno(
+            sessao,
+            turno.id,
+            ResultadoTurno.HANDOFF,
+            acao_principal=rotulo,
+            redacao={"saida": "HANDOFF"},
+            momento=agora,
+        )
+        return ResultadoTurno.HANDOFF
+    if deps.modo is Modo.SOMBRA:
+        fechar_turno(
+            sessao,
+            turno.id,
+            ResultadoTurno.SOMBRA,
+            acao_principal=ROTULO_PEDIR_TEXTO,
+            momento=agora,
+        )
+        return ResultadoTurno.SOMBRA
+    politica = deps.politica
+    texto = mensagem_fixa(
+        TipoFixa.PEDIR_TEXTO,
+        DadosFixa(
+            nome=conversa.cobranca.cliente.nome,
+            valor_centavos=None,
+            link_cartao=None,
+            link_canal_externo="",
+            texto=(
+                politica.pedir_texto_audio_longo
+                if pedido == LONGO_DEMAIS
+                else politica.pedir_texto_audio_falhou
+            ),
+        ),
+    ).texto
+    _gravar_envio(sessao, conversa, texto, agora, conta_no_teto=False)
+    fechar_turno(
+        sessao,
+        turno.id,
+        ResultadoTurno.FIXA,
+        acao_principal=ROTULO_PEDIR_TEXTO,
+        texto_enviado=texto,
+        redacao={"saida": "FIXA", "pedido": pedido},
+        momento=agora,
+    )
+    return ResultadoTurno.FIXA
 
 
 def _pagar_pix(
@@ -817,6 +919,9 @@ def _rodar_turno(
     if isinstance(gate, Ignorar):
         return fechar(ResultadoTurno.IGNORADO)
     if isinstance(gate, Seguir):
+        pedido = pedido_de_texto(mensagens)
+        if pedido is not None:
+            return _pedir_texto(sessao, conversa, turno, pedido, deps, agora)
         return _seguir(sessao, conversa, turno, deps, agora)
     if isinstance(gate, PagarPix):
         return _pagar_pix(sessao, conversa, turno, deps, agora)

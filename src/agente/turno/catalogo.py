@@ -28,6 +28,8 @@ class DadosFixa:
     valor_centavos: int | None
     link_cartao: str | None
     link_canal_externo: str
+    # O texto que a política dá à fixa que não tem texto próprio (PEDIR_TEXTO).
+    texto: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,10 @@ def mensagem_fixa(tipo: TipoFixa, dados: DadosFixa) -> MensagemPronta:
     if tipo is TipoFixa.CANAL_EXTERNO:
         botao = Botao("url", "Falar com um atendente", dados.link_canal_externo)
         return MensagemPronta(TEXTO_CANAL_EXTERNO, [botao])
+    if tipo is TipoFixa.PEDIR_TEXTO:
+        if not dados.texto:
+            raise ValueError("o pedido de texto precisa do texto da política")
+        return MensagemPronta(dados.texto)
     if tipo is TipoFixa.CONFIRMACAO:
         return MensagemPronta(_confirmacao(dados))
     if tipo is TipoFixa.CONFIRMACAO_CONVITE_CARTAO:
