@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Protocol
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from agente.db.modelos import Mensagem, Pagamento
@@ -365,9 +365,13 @@ def concluir_pagamentos(sessao: Session, deps: DependenciasConcluir, agora: date
 
 
 def contar_sem_concluir(sessao: Session) -> int:
-    """Os pagamentos pagos cuja conclusão esgotou as tentativas e segue pendente (o /saude)."""
-    return sessao.scalar(
-        select(func.count(Pagamento.id)).where(
+    """Os pagamentos pagos cuja conclusão esgotou as tentativas e segue pendente (o /saude).
+
+    O pagamento a que só falta a nota de concluído já concluiu: não conta.
+    """
+    pendencias = sessao.scalars(
+        select(Pagamento.pendencias).where(
             Pagamento.atencao_em.is_not(None), Pagamento.proxima_tentativa_em.is_not(None)
         )
-    )
+    ).all()
+    return sum(1 for lista in pendencias if lista != [Pendencia.AVISO_CONCLUIDO.value])

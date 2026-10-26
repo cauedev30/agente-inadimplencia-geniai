@@ -944,6 +944,8 @@ def test_a_nota_de_concluido_com_o_chatwoot_fora_fica_pendente_ate_sair(sessao, 
     pagamento = sessao.scalars(select(Pagamento)).one()
     assert len(deps.ctn.baixas) == 1
     assert pagamento.pendencias == [Pendencia.AVISO_CONCLUIDO.value]
+    # Só falta a nota ao atendente: o pagamento já está concluído e não conta como parado.
+    assert contar_sem_concluir(sessao) == 0
 
     deps.chatwoot.fora = False
     concluir_pagamentos(sessao, deps, pagamento.proxima_tentativa_em)
