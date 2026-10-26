@@ -902,7 +902,9 @@ def _turno_ativo(
     retorno = agora + deps.politica.espera_integracao(1)
     conversa.turno_em = retorno
     sessao.commit()
-    return _entregar(sessao, conversa, pendente, deps, agora, reenvio=False, retorno=retorno)
+    entrega = _entregar(sessao, conversa, pendente, deps, agora, reenvio=False, retorno=retorno)
+    # Saiu: o resultado é o do turno gravado (o pedido de texto é FIXA, não ENVIADO).
+    return resultado if entrega is ResultadoTurno.ENVIADO else entrega
 
 
 def _rodar_turno(

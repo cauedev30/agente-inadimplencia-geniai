@@ -65,7 +65,7 @@ class TestAPrimeiraVez:
 
         resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-        assert resultado is ResultadoTurno.ENVIADO
+        assert resultado is ResultadoTurno.FIXA
         assert deps.chatwoot.enviadas(555) == [LONGO]
         [mensagem] = _do_agente(sessao)
         assert (mensagem.conta_no_teto, mensagem.envio) == (False, EstadoEnvio.ENVIADA)
@@ -381,7 +381,7 @@ class TestOPedidoDaSombraNaoContaNoAtivo:
 
         resultado = processar_turno(sessao, ligada.id, agora, ativo)
 
-        assert resultado is ResultadoTurno.ENVIADO
+        assert resultado is ResultadoTurno.FIXA
         assert ativo.chatwoot.enviadas(555) == [FALHOU]
         assert (
             ligada.estado is not EstadoConversa.ATENDIMENTO_HUMANO and ligada.motivo_humano is None
