@@ -3,7 +3,8 @@
 O link carrega só o token. Ele vai cifrado e autenticado (cifra de fluxo derivada do HMAC-SHA256 do
 segredo, mais um HMAC sobre o conjunto), então o id da cobrança e a validade não aparecem em claro.
 A revogação não é um gancho no `confirmar_pagamento`: `validar_token` confere o estado da cobrança e
-da conversa a cada uso, e assim cobre também as saídas que não passam pelo pagamento.
+da conversa a cada uso, e assim cobre também as saídas que não passam pelo pagamento. "Fechada"
+hoje significa "paga": nada mais encerra a cobrança (G7 de `docs/duvidas.md`).
 """
 
 import base64
@@ -59,9 +60,15 @@ def ler_token(segredo: str, token: str, agora: datetime) -> int:
     if not segredo.strip():
         raise TokenInvalido
     try:
-        bruto = base64.urlsafe_b64decode(token.encode("ascii") + b"=" * (-len(token) % 4))
+        # Só o texto canônico vale: sem o alfabeto padrão (+ e /), sem "=" e sem lixo no meio.
+        bruto = base64.b64decode(
+            token.replace("-", "+").replace("_", "/").encode("ascii") + b"=" * (-len(token) % 4),
+            validate=True,
+        )
     except (UnicodeEncodeError, binascii.Error):
         raise TokenInvalido from None
+    if base64.urlsafe_b64encode(bruto).rstrip(b"=").decode() != token:
+        raise TokenInvalido
     if len(bruto) != len(_VERSAO) + _NONCE + _DADOS + _TAG:
         raise TokenInvalido
     corpo, tag = bruto[:-_TAG], bruto[-_TAG:]

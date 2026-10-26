@@ -109,6 +109,10 @@ abertas:
 1. Tem **atendente de plantão** na janela, para responder o webchat em tempo real?
 2. A **confirmação pelos 3 primeiros dígitos do CPF** antes de mostrar a dívida é aceitável?
 3. Em qual **domínio** a página fica: da franquia, do Cartão de Todos ou da GeniAI?
+4. **Quando a conversa do webchat é encerrada sem pagamento?** Hoje "fechada" significa "paga": o
+   pagamento revoga o link do token e resolve a conversa do webchat amarrada no Chatwoot. Nada mais
+   encerra a cobrança, e o "resolvido" do atendente não revoga o link. **Padrão:** o link vale até o
+   pagamento ou os 30 dias do token (`webchat_token_validade_horas`).
 
 ### G8. Boleto
 

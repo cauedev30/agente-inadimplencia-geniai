@@ -45,6 +45,30 @@ def test_o_lixo_e_recusado(lixo):
         ler_token(SEGREDO, lixo, AGORA)
 
 
+def _token_com(caracteres):
+    """Um token cujo texto tem algum dos caracteres do alfabeto seguro."""
+    for _ in range(500):
+        token = emitir_token(SEGREDO, 4321, VALIDADE)
+        if any(c in token for c in caracteres):
+            return token
+    raise AssertionError("não saiu token com esses caracteres")
+
+
+def test_so_o_token_canonico_vale():
+    token = _token_com("-_")
+    padrao = token.replace("-", "+").replace("_", "/")
+    variantes = [
+        padrao,  # o alfabeto padrão do base64
+        token + "=",  # com o preenchimento
+        token[:10] + "!!" + token[10:],  # lixo no meio
+        token[:10] + "\n" + token[10:],  # quebra de linha no meio
+    ]
+    assert ler_token(SEGREDO, token, AGORA) == 4321
+    for variante in variantes:
+        with pytest.raises(TokenInvalido):
+            ler_token(SEGREDO, variante, AGORA)
+
+
 def test_o_token_de_outro_segredo_e_recusado():
     token = emitir_token("outro-segredo", 4321, VALIDADE)
 

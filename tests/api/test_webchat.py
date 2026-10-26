@@ -391,3 +391,37 @@ def test_erros_acumulados_acima_de_um_teto_menor_ganham_prazo_e_nao_prendem(
     relogio.agora = AGORA + timedelta(hours=1, seconds=1)
     assert http_com_relogio.get(f"/atendimento/{token}").status_code == 200
     assert "sdk.js" in _confirmar(http_com_relogio, token, CPF[:3]).text
+
+
+def test_a_pagina_nao_pode_ser_posta_num_iframe_nem_ter_o_tipo_adivinhado(http, token):
+    for resposta in (http.get(f"/atendimento/{token}"), _confirmar(http, token, CPF[:3])):
+        assert resposta.headers["content-security-policy"] == "frame-ancestors 'none'"
+        assert resposta.headers["x-content-type-options"] == "nosniff"
+
+
+def test_o_script_tira_o_token_da_barra_antes_de_carregar_o_sdk(http, token):
+    resposta = _confirmar(http, token, CPF[:3])
+
+    script = resposta.text.split("<script>")[1]
+    assert script.index('history.replaceState(null, "", "/atendimento")') < script.index("sdk.js")
+    assert token not in resposta.text
+
+
+def test_sem_o_token_o_atendimento_pede_o_link_de_novo(http):
+    resposta = http.get("/atendimento")
+
+    assert resposta.status_code == 404
+    _sem_cache(resposta)
+    assert "link" in resposta.text
+
+
+def test_o_corpo_do_post_e_cortado_em_1_kb(http, token):
+    # O cpf certo existe, mas depois do 1 KB: o servidor não o lê.
+    corpo = "x=" + "a" * 2000 + f"&cpf={CPF[:3]}"
+    resposta = http.post(
+        f"/atendimento/{token}",
+        content=corpo,
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+
+    assert "sdk.js" not in resposta.text and "não conferem" in resposta.text

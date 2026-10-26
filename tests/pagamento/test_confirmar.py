@@ -478,6 +478,44 @@ def test_o_webhook_repetido_com_a_conclusao_pendente_nao_refaz_nada(sessao, liga
     assert len(deps.chatwoot.enviadas(555)) == 1 and len(deps.ctn.baixas) == 1
 
 
+def test_o_pagamento_resolve_a_conversa_do_webchat_amarrada(sessao, ligada, deps):
+    ligada.cobranca.webchat_conversa_id = 777
+    txid = _pix(sessao, ligada, deps)
+
+    _pagar(sessao, deps, txid, DIVIDA)
+
+    assert ("mudar_status", 777, "resolved") in deps.chatwoot.chamadas
+    assert sessao.scalars(select(Pagamento)).one().pendencias == []
+
+
+def test_sem_webchat_amarrado_nada_e_resolvido(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+
+    _pagar(sessao, deps, txid, DIVIDA)
+
+    assert [c for c in deps.chatwoot.chamadas if c[0] == "mudar_status"] == []
+
+
+def test_o_chatwoot_fora_deixa_o_webchat_para_resolver_depois(sessao, ligada, politica):
+    deps = _deps(politica)
+    deps.chatwoot = ChatwootInstavel()
+    ligada.cobranca.webchat_conversa_id = 777
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.chatwoot.fora = True
+    deps.chatwoot.mudar_status = lambda *a: (_ for _ in ()).throw(httpx.ConnectError("fora"))
+    concluir_pagamentos(sessao, deps, AGORA)
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert Pendencia.RESOLVER_WEBCHAT.value in pagamento.pendencias
+
+    del deps.chatwoot.mudar_status
+    deps.chatwoot.fora = False
+    concluir_pagamentos(sessao, deps, pagamento.proxima_tentativa_em)
+
+    assert ("mudar_status", 777, "resolved") in deps.chatwoot.chamadas
+    assert pagamento.pendencias == []
+
+
 def test_o_convite_do_cartao_e_pedido_ao_ctn_antes_de_travar_a_cobranca(sessao, ligada, deps):
     ligada.cobranca.propenso_cartao = True
     txid = _pix(sessao, ligada, deps)

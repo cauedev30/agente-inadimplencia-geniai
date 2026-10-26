@@ -7,8 +7,12 @@ from agente.api.app import criar_app
 from agente.config import Config
 from agente.db.modelos import LaudoGravado, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
-from agente.tipos import BatchJev, EstadoConversa, Modo, MotivoHumano
-from agente.webchat.amarrar import amarrar_conversa_webchat, tratar_evento_webchat
+from agente.tipos import BatchJev, EstadoConversa, Modo, MotivoHumano, StatusCobranca
+from agente.webchat.amarrar import (
+    amarrar_conversa_webchat,
+    da_inbox_do_webchat,
+    tratar_evento_webchat,
+)
 from agente.webchat.identidade import cobranca_do_identificador, identificador_do_chatwoot
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
@@ -276,3 +280,28 @@ def test_a_verificacao_dentro_da_janela_vale(sessao, ligada, politica):
     )
 
     assert resultado == "amarrada"
+
+
+def test_o_resumo_diz_a_situacao_da_cobranca(sessao, ligada):
+    ligada.cobranca.status = StatusCobranca.PAGA
+    chatwoot = ChatwootFalso()
+
+    _amarrar(sessao, chatwoot)
+
+    nota = next(c[2] for c in chatwoot.chamadas if c[0] == "nota_privada" and c[1] == WEBCHAT)
+    assert f"Situação da cobrança: {StatusCobranca.PAGA.value}" in nota
+
+
+@pytest.mark.parametrize(
+    "dados",
+    [
+        {"inbox_id": 9, "account_id": 7},
+        {"inbox_id": 9, "account": {"id": 7}},
+        {"inbox": {"id": 9}, "account_id": 7},
+    ],
+)
+def test_a_conta_vem_no_topo_ou_em_account_id(dados):
+    config = Config(database_url="sqlite://", webchat_inbox=9, chatwoot_conta=7)
+
+    assert da_inbox_do_webchat(dados, config)
+    assert not da_inbox_do_webchat({**dados, "account_id": 8, "account": {"id": 8}}, config)

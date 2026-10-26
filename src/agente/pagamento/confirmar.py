@@ -298,6 +298,8 @@ def confirmar_pagamento(
         if com_humano and conversa.chatwoot_conversa_id is not None:
             pendencias.append(Pendencia.AVISO_HUMANO.value)
         transicionar(sessao, conversa, EstadoConversa.ENCERRADO, None, None, momento=agora)
+    if cobranca.webchat_conversa_id is not None:
+        pendencias.append(Pendencia.RESOLVER_WEBCHAT.value)
     pagamento.pendencias = pendencias
     pagamento.proxima_tentativa_em = agora if pendencias else None
     sessao.flush()

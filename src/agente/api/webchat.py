@@ -4,7 +4,8 @@ Segurança do link (ideia-webchat, seção 4): o token é validado no servidor; 
 primeiros dígitos do CPF antes de qualquer coisa; só então carrega o widget, já identificado com o
 `identifier_hash` calculado aqui (a chave nunca vai ao navegador). Nada da dívida, do nome, do
 telefone ou do CPF vai ao HTML, ao título ou à URL, e toda resposta sai com `no-store`.
-Token inválido, vencido ou revogado dá sempre o mesmo 404.
+Token inválido, vencido ou revogado dá sempre o mesmo 404. Depois do CPF, a própria página tira o
+token da barra de endereço (`history.replaceState`), e o log de acesso o corta (`logs.py`).
 """
 
 import hmac
@@ -38,7 +39,13 @@ _CABECALHOS = {
     # O token está na URL: ela não pode vazar por Referer nem entrar em buscador.
     "Referrer-Policy": "no-referrer",
     "X-Robots-Tag": "noindex, nofollow",
+    # A página do CPF não pode ser posta num iframe de outro site.
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
 }
+
+# O corpo do POST é só `cpf=<dígitos>`: o que passar disso é cortado antes de ser lido.
+_LIMITE_CORPO = 1024
 
 _PAGINA = """<!doctype html>
 <html lang="pt-BR">
@@ -76,6 +83,8 @@ _FORMULARIO = """<h1>Atendimento</h1>
 _SCRIPT_WIDGET = """<script>
 window.chatwootSettings = {{locale: "pt_BR"}};
 (function () {{
+  // O token sai da barra de endereço antes de o SDK mandar a URL da página ao Chatwoot.
+  history.replaceState(null, "", "/atendimento");
   var baseUrl = {base_url};
   var identificador = {identificador};
   var hash = {hash};
@@ -92,6 +101,16 @@ window.chatwootSettings = {{locale: "pt_BR"}};
   document.head.appendChild(sdk);
 }})();
 </script>"""
+
+
+async def _ler_corpo(request: Request) -> bytes:
+    """Lê o corpo até `_LIMITE_CORPO` bytes e descarta o resto."""
+    lido = b""
+    async for pedaco in request.stream():
+        lido += pedaco
+        if len(lido) >= _LIMITE_CORPO:
+            return lido[:_LIMITE_CORPO]
+    return lido
 
 
 def _js(valor: str) -> str:
@@ -266,6 +285,13 @@ def criar_rota_webchat(
             "<h1>Atendimento</h1><p>Conectando você a um atendente…</p>", script=script
         )
 
+    @roteador.get("/atendimento")
+    async def sem_token() -> HTMLResponse:
+        # Onde a página fica depois de tirar o token da URL: recarregar pede o link de novo.
+        return _resposta(
+            "<h1>Link inválido</h1><p>Abra de novo o link que enviamos pelo WhatsApp.</p>", 404
+        )
+
     @roteador.get("/atendimento/{token}")
     async def pedir_cpf(token: str) -> HTMLResponse:
         if not ligada:
@@ -278,7 +304,7 @@ def criar_rota_webchat(
         if not ligada:
             return _indisponivel()
         # Sem a dependência de formulário (python-multipart): o corpo é só `cpf=...`.
-        corpo = parse_qs((await request.body()).decode("utf-8", "replace"))
+        corpo = parse_qs((await _ler_corpo(request)).decode("utf-8", "replace"))
         digitos = (corpo.get("cpf") or [""])[0]
         cobranca_id, recusa = await run_in_threadpool(_entrada, token, relogio())
         if recusa is not None:

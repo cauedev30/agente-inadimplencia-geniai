@@ -64,6 +64,8 @@ def _resumo(
         f"Cliente: {cobranca.cliente.nome}",
         f"Dívida: {formatar_reais(cobranca.divida_centavos)} "
         f"({cobranca.mensalidades_abertas} mensalidade(s) em aberto, régua {cobranca.regua.value})",
+        # A cobrança paga também é amarrada: o atendente precisa saber que não está em aberto.
+        f"Situação da cobrança: {cobranca.status.value}",
     ]
     if whatsapp is None:
         linhas.append("Conversa do WhatsApp: ainda não ligada ao Chatwoot.")
