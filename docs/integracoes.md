@@ -86,6 +86,9 @@ ordem de id.
 - o formato do toque no botão "Pagar com Pix": hoje o gate lê `content_attributes` com o payload
   `PAGAR_PIX` e também o texto do botão;
 - o formato do evento `conversation_created` da inbox Website e o snippet do widget.
+- o `data_url` do áudio tem a mesma origem (esquema, host e porta) do `AGENTE_CHATWOOT_URL`: o
+  `FRONTEND_URL` do Chatwoot manda o endereço público, e com o `AGENTE_CHATWOOT_URL` interno todo áudio
+  vira pedido de texto (o log avisa, sem o link).
 
 **Pronto quando:** uma mensagem do cliente no WhatsApp chega ao webhook e o turno em sombra grava os
 laudos.
@@ -297,7 +300,8 @@ Chatwoot.
 ## Checklist de entrega
 
 - [ ] T2: o servidor no ar, com o Postgres e o domínio
-- [ ] T3: o Chatwoot configurado e o webhook recebendo; validação de identidade obrigatória no webchat
+- [ ] T3: o Chatwoot configurado e o webhook recebendo; validação de identidade obrigatória no webchat;
+  o `data_url` do áudio com a mesma origem do `AGENTE_CHATWOOT_URL`
 - [ ] Sombra no JP Sul rodando (tarefa 3.7)
 - [ ] T10: o Jev real passa no `ContratoJev`
 - [ ] T1: o Pix real passa no `ContratoPix`; o webhook com o formato real (tarefa 6.4)

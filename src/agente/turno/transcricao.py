@@ -106,6 +106,13 @@ def _ouvir(
         )
     )
     if isinstance(baixado, FalhaDownload):
+        if baixado.motivo == "host":
+            # Sem isto, a configuração errada só aparece como "todo áudio vira pedido de texto".
+            log.warning(
+                "o endereço do áudio da conversa %s não é da origem do AGENTE_CHATWOOT_URL "
+                "(ou veio sem endereço): o áudio não foi baixado",
+                conversa_id,
+            )
         log.info(
             "áudio da conversa %s não baixado: %s (tipo %s, tamanho %s)",
             conversa_id,

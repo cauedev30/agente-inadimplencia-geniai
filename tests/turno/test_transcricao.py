@@ -464,6 +464,23 @@ def test_o_texto_e_o_endereco_do_audio_nao_aparecem_no_log(sessao, ligada, polit
     assert "audio" in caplog.text.lower()  # o log existe, com o tipo, o tamanho e o tempo
 
 
+def test_o_link_de_outra_origem_avisa_no_log_o_motivo_sem_o_link(sessao, ligada, politica, caplog):
+    # O data_url vem com o FRONTEND_URL do Chatwoot: se for outro endereço que o do serviço, todo
+    # áudio vira pedido de texto. O aviso diz por quê, sem o link.
+    caplog.set_level("INFO")
+    deps = _deps(politica, transcritor=TranscritorFalso(FALA))
+    deps.chatwoot.anexo = FalhaDownload("host")
+    _cliente(sessao, ligada, anexos=[_audio()])
+
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    [aviso] = [
+        r for r in caplog.records if r.levelname == "WARNING" and "AGENTE_CHATWOOT_URL" in r.message
+    ]
+    assert str(ligada.id) in aviso.message
+    assert "xyz" not in caplog.text and "chatwoot.invalid" not in caplog.text
+
+
 def test_o_texto_do_audio_nao_aparece_no_log_nem_quando_o_turno_falha(
     sessao, ligada, politica, caplog
 ):
