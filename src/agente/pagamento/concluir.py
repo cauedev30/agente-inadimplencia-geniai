@@ -210,6 +210,24 @@ def _avisar_esgotado(
     )
 
 
+def _avisar_concluido(
+    sessao: Session, deps: DependenciasConcluir, pagamento: Pagamento, agora: datetime
+) -> None:
+    """A conclusão saiu depois do aviso de esgotado: o atendente soube que faltava, vê que acabou.
+
+    Só a nota: a conversa fica com ele, que a fecha. A etiqueta do aviso permanece como histórico.
+    """
+    conversa = conversa_da_cobranca(pagamento)
+    if conversa is None or conversa.chatwoot_conversa_id is None:
+        return
+    deps.chatwoot.nota_privada(
+        conversa.chatwoot_conversa_id,
+        f"Pagamento concluído: referência {pagamento.referencia} ({pagamento.forma.value}), "
+        f"{formatar_reais(pagamento.valor_centavos)}. A baixa no CTN e a confirmação ao cliente "
+        "saíram; não falta mais nada.",
+    )
+
+
 _PASSOS: dict[Pendencia, Callable[[Session, DependenciasConcluir, Pagamento, datetime], None]] = {
     Pendencia.BAIXA: _dar_baixa,
     Pendencia.MENSAGEM: _enviar_confirmacao,
@@ -217,6 +235,7 @@ _PASSOS: dict[Pendencia, Callable[[Session, DependenciasConcluir, Pagamento, dat
     Pendencia.AVISO_DIVERGENTE: _avisar_divergente,
     Pendencia.AVISO_HUMANO: _avisar_humano,
     Pendencia.AVISO_ESGOTADO: _avisar_esgotado,
+    Pendencia.AVISO_CONCLUIDO: _avisar_concluido,
 }
 
 
@@ -242,6 +261,11 @@ def _concluir(
     restantes = [
         nome for nome in pagamento.pendencias if not _passo(sessao, deps, pagamento, nome, agora)
     ]
+    concluido = Pendencia.AVISO_CONCLUIDO.value
+    if not restantes and pagamento.atencao_em is not None and concluido not in pagamento.pendencias:
+        # O atendente foi chamado pelo teto: avisa que a conclusão saiu. Se falhar, tenta de novo.
+        if not _passo(sessao, deps, pagamento, concluido, agora):
+            restantes = [concluido]
     pagamento.pendencias = restantes
     if not restantes:
         pagamento.proxima_tentativa_em = None

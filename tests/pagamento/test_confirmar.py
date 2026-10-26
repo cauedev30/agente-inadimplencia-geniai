@@ -478,6 +478,55 @@ def test_o_webhook_repetido_com_a_conclusao_pendente_nao_refaz_nada(sessao, liga
     assert len(deps.chatwoot.enviadas(555)) == 1 and len(deps.ctn.baixas) == 1
 
 
+def test_o_convite_do_cartao_e_pedido_ao_ctn_antes_de_travar_a_cobranca(sessao, ligada, deps):
+    ligada.cobranca.propenso_cartao = True
+    txid = _pix(sessao, ligada, deps)
+    eventos = []
+
+    def capturar(estado):
+        comando = estado.statement.compile(dialect=postgresql.dialect()).string
+        if comando.rstrip().endswith("FOR NO KEY UPDATE"):
+            eventos.append("trava")
+
+    event.listen(sessao, "do_orm_execute", capturar)
+    gerar = deps.ctn.gerar_link_cadastro_cartao
+
+    def gerar_registrando(matricula):
+        eventos.append("ctn")
+        return gerar(matricula)
+
+    deps.ctn.gerar_link_cadastro_cartao = gerar_registrando
+
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+
+    # Um CTN lento não pode segurar a trava do turno e dos outros webhooks.
+    assert eventos == ["ctn", "trava", "trava", "trava"]
+
+
+@pytest.mark.parametrize("caso", ["repetido", "divergente", "dobro", "fora_das_24h", "pelo_link"])
+def test_o_convite_so_e_pedido_quando_a_confirmacao_vai_levar_o_link(sessao, ligada, deps, caso):
+    ligada.cobranca.propenso_cartao = True
+    txid = _pix(sessao, ligada, deps)
+    valor = DIVIDA
+    if caso == "repetido":
+        confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    elif caso == "divergente":
+        valor = DIVIDA - 500
+    elif caso == "dobro":
+        # A cobrança já foi paga pelo link: o Pix que chega depois é o segundo pagamento (D39).
+        id_externo = _link(sessao, ligada, deps)
+        confirmar_pagamento(sessao, deps, id_externo, DIVIDA, PAGO_EM)
+    elif caso == "fora_das_24h":
+        ligada.mensagens[0].momento = AGORA - timedelta(hours=30)
+    else:
+        txid = _link(sessao, ligada, deps)
+    convites = len([url for url in deps.ctn.links if url.startswith("cartao")])
+
+    confirmar_pagamento(sessao, deps, txid, valor, PAGO_EM)
+
+    assert len([url for url in deps.ctn.links if url.startswith("cartao")]) == convites
+
+
 def test_o_convite_que_falha_cai_para_a_confirmacao_simples_e_nao_barra_o_pagamento(
     sessao, ligada, deps
 ):
@@ -754,6 +803,45 @@ def test_o_aviso_de_esgotado_sai_uma_vez_so_e_o_pagamento_sai_da_contagem_ao_con
 
     assert len(deps.ctn.baixas) == 1
     assert contar_sem_concluir(sessao) == 0
+    # O atendente que foi chamado pelo teto recebe a nota de que concluiu, uma vez só.
+    notas = [c[2] for c in deps.chatwoot.chamadas if c[0] == "nota_privada"]
+    assert len(notas) == 2 and notas[1].startswith("Pagamento concluído") and txid in notas[1]
+    concluir_pagamentos(sessao, deps, agora + timedelta(hours=2))
+    assert [c[0] for c in deps.chatwoot.chamadas].count("nota_privada") == 2
+
+
+def test_a_nota_de_concluido_com_o_chatwoot_fora_fica_pendente_ate_sair(sessao, ligada, politica):
+    deps = _deps(politica)
+    deps.chatwoot = ChatwootInstavel()
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.ctn.fora_do_ar = True
+    agora = _esgotar(sessao, deps)
+    deps.ctn.fora_do_ar = False
+    deps.chatwoot.fora = True
+    concluir_pagamentos(sessao, deps, agora)
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert len(deps.ctn.baixas) == 1
+    assert pagamento.pendencias == [Pendencia.AVISO_CONCLUIDO.value]
+
+    deps.chatwoot.fora = False
+    concluir_pagamentos(sessao, deps, pagamento.proxima_tentativa_em)
+
+    assert pagamento.pendencias == [] and pagamento.proxima_tentativa_em is None
+    notas = [c[2] for c in deps.chatwoot.chamadas if c[0] == "nota_privada"]
+    assert notas[-1].startswith("Pagamento concluído")
+
+
+def test_o_pagamento_que_nunca_chamou_o_atendente_conclui_sem_nota(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.ctn.fora_do_ar = True
+    concluir_pagamentos(sessao, deps, AGORA)
+    deps.ctn.fora_do_ar = False
+    concluir_pagamentos(sessao, deps, AGORA + timedelta(hours=2))
+
+    assert len(deps.ctn.baixas) == 1
+    assert [c for c in deps.chatwoot.chamadas if c[0] == "nota_privada"] == []
 
 
 def test_o_aviso_de_esgotado_com_o_chatwoot_fora_fica_pendente_ate_sair(sessao, ligada, politica):

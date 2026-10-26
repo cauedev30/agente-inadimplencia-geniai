@@ -27,6 +27,7 @@ from agente.tipos import (
     StatusPagamento,
     TipoFixa,
 )
+from agente.turno import orquestrador
 from agente.turno.fila import mensagens_pendentes
 from agente.turno.gates import Adiar, Fixa, Ignorar, PagarPix, Seguir, avaliar_gates
 from agente.turno.jev3 import aprovar_tudo
@@ -34,6 +35,7 @@ from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
 from .test_orquestrador_gates import DOMINGO, SEGUNDA_10H
+from .test_orquestrador_pagamento_concorrente import _pagar_por_fora
 
 TOQUE = BOTAO_PAGAR_PIX.texto
 
@@ -174,6 +176,25 @@ def test_tocar_no_botao_gera_o_pix_integral_e_conta_no_teto(sessao, ligada, clie
     assert mensagens_no_teto(sessao, ligada.id) == 1
     assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
     assert ligada.forma_enviada is FormaPagamento.PIX
+
+
+def test_o_pagamento_antes_do_pix_do_toque_nao_gera_pix_nem_envia(
+    sessao, ligada, cliente, politica, monkeypatch
+):
+    # O toque relê a cobrança travada antes de executar: a conversa velha da sessão não vale.
+    deps = _deps(politica)
+    estado_jev = orquestrador.estado_jev
+
+    def pagando_no_meio(*args):
+        _pagar_por_fora(sessao, ligada)
+        return estado_jev(*args)
+
+    monkeypatch.setattr(orquestrador, "estado_jev", pagando_no_meio)
+
+    assert cliente(TOQUE, deps) is ResultadoTurno.IGNORADO
+
+    assert deps.pix.cobrancas == {} and sessao.scalars(select(Pagamento)).all() == []
+    assert deps.chatwoot.enviadas(555) == []
 
 
 def test_o_toque_nao_passa_pelo_jev_1_nem_pelo_jev_2(sessao, ligada, cliente, politica):

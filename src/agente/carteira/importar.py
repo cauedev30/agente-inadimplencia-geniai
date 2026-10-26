@@ -1,4 +1,11 @@
-"""Importa a carteira de um CSV (D2): cliente, régua, dívida e propensão ao cartão."""
+"""Importa a carteira de um CSV (D2): cliente, régua, dívida e propensão ao cartão.
+
+Ordem das travas (etapa 6: conversa, cobrança, pagamento): a importação só escreve em cliente e
+cobrança e nunca toca em conversa nem em pagamento. Por isso espera pela confirmação e pelo turno,
+que seguram a cobrança, mas não fecha ciclo com eles: quem segura a cobrança dela não espera
+conversa nenhuma. A transação é uma só, então as cobranças já atualizadas ficam travadas até o fim
+do arquivo, e uma confirmação de pagamento dessas cobranças espera o commit.
+"""
 
 import csv
 import unicodedata

@@ -104,6 +104,8 @@ class Pendencia(StrEnum):
     AVISO_HUMANO = "AVISO_HUMANO"
     # As tentativas da conclusão se esgotaram: a conversa reabre com nota e etiqueta (como a D39).
     AVISO_ESGOTADO = "AVISO_ESGOTADO"
+    # A conclusão saiu depois do aviso de esgotado: nota para o atendente saber que não falta nada.
+    AVISO_CONCLUIDO = "AVISO_CONCLUIDO"
 
 
 class OrigemMensagem(StrEnum):

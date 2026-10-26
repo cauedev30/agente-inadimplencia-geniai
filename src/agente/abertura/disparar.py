@@ -2,6 +2,11 @@
 
 A abertura é template e não conta no teto (D33). Cada cobrança recebe uma só: a que já tem conversa
 é pulada, e a que falhou fica sem conversa para a próxima rodada.
+
+Ordem das travas (etapa 6: conversa, cobrança, pagamento): o disparador só insere a conversa e a
+mensagem, e cada envio faz o próprio commit. O INSERT pega no máximo `FOR KEY SHARE` na cobrança,
+que não conflita com a trava `NO KEY UPDATE` da confirmação e do turno, então não espera por eles
+nem fecha ciclo.
 """
 
 import json

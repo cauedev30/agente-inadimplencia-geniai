@@ -1,8 +1,9 @@
 """Confirmação de pagamento (tarefa 6.1), em duas fases.
 
 A 1ª fase, esta função, só mexe no banco e é a que faz o commit: o pagamento vira pago, a cobrança
-paga, a conversa vai a PAGO e ENCERRADO, e a mensagem de confirmação fica gravada PENDENTE. Nada
-externo roda aqui, então uma queda do CTN ou do Chatwoot não perde o pagamento. A 2ª fase
+paga, a conversa vai a PAGO e ENCERRADO, e a mensagem de confirmação fica gravada PENDENTE. A única
+chamada externa é o link do convite do cartão, pedido antes das travas, e a falha dele só tira o
+convite; uma queda do CTN ou do Chatwoot não perde o pagamento. A 2ª fase
 (`pagamento/concluir.py`, uma rotina do Trabalhador) dá a baixa no CTN e envia a mensagem, com
 tentativas. Quem chama decide o commit; a função só faz flush.
 """
@@ -144,12 +145,48 @@ def _link_do_convite(deps: DependenciasConfirmar, cliente: Cliente) -> str | Non
         return None
 
 
+def _quer_convite(
+    sessao: Session, pagamento: Pagamento, conversa: Conversa | None, agora: datetime
+) -> bool:
+    """O convite do cartão só vai na confirmação do Pix do propenso, dentro das 24h."""
+    return (
+        conversa is not None
+        and pagamento.forma is FormaPagamento.PIX
+        and conversa.cobranca.propenso_cartao
+        and dentro_das_24h(sessao, conversa, agora)
+    )
+
+
+def _convite_antecipado(
+    sessao: Session,
+    deps: DependenciasConfirmar,
+    pagamento: Pagamento,
+    valor_centavos: int,
+    agora: datetime,
+) -> str | None:
+    """O link do convite, pedido ao CTN antes de travar: o CTN lento não segura as travas.
+
+    Lê sem trava e só como palpite do que a confirmação vai precisar: o que já está pago, o valor
+    que não bate e a cobrança já paga não levam convite, então não chamam o CTN. A decisão de
+    verdade é a `_gravar_confirmacao`, com tudo travado; o link que sobrar é descartado.
+    """
+    if pagamento.status is StatusPagamento.PAGO or valor_centavos != pagamento.valor_centavos:
+        return None
+    if pagamento.cobranca.status is StatusCobranca.PAGA:
+        return None
+    conversa = conversa_da_cobranca(pagamento)
+    if not _quer_convite(sessao, pagamento, conversa, agora):
+        return None
+    return _link_do_convite(deps, pagamento.cobranca.cliente)
+
+
 def _gravar_confirmacao(
     sessao: Session,
     deps: DependenciasConfirmar,
     pagamento: Pagamento,
     conversa: Conversa,
     agora: datetime,
+    link_convite: str | None,
 ) -> None:
     """Grava a confirmação PENDENTE, fora do teto e da janela de atendimento (D33).
 
@@ -159,8 +196,7 @@ def _gravar_confirmacao(
     cliente = conversa.cobranca.cliente
     valor_centavos = pagamento.valor_centavos
     if dentro_das_24h(sessao, conversa, agora):
-        convite = pagamento.forma is FormaPagamento.PIX and conversa.cobranca.propenso_cartao
-        link_cartao = _link_do_convite(deps, cliente) if convite else None
+        link_cartao = link_convite if _quer_convite(sessao, pagamento, conversa, agora) else None
         tipo = TipoFixa.CONFIRMACAO_CONVITE_CARTAO if link_cartao else TipoFixa.CONFIRMACAO
         dados = DadosFixa(
             nome=cliente.nome,
@@ -230,10 +266,11 @@ def confirmar_pagamento(
     pagamento = sessao.scalar(select(Pagamento).where(Pagamento.referencia == referencia))
     if pagamento is None:
         return ResultadoConfirmacao.DESCONHECIDO
+    agora = _agora()
+    convite = _convite_antecipado(sessao, deps, pagamento, valor_centavos, agora)
     pagamento = _travar(sessao, pagamento)
     if pagamento.status is StatusPagamento.PAGO:
         return ResultadoConfirmacao.JA_CONFIRMADO
-    agora = _agora()
     conversa = conversa_da_cobranca(pagamento)
     if valor_centavos != pagamento.valor_centavos:
         _pendencia_de_valor(sessao, pagamento, conversa, valor_centavos, agora)
@@ -256,7 +293,7 @@ def confirmar_pagamento(
     if conversa is not None:
         com_humano = humano_na_conversa(conversa)
         transicionar(sessao, conversa, EstadoConversa.PAGO, None, None, momento=agora)
-        _gravar_confirmacao(sessao, deps, pagamento, conversa, agora)
+        _gravar_confirmacao(sessao, deps, pagamento, conversa, agora, convite)
         pendencias.append(Pendencia.MENSAGEM.value)
         if com_humano and conversa.chatwoot_conversa_id is not None:
             pendencias.append(Pendencia.AVISO_HUMANO.value)

@@ -6,7 +6,7 @@ gera um Pix novo.
 
 from datetime import datetime
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from agente.db.modelos import Cobranca, Pagamento
@@ -14,20 +14,32 @@ from agente.tipos import FormaPagamento, StatusPagamento
 
 
 def _expirar(sessao: Session, *condicoes) -> int:
-    """Um UPDATE só, com o status conferido no próprio comando: o webhook que grava PAGO entre a
-    leitura e o commit não é sobrescrito por EXPIRADO.
+    """Expira os Pix pendentes que batem com as condições, travando-os em ordem de id.
+
+    O UPDATE confere o status no próprio comando: o webhook que grava PAGO entre a leitura e o
+    commit não é sobrescrito por EXPIRADO.
 
     Ordem das travas: a varredura e o handoff só travam pagamentos, nunca a conversa nem a cobrança
-    depois deles. Entre si, os dois UPDATEs de várias linhas podem pegar os Pix da mesma cobrança em
-    ordens diferentes: só acontece com dois Pix pendentes nela, e o Postgres derruba um dos dois.
+    depois deles. Entre si, travam os Pix da mesma cobrança sempre pela mesma ordem (id), para dois
+    UPDATEs de várias linhas não se cruzarem em ciclo. É a mesma trava (`NO KEY UPDATE`) da
+    confirmação, que espera ou, se o pagamento mudou, deixa a linha de fora.
     """
+    pendentes = (
+        Pagamento.forma == FormaPagamento.PIX,
+        Pagamento.status == StatusPagamento.PENDENTE,
+        *condicoes,
+    )
+    ids = sessao.scalars(
+        select(Pagamento.id)
+        .where(*pendentes)
+        .order_by(Pagamento.id)
+        .with_for_update(key_share=True)
+    ).all()
+    if not ids:
+        return 0
     resultado = sessao.execute(
         update(Pagamento)
-        .where(
-            Pagamento.forma == FormaPagamento.PIX,
-            Pagamento.status == StatusPagamento.PENDENTE,
-            *condicoes,
-        )
+        .where(Pagamento.id.in_(ids), Pagamento.status == StatusPagamento.PENDENTE)
         .values(status=StatusPagamento.EXPIRADO)
         .execution_options(synchronize_session="fetch")
     )

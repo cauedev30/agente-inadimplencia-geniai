@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import event, select
+from sqlalchemy.dialects import postgresql
 
 from agente.db.modelos import Base, Cliente, Cobranca, Mensagem, Pagamento
 from agente.db.sessao import criar_sessao
@@ -125,6 +126,26 @@ def test_o_handoff_que_expira_os_pendentes_tambem_nao_sobrescreve_o_pago(sessao,
         StatusPagamento.EXPIRADO,
         StatusPagamento.PENDENTE,
     )
+
+
+def test_os_pix_da_mesma_cobranca_sao_travados_em_ordem_de_id_antes_do_update(sessao, conversa):
+    # Dois UPDATEs de várias linhas (a varredura e o handoff) não podem se cruzar em ciclo.
+    _pix(conversa.cobranca, 25, referencia="a")
+    _pix(conversa.cobranca, 26, referencia="b")
+    sessao.commit()
+    comandos = []
+
+    def capturar(estado):
+        comandos.append(estado.statement.compile(dialect=postgresql.dialect()).string)
+
+    event.listen(sessao, "do_orm_execute", capturar)
+
+    assert expirar_pix(sessao, AGORA) == 2
+    assert expirar_pendentes(sessao, conversa.cobranca) == 0
+
+    travas = [c for c in comandos if "FOR NO KEY UPDATE" in c]
+    assert len(travas) == 2 and all("ORDER BY pagamento.id" in c for c in travas)
+    assert comandos[0] in travas and comandos[1].startswith("UPDATE pagamento")
 
 
 def test_a_rotina_espacada_roda_uma_vez_por_intervalo(sessao):

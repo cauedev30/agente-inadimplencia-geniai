@@ -57,7 +57,9 @@ Chatwoot e os webhooks vão chamar.
 
 **Testar no Postgres** (a suíte roda em SQLite): as travas da confirmação de pagamento e do turno
 (`FOR NO KEY UPDATE`, na ordem conversa → cobrança → pagamento) só foram conferidas pelo SQL emitido.
-Falta um teste com duas conexões ao mesmo tempo.
+Falta um teste com duas conexões ao mesmo tempo. A importação da carteira e o disparador seguem a mesma
+ordem sem travar a conversa (ver o docstring de cada um); a expiração dos Pix trava os pagamentos em
+ordem de id.
 
 ## T3 — Chatwoot do João Pessoa Sul
 
