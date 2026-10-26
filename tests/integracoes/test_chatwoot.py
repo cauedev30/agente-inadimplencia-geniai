@@ -4,7 +4,12 @@ import httpx
 import pytest
 import respx
 
-from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
+from agente.integracoes.chatwoot import (
+    AnexoBaixado,
+    ChatwootFalso,
+    ChatwootHttp,
+    FalhaDownload,
+)
 from agente.tipos import Botao
 
 URL = "https://chatwoot.invalid"
@@ -166,3 +171,140 @@ def test_falsa_lista_as_mensagens_do_agente_com_o_id_que_devolveu():
 
     assert falsa.mensagens_do_agente(42) == [("falso-1", "Olá"), (id_segunda, "Tudo bem?")]
     assert falsa.mensagens_do_agente(43) == [(id_outra, "Outra conversa")]
+
+
+# Os anexos (tarefa 8.2): o download do áudio do cliente.
+AUDIO = f"{URL}/rails/active_storage/blobs/abc/audio.ogg"
+ARMAZENAMENTO = "https://armazenamento.invalid/audio.ogg"
+ACEITOS = frozenset({"audio/ogg"})
+LIMITE = 1000
+
+
+def _baixar(chatwoot, url=AUDIO, *, aceitos=ACEITOS, max_bytes=LIMITE, prazo_s=15.0):
+    return chatwoot.baixar_anexo(url, aceitos=aceitos, max_bytes=max_bytes, prazo_s=prazo_s)
+
+
+def _audio(conteudo=b"ogg-fake", tipo="audio/ogg"):
+    return httpx.Response(200, content=conteudo, headers={"content-type": tipo})
+
+
+@respx.mock
+def test_baixa_o_anexo_da_origem_do_chatwoot_com_o_token(chatwoot):
+    rota = respx.get(AUDIO).mock(return_value=_audio(tipo="audio/ogg; codecs=opus"))
+
+    assert _baixar(chatwoot) == AnexoBaixado(b"ogg-fake", "audio/ogg")
+    assert rota.calls.last.request.headers["api_access_token"] == "segredo"
+
+
+@respx.mock
+def test_link_de_outra_origem_nao_e_baixado_nem_recebe_o_token(chatwoot):
+    rota = respx.get(ARMAZENAMENTO).mock(return_value=_audio())
+
+    assert _baixar(chatwoot, ARMAZENAMENTO) == FalhaDownload("host")
+    assert not rota.called
+
+
+@pytest.mark.parametrize("url", ["", "ftp://chatwoot.invalid/a", "/rails/a.ogg", f"{URL}:99/a"])
+def test_link_que_nao_e_o_do_chatwoot_e_recusado(chatwoot, url):
+    assert _baixar(chatwoot, url) == FalhaDownload("host")
+
+
+@respx.mock
+def test_redirecionamento_para_outra_origem_nao_leva_o_token(chatwoot):
+    respx.get(AUDIO).mock(return_value=httpx.Response(302, headers={"location": ARMAZENAMENTO}))
+    destino = respx.get(ARMAZENAMENTO).mock(return_value=_audio())
+
+    assert _baixar(chatwoot) == AnexoBaixado(b"ogg-fake", "audio/ogg")
+    assert "api_access_token" not in destino.calls.last.request.headers
+
+
+@respx.mock
+def test_redirecionamento_relativo_dentro_do_chatwoot_leva_o_token(chatwoot):
+    respx.get(AUDIO).mock(return_value=httpx.Response(302, headers={"location": "/outro.ogg"}))
+    destino = respx.get(f"{URL}/outro.ogg").mock(return_value=_audio())
+
+    assert isinstance(_baixar(chatwoot), AnexoBaixado)
+    assert destino.calls.last.request.headers["api_access_token"] == "segredo"
+
+
+@respx.mock
+def test_no_maximo_3_redirecionamentos(chatwoot):
+    respx.get(AUDIO).mock(return_value=httpx.Response(302, headers={"location": AUDIO}))
+
+    assert _baixar(chatwoot) == FalhaDownload("redirects")
+    assert len(respx.calls) == 4  # o pedido e os 3 redirecionamentos
+
+
+@respx.mock
+def test_nunca_de_https_para_http(chatwoot):
+    respx.get(AUDIO).mock(
+        return_value=httpx.Response(302, headers={"location": "http://armazenamento.invalid/a"})
+    )
+    destino = respx.get("http://armazenamento.invalid/a").mock(return_value=_audio())
+
+    assert _baixar(chatwoot) == FalhaDownload("host")
+    assert not destino.called
+
+
+@respx.mock
+def test_tipo_que_nao_e_audio_aceito_e_recusado(chatwoot):
+    respx.get(AUDIO).mock(return_value=_audio(tipo="text/html"))
+    assert _baixar(chatwoot) == FalhaDownload("type", "text/html", 8)
+
+
+@respx.mock
+def test_tamanho_declarado_acima_do_limite_e_recusado(chatwoot):
+    respx.get(AUDIO).mock(return_value=_audio(conteudo=b"x" * (LIMITE + 1)))
+    assert _baixar(chatwoot) == FalhaDownload("size", "audio/ogg", LIMITE + 1)
+
+
+@respx.mock
+def test_corpo_sem_tamanho_e_cortado_ao_passar_do_limite(chatwoot):
+    pedacos = iter([b"x" * 400] * 10)  # sem Content-Length: lido em pedaços
+    respx.get(AUDIO).mock(
+        return_value=httpx.Response(200, content=pedacos, headers={"content-type": "audio/ogg"})
+    )
+
+    assert _baixar(chatwoot) == FalhaDownload("size", "audio/ogg")
+
+
+@respx.mock
+def test_arquivo_vazio_e_falha(chatwoot):
+    respx.get(AUDIO).mock(return_value=_audio(conteudo=b""))
+    assert _baixar(chatwoot) == FalhaDownload("empty", "audio/ogg", 0)
+
+
+@respx.mock
+def test_status_de_erro_e_falha(chatwoot):
+    respx.get(AUDIO).mock(return_value=httpx.Response(404))
+    assert _baixar(chatwoot) == FalhaDownload("status")
+
+
+@respx.mock
+def test_demora_e_falha_de_rede_viram_resultado_nunca_excecao(chatwoot):
+    rota = respx.get(AUDIO)
+    rota.mock(side_effect=httpx.ReadTimeout("demorou"))
+    assert _baixar(chatwoot) == FalhaDownload("timeout")
+    rota.mock(side_effect=httpx.ConnectError("caiu"))
+    assert _baixar(chatwoot) == FalhaDownload("error")
+
+
+@respx.mock
+def test_a_falha_nao_leva_o_link_nem_o_token(chatwoot):
+    respx.get(AUDIO).mock(side_effect=httpx.ConnectError(f"caiu em {AUDIO}"))
+
+    falha = _baixar(chatwoot)
+
+    assert "abc" not in repr(falha) and "segredo" not in repr(falha)
+
+
+def test_a_falsa_devolve_bytes_fixos_e_guarda_o_link():
+    falso = ChatwootFalso()
+
+    baixado = falso.baixar_anexo(AUDIO, aceitos=ACEITOS, max_bytes=LIMITE, prazo_s=15.0)
+
+    assert isinstance(baixado, AnexoBaixado) and baixado.dados and baixado.content_type
+    assert falso.baixados == [AUDIO]
+    falso.anexo = FalhaDownload("status")
+    outra = falso.baixar_anexo(AUDIO, aceitos=ACEITOS, max_bytes=LIMITE, prazo_s=1.0)
+    assert outra == FalhaDownload("status")

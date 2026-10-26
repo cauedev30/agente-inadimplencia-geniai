@@ -2,10 +2,16 @@
 
 A conta, a inbox e o token dependem da T3. A ChatwootHttp fala com a API de aplicação do Chatwoot;
 a ChatwootFalso grava as chamadas para os testes.
+
+O download do anexo do cliente (o áudio, D43) é um resultado, nunca uma exceção, e o log nunca
+leva o endereço nem o conteúdo.
 """
 
-from collections.abc import Sequence
+import time
+from collections.abc import Collection, Sequence
+from dataclasses import dataclass
 from typing import Literal, Protocol
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -15,6 +21,28 @@ Status = Literal["open", "pending", "resolved"]
 _STATUS = ("open", "pending", "resolved")
 # O message_type de uma mensagem enviada ao cliente, na API do Chatwoot (0 é a que chegou).
 _SAIDA = 1
+# Os redirecionamentos que o download do anexo segue: o link do Chatwoot costuma levar ao
+# armazenamento, que é outro endereço.
+MAX_REDIRECIONAMENTOS = 3
+
+Origem = tuple[str, str, int]
+
+
+@dataclass(frozen=True)
+class AnexoBaixado:
+    """O arquivo em memória, com o content-type que o servidor declarou (sem o charset)."""
+
+    dados: bytes
+    content_type: str
+
+
+@dataclass(frozen=True)
+class FalhaDownload:
+    """Por que o anexo não veio, para o log: nunca o endereço nem os bytes."""
+
+    motivo: Literal["host", "redirects", "timeout", "error", "status", "type", "size", "empty"]
+    content_type: str | None = None
+    tamanho: int | None = None
 
 
 class Chatwoot(Protocol):
@@ -36,6 +64,28 @@ class Chatwoot(Protocol):
 
     def gravar_atributos(self, conversa_id: int, dados: dict) -> None: ...
 
+    def baixar_anexo(
+        self, url: str, *, aceitos: Collection[str], max_bytes: int, prazo_s: float
+    ) -> AnexoBaixado | FalhaDownload:
+        """Baixa o anexo de um cliente. Nunca levanta: a falha é um resultado.
+
+        Só o endereço da origem do Chatwoot é aberto, e só ele recebe o token.
+        """
+        ...
+
+
+def _origem(url: str) -> Origem | None:
+    """Esquema, host e porta de um endereço http(s) absoluto; None para qualquer outro."""
+    partes = urlsplit(url)
+    esquema = partes.scheme.lower()
+    if esquema not in ("http", "https") or not partes.hostname:
+        return None
+    try:
+        porta = partes.port
+    except ValueError:
+        return None
+    return esquema, partes.hostname.lower(), porta or (443 if esquema == "https" else 80)
+
 
 def _exigir_status(status: str) -> None:
     if status not in _STATUS:
@@ -49,6 +99,11 @@ class ChatwootHttp:
             headers={"api_access_token": token},
             timeout=timeout,
         )
+        # O download dos anexos tem cliente próprio, sem o token nos cabeçalhos padrão: o token vai
+        # só nos pedidos à origem do Chatwoot (ver `_seguir`).
+        self._token = token
+        self._origem = _origem(url)
+        self._anexos = httpx.Client(timeout=timeout)
 
     def __enter__(self) -> "ChatwootHttp":
         return self
@@ -58,6 +113,7 @@ class ChatwootHttp:
 
     def fechar(self) -> None:
         self._cliente.close()
+        self._anexos.close()
 
     def _post(self, conversa_id: int, caminho: str, corpo: dict) -> dict:
         resposta = self._cliente.post(f"/conversations/{conversa_id}/{caminho}", json=corpo)
@@ -115,10 +171,75 @@ class ChatwootHttp:
     def gravar_atributos(self, conversa_id: int, dados: dict) -> None:
         self._post(conversa_id, "custom_attributes", {"custom_attributes": dados})
 
+    def baixar_anexo(
+        self, url: str, *, aceitos: Collection[str], max_bytes: int, prazo_s: float
+    ) -> AnexoBaixado | FalhaDownload:
+        """Só o endereço da origem configurada do Chatwoot (mesmo esquema, host e porta) é baixado.
+
+        O token vai só a essa origem: o link do Chatwoot costuma redirecionar para o armazenamento,
+        outro host, que não o recebe. No máximo `MAX_REDIRECIONAMENTOS`, nunca de https para http. O
+        tamanho é lido em pedaços e o download para ao passar do limite; o prazo vale para tudo.
+        """
+        if self._origem is None or _origem(url) != self._origem:
+            return FalhaDownload("host")
+        prazo = time.monotonic() + prazo_s
+        try:
+            return self._seguir(url, aceitos, max_bytes, prazo)
+        except httpx.TimeoutException:
+            return FalhaDownload("timeout")
+        except Exception:
+            # Nem a mensagem do erro vai adiante: o httpx cita o endereço.
+            return FalhaDownload("error")
+
+    def _seguir(
+        self, url: str, aceitos: Collection[str], max_bytes: int, prazo: float
+    ) -> AnexoBaixado | FalhaDownload:
+        for _ in range(MAX_REDIRECIONAMENTOS + 1):
+            origem = _origem(url)
+            cabecalhos = {"api_access_token": self._token} if origem == self._origem else {}
+            restante = prazo - time.monotonic()
+            if restante <= 0:
+                return FalhaDownload("timeout")
+            with self._anexos.stream("GET", url, headers=cabecalhos, timeout=restante) as resposta:
+                if not resposta.is_redirect:
+                    return self._ler(resposta, aceitos, max_bytes, prazo)
+                url = urljoin(url, resposta.headers["location"])
+            destino = _origem(url)
+            if destino is None or (origem and origem[0] == "https" and destino[0] != "https"):
+                return FalhaDownload("host")
+        return FalhaDownload("redirects")
+
+    def _ler(
+        self, resposta: httpx.Response, aceitos: Collection[str], max_bytes: int, prazo: float
+    ) -> AnexoBaixado | FalhaDownload:
+        if not resposta.is_success:
+            return FalhaDownload("status")
+        content_type = resposta.headers.get("content-type", "").split(";")[0].strip().lower()
+        bruto = resposta.headers.get("content-length", "")
+        declarado = int(bruto) if bruto.isdigit() else None
+        if content_type not in aceitos:
+            return FalhaDownload("type", content_type or None, declarado)
+        if declarado is not None and declarado > max_bytes:
+            return FalhaDownload("size", content_type, declarado)
+        dados = bytearray()
+        for pedaco in resposta.iter_bytes():
+            dados.extend(pedaco)
+            if len(dados) > max_bytes:
+                return FalhaDownload("size", content_type)
+            if time.monotonic() > prazo:
+                return FalhaDownload("timeout")
+        if not dados:
+            return FalhaDownload("empty", content_type, 0)
+        return AnexoBaixado(bytes(dados), content_type)
+
 
 class ChatwootFalso:
     def __init__(self) -> None:
         self.chamadas: list[tuple] = []
+        # O que o download devolve, e os endereços pedidos (fora de `chamadas`, que os testes
+        # conferem inteira).
+        self.anexo: AnexoBaixado | FalhaDownload = AnexoBaixado(b"audio-falso", "audio/ogg")
+        self.baixados: list[str] = []
 
     def enviar_mensagem(
         self, conversa_id: int, texto: str, botoes: Sequence[Botao] | None = None
@@ -148,6 +269,12 @@ class ChatwootFalso:
 
     def gravar_atributos(self, conversa_id: int, dados: dict) -> None:
         self.chamadas.append(("gravar_atributos", conversa_id, dict(dados)))
+
+    def baixar_anexo(
+        self, url: str, *, aceitos: Collection[str], max_bytes: int, prazo_s: float
+    ) -> AnexoBaixado | FalhaDownload:
+        self.baixados.append(url)
+        return self.anexo
 
     def enviadas(self, conversa_id: int) -> list[str]:
         """Os textos enviados ao cliente nesta conversa (sem as notas privadas)."""

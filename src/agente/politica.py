@@ -139,6 +139,11 @@ class Politica(_Imutavel):
     confianca_minima: Limiar
     rajada_segundos: int = Field(ge=0)
     audio_max_segundos: int = Field(ge=1)
+    # O download do áudio do cliente (D43): o maior arquivo, o prazo de tudo e, para o formato cuja
+    # duração não se lê (qualquer um fora do Ogg Opus), o maior arquivo que vale pelos 120 s.
+    audio_max_bytes: int = Field(ge=1)
+    audio_prazo_segundos: int = Field(ge=1)
+    audio_sem_duracao_max_bytes: int = Field(ge=1)
     jev_timeout_ms: int = Field(ge=1)
     integracao_tentativas: int = Field(ge=1)
     erro_interno_tentativas: int = Field(ge=1)

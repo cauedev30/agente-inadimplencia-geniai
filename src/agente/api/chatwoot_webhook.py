@@ -34,6 +34,17 @@ class EventoMensagem:
     anexos: list[dict]
 
 
+def _anexo(bruto: dict) -> dict:
+    """O que se guarda do anexo: o tipo e, para baixar depois (o áudio, D43), o endereço, o tamanho
+    e o content-type que o Chatwoot mandar. O endereço nunca vai ao log."""
+    return {
+        "tipo": bruto.get("file_type"),
+        "url": bruto.get("data_url"),
+        "tamanho": bruto.get("file_size"),
+        "content_type": bruto.get("content_type"),
+    }
+
+
 def ler_evento(dados: dict) -> EventoMensagem | None:
     """Lê um `message_created`. Outros eventos devolvem None."""
     if dados.get("event") != "message_created":
@@ -55,7 +66,7 @@ def ler_evento(dados: dict) -> EventoMensagem | None:
         remetente=remetente.get("type", ""),
         telefone=remetente.get("phone_number"),
         texto=texto,
-        anexos=[{"tipo": a.get("file_type")} for a in dados.get("attachments") or []],
+        anexos=[_anexo(a) for a in dados.get("attachments") or []],
     )
 
 

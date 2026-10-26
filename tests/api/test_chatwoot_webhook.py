@@ -146,11 +146,44 @@ def test_telefone_sem_cobranca_ativa_e_ignorado(cliente_http):
     assert _postar(cliente_http, evento).json() == {"resultado": "sem_cobranca"}
 
 
-def test_anexo_e_gravado_com_o_tipo(cliente_http, fabrica):
+def test_anexo_e_gravado_com_o_tipo_e_o_endereco(cliente_http, fabrica):
+    anexo = {"file_type": "audio", "data_url": "https://chatwoot.invalid/a.ogg", "file_size": 4321}
+    _postar(cliente_http, _evento(texto="", attachments=[anexo]))
+
+    with fabrica() as sessao:
+        assert sessao.scalars(select(Mensagem)).one().anexos == [
+            {
+                "tipo": "audio",
+                "url": "https://chatwoot.invalid/a.ogg",
+                "tamanho": 4321,
+                "content_type": None,
+            }
+        ]
+
+
+def test_o_content_type_do_anexo_e_gravado_quando_o_chatwoot_manda(cliente_http, fabrica):
+    anexo = {"file_type": "audio", "data_url": "https://chatwoot.invalid/a.ogg"}
+    _postar(cliente_http, _evento(texto="", attachments=[{**anexo, "content_type": "audio/ogg"}]))
+
+    with fabrica() as sessao:
+        assert sessao.scalars(select(Mensagem)).one().anexos[0]["content_type"] == "audio/ogg"
+
+
+def test_anexo_sem_endereco_ainda_e_gravado(cliente_http, fabrica):
     _postar(cliente_http, _evento(texto="", attachments=[{"file_type": "audio"}]))
 
     with fabrica() as sessao:
-        assert sessao.scalars(select(Mensagem)).one().anexos == [{"tipo": "audio"}]
+        [anexo] = sessao.scalars(select(Mensagem)).one().anexos
+    assert anexo["tipo"] == "audio" and anexo["url"] is None
+
+
+def test_o_log_do_webhook_nao_leva_o_endereco_do_anexo(cliente_http, caplog):
+    caplog.set_level("DEBUG")
+    anexo = {"file_type": "audio", "data_url": "https://chatwoot.invalid/segredo-do-anexo.ogg"}
+
+    _postar(cliente_http, _evento(texto="", attachments=[anexo]))
+
+    assert "segredo-do-anexo" not in caplog.text
 
 
 def test_mensagem_do_atendente_marca_humano_na_conversa(cliente_http, fabrica):
