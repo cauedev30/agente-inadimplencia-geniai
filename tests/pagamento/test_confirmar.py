@@ -9,7 +9,8 @@ from sqlalchemy import event, select, update
 from sqlalchemy.dialects import postgresql
 
 from agente.db.historico import mensagens_no_teto, registrar_mensagem
-from agente.db.modelos import Mensagem, Pagamento, Transicao
+from agente.db.modelos import Base, Cliente, Cobranca, Conversa, Mensagem, Pagamento, Transicao
+from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
@@ -18,6 +19,7 @@ from agente.integracoes.pix import PixFalso, StatusPix
 from agente.pagamento import confirmar
 from agente.pagamento.concluir import concluir_pagamentos, contar_sem_concluir
 from agente.pagamento.confirmar import ResultadoConfirmacao, confirmar_pagamento
+from agente.politica import Regua
 from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
@@ -635,6 +637,74 @@ def test_a_confirmacao_trava_conversa_cobranca_e_pagamento_nessa_ordem(sessao, l
         "cobranca",
         "pagamento",
     ]
+
+
+@pytest.mark.parametrize("caso", ["atendente_assumiu", "turno_passou_ao_humano"])
+def test_a_confirmacao_decide_com_a_conversa_relida_depois_das_travas(tmp_path, politica, caso):
+    """O que outra transação grava durante a chamada ao CTN vale: a conversa é relida já travada."""
+    fabrica = criar_sessao(f"sqlite:///{(tmp_path / 'trava.db').as_posix()}")
+    Base.metadata.create_all(fabrica.kw["bind"])
+    deps = _deps(politica)
+    with fabrica() as sessao:
+        cliente = Cliente(
+            matricula_ctn="M-0001", nome="Cliente Fictício", telefone="+5583900000001"
+        )
+        cobranca = Cobranca(
+            cliente=cliente,
+            regua=Regua.R3,
+            mensalidades_abertas=3,
+            divida_centavos=DIVIDA,
+            propenso_cartao=True,
+            campanha="teste",
+        )
+        conversa = Conversa(
+            cobranca=cobranca,
+            criada_em=datetime(2026, 10, 22, 12, tzinfo=UTC),
+            chatwoot_conversa_id=555,
+            estado=EstadoConversa.AGUARDANDO_PAGAMENTO,
+        )
+        sessao.add(conversa)
+        sessao.commit()
+        registrar_mensagem(
+            sessao,
+            conversa.id,
+            OrigemMensagem.CLIENTE,
+            "oi",
+            "cw-1",
+            False,
+            AGORA - timedelta(hours=1),
+        )
+        sessao.commit()
+        txid = _pix(sessao, conversa, deps)
+        sessao.commit()
+        conversa_id = conversa.id
+
+    gerar = deps.ctn.gerar_link_cadastro_cartao
+
+    def ctn_lento(matricula):
+        with fabrica() as outra:
+            if caso == "atendente_assumiu":
+                mudancas = {"human_owned": True}
+            else:
+                mudancas = {
+                    "estado": EstadoConversa.ATENDIMENTO_HUMANO,
+                    "motivo_humano": MotivoHumano.DECISAO_JEV2,
+                }
+            outra.execute(update(Conversa).where(Conversa.id == conversa_id).values(**mudancas))
+            outra.commit()
+        return gerar(matricula)
+
+    deps.ctn.gerar_link_cadastro_cartao = ctn_lento
+
+    with fabrica() as sessao:
+        confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+        sessao.commit()
+
+    with fabrica() as sessao:
+        pagamento = sessao.scalars(select(Pagamento)).one()
+        conversa = sessao.get(Conversa, conversa_id)
+        assert Pendencia.AVISO_HUMANO.value in pagamento.pendencias
+        assert conversa.estado is EstadoConversa.ENCERRADO and conversa.motivo_humano is None
 
 
 def _chamadas_de_aviso(deps):

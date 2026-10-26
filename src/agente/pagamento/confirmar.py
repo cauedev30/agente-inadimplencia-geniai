@@ -226,13 +226,15 @@ def _travar(sessao: Session, pagamento: Pagamento) -> Pagamento:
     esperarem uma pela outra sem ciclo. A trava é a de `NO KEY UPDATE`, que não barra o
     `FOR KEY SHARE` das chaves estrangeiras (a mensagem que a rotina de conclusão grava).
     """
-    sessao.execute(
-        select(Conversa.id)
+    # As conversas inteiras, relidas: o que outra transação gravou durante a espera (o handoff, o
+    # atendente que assumiu) vale para a decisão, e o convite antecipado já as tinha carregado.
+    sessao.scalars(
+        select(Conversa)
         .where(Conversa.cobranca_id == pagamento.cobranca_id)
         .order_by(Conversa.id)
         .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
-    )
+    ).all()
     sessao.execute(
         select(Cobranca)
         .where(Cobranca.id == pagamento.cobranca_id)
