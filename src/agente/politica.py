@@ -147,6 +147,9 @@ class Politica(_Imutavel):
     # A chamada de transcrição: o prazo e o tamanho do texto guardado (o resto é cortado).
     transcricao_prazo_segundos: int = Field(ge=1)
     transcricao_max_caracteres: int = Field(ge=2)
+    # A nota privada com o texto do áudio sai também em sombra: o atendente responde nessa fase e a
+    # nota o poupa de ouvir o áudio. No modo ativo, sempre sai.
+    nota_transcricao_em_sombra: bool
     jev_timeout_ms: int = Field(ge=1)
     integracao_tentativas: int = Field(ge=1)
     erro_interno_tentativas: int = Field(ge=1)

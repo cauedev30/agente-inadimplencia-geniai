@@ -26,6 +26,7 @@ TRANSCRITO = "transcrito"
 LONGO_DEMAIS = "longo_demais"
 FALHOU = "falhou"
 
+NOTA_TRANSCRICAO = "Transcrição do áudio (agente): "
 ROTULO_LONGO_DEMAIS = "[áudio longo demais — não ouvido]"
 ROTULO_NAO_OUVIDO = "[áudio — não foi possível ouvir]"
 
@@ -124,11 +125,15 @@ def transcrever_audios(
     chatwoot: Chatwoot,
     transcritor: Transcritor,
     politica: Politica,
+    *,
+    com_nota: bool = True,
 ) -> list[str]:
     """Transcreve os áudios que nenhum turno tentou e grava o resultado de cada um na hora.
 
     O commit vem logo depois: se o turno falhar e voltar para a fila, o áudio não é transcrito de
-    novo. Devolve os textos transcritos agora, na ordem.
+    novo. Depois dele, cada transcrição vira uma nota privada na conversa (`com_nota`), para o
+    atendente ler o que o cliente falou sem ouvir o áudio; a nota sai antes da resposta do agente.
+    Devolve os textos transcritos agora, na ordem.
     """
     pendentes = audios_sem_resultado(mensagens)
     if not pendentes:
@@ -141,4 +146,18 @@ def transcrever_audios(
         if novo["resultado"] == TRANSCRITO:
             transcritos.append(novo["transcricao"])
     sessao.commit()
+    if com_nota and conversa.chatwoot_conversa_id is not None:
+        for texto in transcritos:
+            _postar_nota(chatwoot, conversa, texto)
     return transcritos
+
+
+def _postar_nota(chatwoot: Chatwoot, conversa: Conversa, texto: str) -> None:
+    """A nota que falha vai para o log e o turno segue. O log leva só o tipo do erro: o erro do
+    httpx cita o endereço, e o texto é o que o cliente falou."""
+    try:
+        chatwoot.nota_privada(conversa.chatwoot_conversa_id, f"{NOTA_TRANSCRICAO}{texto}")
+    except Exception as erro:
+        log.warning(
+            "a nota da transcrição da conversa %s falhou (%s)", conversa.id, type(erro).__name__
+        )

@@ -291,3 +291,21 @@ def test_outro_status_nao_devolve(cliente_http):
     _postar(cliente_http, _evento())
     evento = {"event": "conversation_status_changed", "id": 555, "status": "resolved"}
     assert _postar(cliente_http, evento).json() == {"resultado": "ignorado"}
+
+
+@pytest.mark.parametrize("tipo", ["outgoing", "incoming"])
+def test_a_nota_privada_da_transcricao_nao_vira_mensagem_do_cliente(cliente_http, fabrica, tipo):
+    _postar(cliente_http, _evento())
+    nota = _evento(
+        mensagem_id=302,
+        texto="Transcrição do áudio (agente): já paguei",
+        message_type=tipo,
+        private=True,
+        sender={"type": "agent_bot"},
+    )
+
+    assert _postar(cliente_http, nota).json() == {"resultado": "ignorado"}
+
+    with fabrica() as sessao:
+        textos = [m.texto for m in sessao.scalars(select(Mensagem))]
+    assert textos == ["quanto eu devo?"]

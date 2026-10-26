@@ -6,6 +6,7 @@ e o Jev lê o texto transcrito como leria a mensagem escrita. Tudo com as falsas
 
 from datetime import datetime, timedelta
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -439,3 +440,129 @@ class TestRotulo:
             sessao, ligada.id, OrigemMensagem.AGENTE, "Olá!", None, True, SEGUNDA_10H
         )
         assert isinstance(mensagem, Mensagem) and texto_da_mensagem(mensagem) == "Olá!"
+
+
+class ChatwootSemNotaDeTranscricao(ChatwootFalso):
+    """A nota privada da transcrição falha; as outras chamadas funcionam."""
+
+    def nota_privada(self, conversa_id, texto):
+        if texto.startswith(NOTA):
+            raise httpx.ConnectError(f"o Chatwoot caiu com o texto: {texto}")
+        super().nota_privada(conversa_id, texto)
+
+
+NOTA = "Transcrição do áudio (agente): "
+
+
+def _notas(deps):
+    return [
+        c[2] for c in deps.chatwoot.chamadas if c[0] == "nota_privada" and c[2].startswith(NOTA)
+    ]
+
+
+class TestNotaPrivadaComATranscricao:
+    def test_a_nota_sai_uma_vez_por_audio(self, sessao, ligada, politica):
+        deps = _deps(politica, transcritor=TranscritorFalso(respostas=["primeiro", "segundo"]))
+        _cliente(sessao, ligada, anexos=[_audio()], mid="cw-1")
+        _cliente(sessao, ligada, anexos=[_audio()], mid="cw-2")
+
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+        assert _notas(deps) == [f"{NOTA}primeiro", f"{NOTA}segundo"]
+        assert all(c[1] == 555 for c in deps.chatwoot.chamadas if c[0] == "nota_privada")
+
+    def test_o_turno_seguinte_nao_repete_a_nota(self, sessao, ligada, politica):
+        deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"))
+        _cliente(sessao, ligada, anexos=[_audio()])
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+        agora = SEGUNDA_10H + timedelta(minutes=5)
+        _cliente(sessao, ligada, texto="e o desconto?", momento=agora, mid="cw-2")
+
+        processar_turno(sessao, ligada.id, agora, deps)
+
+        assert _notas(deps) == [f"{NOTA}quanto eu devo?"]
+
+    def test_a_nota_vem_antes_da_resposta(self, sessao, ligada, politica):
+        deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"))
+        _cliente(sessao, ligada, anexos=[_audio()])
+
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+        tipos = [c[0] for c in deps.chatwoot.chamadas]
+        assert tipos.index("nota_privada") < tipos.index("enviar_mensagem")
+
+    def test_so_o_audio_transcrito_leva_nota(self, sessao, ligada, politica):
+        deps = _deps(politica, transcritor=TranscritorFalso(motivo="timeout"))
+        _cliente(sessao, ligada, texto="oi", anexos=[_audio()])
+
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+        assert _notas(deps) == []
+
+    def test_a_falha_do_chatwoot_na_nota_nao_derruba_o_turno(
+        self, sessao, ligada, politica, caplog
+    ):
+        deps = _deps(politica, transcritor=TranscritorFalso(FALA))
+        deps.chatwoot = ChatwootSemNotaDeTranscricao()
+        mensagem = _cliente(sessao, ligada, anexos=[_audio()])
+
+        resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+        assert resultado is ResultadoTurno.ENVIADO
+        assert len(deps.chatwoot.enviadas(555)) == 1
+        assert _anexo(sessao, mensagem)["resultado"] == "transcrito"
+        # A falha vai para o log, sem o texto que o cliente falou.
+        assert "nota" in caplog.text.lower() and FALA not in caplog.text
+
+    def test_a_falha_da_nota_nao_transcreve_o_audio_de_novo(self, sessao, ligada, politica):
+        transcritor = TranscritorFalso("quanto eu devo?")
+        deps = _deps(politica, transcritor=transcritor)
+        deps.chatwoot = ChatwootSemNotaDeTranscricao()
+        _cliente(sessao, ligada, anexos=[_audio()])
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+        agora = SEGUNDA_10H + timedelta(minutes=5)
+        _cliente(sessao, ligada, texto="oi", momento=agora, mid="cw-2")
+
+        processar_turno(sessao, ligada.id, agora, deps)
+
+        assert len(transcritor.chamadas) == 1
+
+    def test_sem_conversa_no_chatwoot_nao_ha_nota_e_o_turno_segue(self, sessao, conversa, politica):
+        deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"), modo=Modo.SOMBRA)
+        _cliente(sessao, conversa, anexos=[_audio()])
+
+        assert processar_turno(sessao, conversa.id, SEGUNDA_10H, deps) is ResultadoTurno.SOMBRA
+
+        assert deps.chatwoot.chamadas == []
+
+    def test_em_sombra_a_nota_sai_por_padrao(self, sessao, ligada, politica):
+        deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"), modo=Modo.SOMBRA)
+        _cliente(sessao, ligada, anexos=[_audio()])
+
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+        assert _notas(deps) == [f"{NOTA}quanto eu devo?"]
+        assert deps.chatwoot.enviadas(555) == []
+
+    def test_em_sombra_a_nota_pode_ser_desligada(self, sessao, ligada, politica):
+        deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"), modo=Modo.SOMBRA)
+        deps.politica = deps.politica.model_copy(update={"nota_transcricao_em_sombra": False})
+        _cliente(sessao, ligada, anexos=[_audio()])
+
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+        assert _notas(deps) == []
+
+    def test_no_modo_ativo_a_nota_sai_mesmo_com_o_parametro_da_sombra_desligado(
+        self, sessao, ligada, politica
+    ):
+        deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"))
+        deps.politica = deps.politica.model_copy(update={"nota_transcricao_em_sombra": False})
+        _cliente(sessao, ligada, anexos=[_audio()])
+
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+        assert _notas(deps) == [f"{NOTA}quanto eu devo?"]
+
+    def test_a_nota_e_um_parametro_da_politica_ligado_por_padrao(self, politica):
+        assert politica.nota_transcricao_em_sombra is True

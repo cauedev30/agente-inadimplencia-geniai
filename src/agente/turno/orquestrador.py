@@ -170,7 +170,13 @@ def _ouvir_os_audios(
     )
     if isinstance(gate, Seguir):
         transcrever_audios(
-            sessao, conversa, pendentes, deps.chatwoot, deps.transcritor, deps.politica
+            sessao,
+            conversa,
+            pendentes,
+            deps.chatwoot,
+            deps.transcritor,
+            deps.politica,
+            com_nota=deps.modo is Modo.ATIVO or deps.politica.nota_transcricao_em_sombra,
         )
 
 
