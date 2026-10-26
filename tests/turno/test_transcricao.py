@@ -17,7 +17,7 @@ from agente.integracoes.chatwoot import AnexoBaixado, ChatwootFalso, FalhaDownlo
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevFalso, responder
 from agente.integracoes.redator import RedatorFalso, RedatorIndisponivel
-from agente.integracoes.transcritor import TranscritorFalso
+from agente.integracoes.transcritor import Transcricao, TranscritorFalso
 from agente.politica import Regua
 from agente.tipos import (
     EstadoConversa,
@@ -191,6 +191,69 @@ def test_dois_audios_da_mesma_rajada_sao_transcritos_na_ordem(sessao, ligada, po
         '[áudio transcrito: "primeiro"]',
         '[áudio transcrito: "segundo"]',
     ]
+
+
+class _ChegaOutroAudio:
+    """Um transcritor em que o webhook grava outro áudio enquanto o primeiro é transcrito."""
+
+    def __init__(self, sessao, conversa, *respostas):
+        self._falso = TranscritorFalso(respostas=list(respostas))
+        self._sessao = sessao
+        self._conversa = conversa
+        self._chegou = False
+
+    @property
+    def chamadas(self):
+        return self._falso.chamadas
+
+    def transcrever(self, dados, content_type):
+        if not self._chegou:
+            self._chegou = True
+            _cliente(self._sessao, self._conversa, anexos=[_audio()], mid="cw-2")
+        return self._falso.transcrever(dados, content_type)
+
+
+def test_o_audio_que_chega_durante_a_transcricao_e_ouvido_antes_do_turno(sessao, ligada, politica):
+    transcritor = _ChegaOutroAudio(sessao, ligada, "quanto eu devo?", "já paguei")
+    deps = _deps(politica, transcritor=transcritor)
+    primeiro = _cliente(sessao, ligada, anexos=[_audio()], mid="cw-1")
+
+    # O turno não lê o 2º áudio sem transcrição: devolve a rajada e volta já.
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ADIADO
+    assert deps.jev.chamadas == [] and ligada.ultima_tomada_id is None
+    assert ligada.turno_em is not None and ligada.turno_em <= SEGUNDA_10H
+
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    historico = deps.jev.chamadas[0][1].historico
+    assert [texto for _, texto in historico] == [
+        '[áudio transcrito: "quanto eu devo?"]',
+        '[áudio transcrito: "já paguei"]',
+    ]
+    segundo = sessao.scalars(
+        select(Mensagem).where(Mensagem.id > primeiro.id, Mensagem.origem == OrigemMensagem.CLIENTE)
+    ).one()
+    assert segundo.anexos[0]["resultado"] == "transcrito" and len(transcritor.chamadas) == 2
+
+
+def test_o_audio_que_chega_durante_a_transcricao_nao_gasta_o_pedido_de_texto(
+    sessao, ligada, politica
+):
+    # O 1º áudio falha; o 2º, que ainda nem foi baixado, não pode ser dado como não ouvido.
+    transcritor = _ChegaOutroAudio(
+        sessao, ligada, Transcricao("falhou", None, "erro"), "quanto eu devo?"
+    )
+    deps = _deps(politica, transcritor=transcritor)
+    _cliente(sessao, ligada, anexos=[_audio()], mid="cw-1")
+
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert [texto for _, texto in deps.jev.chamadas[0][1].historico] == [
+        "[áudio — não foi possível ouvir]",
+        '[áudio transcrito: "quanto eu devo?"]',
+    ]
+    assert not sessao.scalars(select(Turno).where(Turno.acao_principal == "FIXA:PEDIR_TEXTO")).all()
 
 
 def test_o_audio_antigo_aparece_no_historico_dos_turnos_seguintes(sessao, ligada, politica):

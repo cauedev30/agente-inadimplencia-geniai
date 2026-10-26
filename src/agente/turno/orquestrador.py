@@ -908,7 +908,18 @@ def _rodar_turno(
         agendar_turno(sessao, conversa_id, gate.ate)
         return ResultadoTurno.ADIADO
 
+    anterior = conversa.ultima_tomada_id
     mensagens = tomar_turno(sessao, conversa_id)
+    if (
+        isinstance(gate, Seguir)
+        and deps.transcritor is not None
+        and audios_sem_resultado(mensagens)
+    ):
+        # Um áudio chegou enquanto os outros eram transcritos: devolve a rajada e volta já, para
+        # ouvi-lo. Lido sem transcrição, ele valeria como "não ouvido" e ninguém o tentaria mais.
+        conversa.ultima_tomada_id = anterior
+        agendar_turno(sessao, conversa_id, agora)
+        return ResultadoTurno.ADIADO
     turno = abrir_turno(sessao, conversa_id, [m.id for m in mensagens], deps.modo)
     turno.humano_na_conversa = humano_na_conversa(conversa)
 
