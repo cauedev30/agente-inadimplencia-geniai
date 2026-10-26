@@ -1,4 +1,6 @@
 import logging
+import os
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -174,3 +176,15 @@ def test_a_transcricao_vazia_vale_como_desligada():
     )
 
     assert not config.transcricao_ligada
+
+
+def test_o_env_example_copiado_como_esta_sobe_com_tudo_desligado(monkeypatch):
+    for variavel in list(os.environ):
+        if variavel.startswith("AGENTE_"):
+            monkeypatch.delenv(variavel)
+
+    config = carregar_config(_env_file=Path(__file__).parents[1] / ".env.example")
+
+    assert not config.transcricao_ligada and not config.webchat_ligado
+    assert config.chatwoot_conta is None and config.chatwoot_inbox is None
+    assert config.chatwoot_time_humano is None and config.webchat_inbox is None

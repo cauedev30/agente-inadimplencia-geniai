@@ -84,6 +84,14 @@ class Config(ConfigRedator):
         # por qualquer um, então o vazio vale como sem segredo.
         return valor if valor and valor.strip() else None
 
+    @field_validator(
+        "chatwoot_conta", "chatwoot_inbox", "chatwoot_time_humano", "webchat_inbox", mode="before"
+    )
+    @classmethod
+    def _numero_vazio_e_ausente(cls, valor):
+        # O .env copiado do .env.example traz o número vazio: sem isto o serviço nem sobe.
+        return None if isinstance(valor, str) and not valor.strip() else valor
+
     @field_validator("webchat_segredo")
     @classmethod
     def _segredo_do_webchat_longo(cls, valor: str | None) -> str | None:
