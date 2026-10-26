@@ -280,7 +280,7 @@ faltam.
 - o áudio entra no histórico como `[áudio transcrito: "<texto>"]` (o falho, como `[áudio — não foi
   possível ouvir]`, e o longo demais, como `[áudio longo demais — não ouvido]`). O **prompt do Jev real
   (T10) deve explicar esses rótulos**: é o que o cliente falou e pode ter erro de transcrição;
-- o texto transcrito é dado de cliente e **nunca vai ao log**; o endereço do áudio também não;
+- o texto transcrito é dado de cliente e **nunca vai ao log**; o endereço do áudio também não (o `configurar_logging` deixa os loggers `httpx` e `httpcore` em WARNING, porque eles logam cada pedido com o endereço inteiro);
 - os limites estão no `politica.toml`: `audio_max_segundos` (120), `audio_max_bytes` (5 MB),
   `audio_prazo_segundos` (15), `audio_sem_duracao_max_bytes` (2 MB, o teto do formato cuja duração não
   se lê, fora do Ogg Opus), `transcricao_prazo_segundos` (15) e `transcricao_max_caracteres` (3000);

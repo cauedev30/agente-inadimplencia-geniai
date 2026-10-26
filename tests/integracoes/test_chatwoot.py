@@ -1,4 +1,6 @@
+import io
 import json
+import logging
 
 import httpx
 import pytest
@@ -10,6 +12,7 @@ from agente.integracoes.chatwoot import (
     ChatwootHttp,
     FalhaDownload,
 )
+from agente.logs import configurar_logging
 from agente.tipos import Botao
 
 URL = "https://chatwoot.invalid"
@@ -296,6 +299,36 @@ def test_a_falha_nao_leva_o_link_nem_o_token(chatwoot):
     falha = _baixar(chatwoot)
 
     assert "abc" not in repr(falha) and "segredo" not in repr(falha)
+
+
+@pytest.fixture
+def log_do_servico():
+    """O log do serviço, como o `configurar_logging` o monta, escrevendo num texto."""
+    raiz = logging.getLogger()
+    antes = (raiz.handlers[:], raiz.level)
+    niveis = {nome: logging.getLogger(nome).level for nome in ("httpx", "httpcore")}
+    configurar_logging("DEBUG")
+    saida = io.StringIO()
+    raiz.handlers[0].setStream(saida)
+    yield saida
+    raiz.handlers[:] = antes[0]
+    raiz.setLevel(antes[1])
+    for nome, nivel in niveis.items():
+        logging.getLogger(nome).setLevel(nivel)
+
+
+@respx.mock
+def test_o_log_do_servico_nao_leva_o_link_do_audio_nem_o_do_armazenamento(chatwoot, log_do_servico):
+    # O httpx loga cada pedido (o endereço inteiro) no logger "httpx": o link do blob do Chatwoot
+    # e o link assinado do armazenamento dão acesso ao áudio do cliente.
+    assinado = f"{ARMAZENAMENTO}?X-Amz-Signature=ASSINATURA-SECRETA"
+    respx.get(AUDIO).mock(return_value=httpx.Response(302, headers={"location": assinado}))
+    respx.get(ARMAZENAMENTO).mock(return_value=_audio())
+
+    assert isinstance(_baixar(chatwoot), AnexoBaixado)
+
+    log = log_do_servico.getvalue()
+    assert "ASSINATURA-SECRETA" not in log and "blobs/abc" not in log
 
 
 def test_a_falsa_devolve_bytes_fixos_e_guarda_o_link():

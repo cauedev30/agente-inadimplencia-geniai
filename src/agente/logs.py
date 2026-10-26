@@ -50,6 +50,10 @@ def configurar_logging(nivel: str = "INFO") -> None:
     manipulador.addFilter(MascaraDadosPessoais())
     manipulador.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     logging.basicConfig(level=nivel, handlers=[manipulador], force=True)
+    # O httpx loga cada pedido com o endereço inteiro: o link do áudio do cliente (o do Chatwoot e o
+    # assinado do armazenamento), o do CTN e o do Pix. Nenhum endereço vai ao log, em nível nenhum.
+    for nome in ("httpx", "httpcore"):
+        logging.getLogger(nome).setLevel(logging.WARNING)
     acesso = logging.getLogger("uvicorn.access")
     if not any(isinstance(filtro, CortaTokenDoAcesso) for filtro in acesso.filters):
         acesso.addFilter(CortaTokenDoAcesso())
