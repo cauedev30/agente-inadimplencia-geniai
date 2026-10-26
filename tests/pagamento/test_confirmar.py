@@ -490,6 +490,17 @@ def test_o_pagamento_resolve_a_conversa_do_webchat_amarrada(sessao, ligada, deps
     assert sessao.scalars(select(Pagamento)).one().pendencias == []
 
 
+def test_o_webchat_resolvido_pelo_pagamento_leva_a_nota_do_motivo_antes(sessao, ligada, deps):
+    ligada.cobranca.webchat_conversa_id = 777
+    txid = _pix(sessao, ligada, deps)
+
+    _pagar(sessao, deps, txid, DIVIDA)
+
+    do_webchat = [c for c in deps.chatwoot.chamadas if c[1] == 777]
+    assert [c[0] for c in do_webchat] == ["nota_privada", "mudar_status"]
+    assert do_webchat[0][2].startswith("Pagamento confirmado") and txid in do_webchat[0][2]
+
+
 def test_sem_webchat_amarrado_nada_e_resolvido(sessao, ligada, deps):
     txid = _pix(sessao, ligada, deps)
 

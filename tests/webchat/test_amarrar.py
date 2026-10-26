@@ -292,6 +292,16 @@ def test_o_resumo_diz_a_situacao_da_cobranca(sessao, ligada):
     assert f"Situação da cobrança: {StatusCobranca.PAGA.value}" in nota
 
 
+def test_a_cobranca_ja_paga_amarra_o_webchat_resolvido_e_nao_aberto(sessao, ligada):
+    ligada.cobranca.status = StatusCobranca.PAGA
+    chatwoot = ChatwootFalso()
+
+    _amarrar(sessao, chatwoot)
+
+    status = [c[2] for c in chatwoot.chamadas if c[0] == "mudar_status" and c[1] == WEBCHAT]
+    assert status == ["resolved"]
+
+
 @pytest.mark.parametrize(
     "dados",
     [

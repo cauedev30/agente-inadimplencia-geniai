@@ -26,7 +26,7 @@ from agente.db.modelos import (
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.chatwoot import Chatwoot
 from agente.politica import Politica
-from agente.tipos import OrigemMensagem
+from agente.tipos import OrigemMensagem, StatusCobranca
 from agente.webchat.identidade import cobranca_do_identificador
 
 log = logging.getLogger(__name__)
@@ -143,7 +143,11 @@ def amarrar_conversa_webchat(
     chatwoot.etiquetar(conversa_webchat_id, etiquetas)
     if time_id is not None:
         chatwoot.atribuir(conversa_webchat_id, time_id)
-    chatwoot.mudar_status(conversa_webchat_id, "open")
+    # A cobrança paga (a amarração atrasou) não reabre: o resumo já diz a situação, e o pagamento
+    # que resolveu o webchat não pode ser desfeito pela repetição.
+    chatwoot.mudar_status(
+        conversa_webchat_id, "resolved" if cobranca.status is StatusCobranca.PAGA else "open"
+    )
     if whatsapp is not None:
         origem = whatsapp.chatwoot_conversa_id
         chatwoot.etiquetar(origem, [ETIQUETA_TRANSFERIDA])
