@@ -1,8 +1,9 @@
 """Interface do Redator, o LLM que só redige (arquitetura, seção 5).
 
 Ele recebe as ações já decididas e os marcadores dos números já calculados, e devolve o texto com os
-marcadores, sem nenhum número: quem preenche é o backend (`turno/redacao.py`). A escolha do LLM é
-por teste (D6, T6); o candidato é o Groq `openai/gpt-oss-120b`, pela API compatível com a OpenAI.
+marcadores, sem nenhum número: quem preenche é o backend (`turno/redacao.py`). O LLM é o gpt-6-luna
+da OpenAI (D42, que revisou a D6), pela API de chat completions. Trocar o modelo ou o provedor
+compatível é só configuração (`AGENTE_LLM_*`).
 """
 
 import time
@@ -12,7 +13,7 @@ from typing import Protocol
 
 import httpx
 
-URL_GROQ = "https://api.groq.com/openai/v1"
+URL_OPENAI = "https://api.openai.com/v1"
 
 # O que cada ação pede ao texto. O nome da ação é o da arquitetura (seção 4).
 DESCRICAO_ACOES = {
@@ -109,21 +110,28 @@ def montar_mensagens(pedido: PedidoRedacao) -> list[dict]:
     ]
 
 
-class RedatorGroq:
-    """O Groq pela API compatível com a OpenAI. A chave vem do AGENTE_GROQ_API_KEY."""
+class RedatorOpenAI:
+    """A API de chat completions da OpenAI, ou de quem fale o mesmo protocolo. A chave vem do
+    AGENTE_LLM_API_KEY.
+
+    O `corpo_extra` entra no corpo do pedido: o Luna só aceita a temperatura com o
+    `reasoning_effort: "none"`; sem ele, responde 400 a toda chamada (medido no outro agente).
+    """
 
     def __init__(
         self,
         chave: str,
         modelo: str,
         *,
-        url: str = URL_GROQ,
+        url: str = URL_OPENAI,
+        corpo_extra: dict | None = None,
         timeout: float = 15.0,
         temperatura: float = 0.3,
     ):
         self.modelo = modelo
-        self.nome = f"groq:{modelo}"
+        self.nome = f"openai:{modelo}"
         self.temperatura = temperatura
+        self.corpo_extra = dict(corpo_extra or {})
         self.ultimo_uso: Uso | None = None
         self._cliente = httpx.Client(
             base_url=url.rstrip("/"),
@@ -131,7 +139,7 @@ class RedatorGroq:
             timeout=timeout,
         )
 
-    def __enter__(self) -> "RedatorGroq":
+    def __enter__(self) -> "RedatorOpenAI":
         return self
 
     def __exit__(self, *_erro) -> None:
@@ -147,6 +155,7 @@ class RedatorGroq:
             "model": self.modelo,
             "messages": montar_mensagens(pedido),
             "temperature": self.temperatura,
+            **self.corpo_extra,
         }
         try:
             resposta = self._cliente.post("/chat/completions", json=corpo)

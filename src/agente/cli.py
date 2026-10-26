@@ -19,7 +19,7 @@ from agente.config import ConfigPolitica, ConfigRedator, carregar_config
 from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.redator import RedatorGroq
+from agente.integracoes.redator import RedatorOpenAI
 from agente.politica import carregar_politica
 from agente.simulacao import (
     DependenciasSimulacao,
@@ -78,8 +78,8 @@ def _simular(argumentos: argparse.Namespace) -> int:
 
 def _comparar(argumentos: argparse.Namespace) -> int:
     config = ConfigRedator()
-    if not config.groq_api_key:
-        print("Defina o AGENTE_GROQ_API_KEY para comparar os modelos do Groq (T6).")
+    if not config.llm_api_key:
+        print("Defina o AGENTE_LLM_API_KEY para comparar os modelos do LLM (T6).")
         return 2
     politica = carregar_politica(argumentos.politica or config.politica_path)
     try:
@@ -89,7 +89,15 @@ def _comparar(argumentos: argparse.Namespace) -> int:
         return 2
     print("Jev falso: o Jev 3 aprova todo texto; só a interpolação reprova até a T10.")
     casos = carregar_casos(argumentos.caminho)
-    redatores = [RedatorGroq(config.groq_api_key, modelo) for modelo, _, _ in lidos]
+    redatores = [
+        RedatorOpenAI(
+            config.llm_api_key,
+            modelo,
+            url=config.llm_url,
+            corpo_extra=config.llm_corpo_extra,
+        )
+        for modelo, _, _ in lidos
+    ]
     try:
         candidatos = [
             Candidato(redator, entrada, saida)
@@ -128,7 +136,8 @@ def main(argv: list[str] | None = None) -> int:
         "--modelo",
         action="append",
         required=True,
-        help="modelo do Groq, ou modelo:entrada:saida com o preço em US$ por milhão de tokens",
+        help="modelo, ou modelo:entrada:saida com o preço em US$ por milhão de tokens "
+        "(o Luna: gpt-6-luna:0.10:0.50)",
     )
     comparar.add_argument("--politica", type=Path, help="padrão: AGENTE_POLITICA_PATH")
     comparar.set_defaults(rodar=_comparar)

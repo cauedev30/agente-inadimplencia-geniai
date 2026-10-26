@@ -63,14 +63,23 @@ def test_log_nao_mascara_valor_em_centavos():
     assert _formatar("divida 10020 centavos") == "divida 10020 centavos"
 
 
-def test_config_le_a_chave_e_o_modelo_do_groq(monkeypatch):
+def test_config_le_a_chave_e_o_modelo_do_llm(monkeypatch):
     monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
-    monkeypatch.setenv("AGENTE_GROQ_API_KEY", "chave-ficticia")
+    monkeypatch.setenv("AGENTE_LLM_API_KEY", "chave-ficticia")
 
     config = carregar_config(_env_file=None)
 
-    assert config.groq_api_key == "chave-ficticia"
-    assert config.groq_modelo == "openai/gpt-oss-120b"
+    assert config.llm_api_key == "chave-ficticia"
+    assert config.llm_modelo == "gpt-6-luna"
+    assert config.llm_url == "https://api.openai.com/v1"
+    assert config.llm_corpo_extra == {"reasoning_effort": "none"}
+
+
+def test_config_le_o_corpo_extra_do_llm_como_json(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_LLM_CORPO_EXTRA", '{"reasoning_effort": "low"}')
+
+    assert carregar_config(_env_file=None).llm_corpo_extra == {"reasoning_effort": "low"}
 
 
 def test_o_segredo_curto_do_webchat_e_recusado():

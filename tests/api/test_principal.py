@@ -5,7 +5,7 @@ from agente.api.principal import montar_app, montar_dependencias
 from agente.config import Config
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.jev import JevComPrazo, JevFalso
-from agente.integracoes.redator import RedatorFalso, RedatorGroq
+from agente.integracoes.redator import RedatorFalso, RedatorOpenAI
 from agente.tipos import Modo
 from agente.webchat.link import ConfigWebchat
 
@@ -56,17 +56,38 @@ def test_ate_a_t10_o_jev_e_o_falso_com_o_prazo_da_politica(caplog):
     assert "Jev" in caplog.text and "T10" in caplog.text
 
 
-def test_sem_a_chave_do_groq_o_redator_e_o_falso(caplog):
+def test_sem_a_chave_do_llm_o_redator_e_o_falso(caplog):
     deps = montar_dependencias(_config())
     assert isinstance(deps.redator, RedatorFalso)
     assert deps.redator.registrar is False
-    assert "AGENTE_GROQ_API_KEY" in caplog.text
+    assert "AGENTE_LLM_API_KEY" in caplog.text
 
 
-def test_com_a_chave_do_groq_o_redator_e_o_real():
-    deps = montar_dependencias(_config(groq_api_key="chave-ficticia", groq_modelo="m-teste"))
-    assert isinstance(deps.redator, RedatorGroq)
+def test_com_a_chave_do_llm_o_redator_e_o_real():
+    deps = montar_dependencias(_config(llm_api_key="chave-ficticia", llm_modelo="m-teste"))
+    assert isinstance(deps.redator, RedatorOpenAI)
     assert deps.redator.modelo == "m-teste"
+    deps.redator.fechar()
+
+
+def test_o_redator_real_sai_com_o_luna_e_o_reasoning_effort_por_padrao():
+    deps = montar_dependencias(_config(llm_api_key="chave-ficticia"))
+    assert deps.redator.modelo == "gpt-6-luna"
+    assert deps.redator.corpo_extra == {"reasoning_effort": "none"}
+    deps.redator.fechar()
+
+
+def test_a_troca_de_modelo_e_so_configuracao():
+    config = _config(
+        llm_api_key="chave-ficticia",
+        llm_modelo="outro-modelo",
+        llm_url="https://llm.invalid/v1",
+        llm_corpo_extra={},
+    )
+    deps = montar_dependencias(config)
+    assert deps.redator.nome == "openai:outro-modelo"
+    assert deps.redator.corpo_extra == {}
+    assert str(deps.redator._cliente.base_url) == "https://llm.invalid/v1/"
     deps.redator.fechar()
 
 

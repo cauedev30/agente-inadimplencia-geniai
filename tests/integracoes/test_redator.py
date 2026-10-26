@@ -1,4 +1,4 @@
-"""O Redator: o RedatorGroq pela API compatível com a OpenAI (só com respx) e o RedatorFalso."""
+"""O Redator: o RedatorOpenAI pela API da OpenAI (só com respx) e o RedatorFalso."""
 
 import json
 
@@ -7,16 +7,17 @@ import pytest
 import respx
 
 from agente.integracoes.redator import (
+    URL_OPENAI,
     PedidoRedacao,
     RedatorFalso,
-    RedatorGroq,
     RedatorIndisponivel,
+    RedatorOpenAI,
     Uso,
     montar_mensagens,
 )
 
-URL = "https://groq.invalid/openai/v1"
-MODELO = "openai/gpt-oss-120b"
+URL = "https://openai.invalid/v1"
+MODELO = "gpt-6-luna"
 
 PEDIDO = PedidoRedacao(
     acoes=("INFORM_DEBT", "SEND_CTN_LINK"),
@@ -41,8 +42,8 @@ def _resposta(conteudo="Oi, Ana! O valor é {divida}: {link_ctn}", uso=(120, 30)
 
 
 @pytest.fixture(scope="module")
-def groq():
-    with RedatorGroq("chave-ficticia", MODELO, url=URL) as redator:
+def openai():
+    with RedatorOpenAI("chave-ficticia", MODELO, url=URL) as redator:
         yield redator
 
 
@@ -64,33 +65,33 @@ class TestContratoFalsa(ContratoRedator):
         return RedatorFalso()
 
 
-class TestContratoGroq(ContratoRedator):
+class TestContratoOpenAI(ContratoRedator):
     @pytest.fixture
-    def redator(self, groq):
+    def redator(self, openai):
         with respx.mock:
             respx.post(f"{URL}/chat/completions").mock(return_value=_resposta())
-            yield groq
+            yield openai
 
 
 @respx.mock
-def test_groq_manda_o_modelo_a_chave_e_as_mensagens(groq):
+def test_openai_manda_o_modelo_a_chave_e_as_mensagens(openai):
     rota = respx.post(f"{URL}/chat/completions").mock(return_value=_resposta())
 
-    assert groq.redigir(PEDIDO) == "Oi, Ana! O valor é {divida}: {link_ctn}"
+    assert openai.redigir(PEDIDO) == "Oi, Ana! O valor é {divida}: {link_ctn}"
 
     pedido = rota.calls.last.request
     assert pedido.headers["authorization"] == "Bearer chave-ficticia"
     corpo = json.loads(pedido.content)
     assert corpo["model"] == MODELO
     assert corpo["messages"] == montar_mensagens(PEDIDO)
-    assert groq.ultimo_uso == Uso(120, 30)
-    assert groq.nome == f"groq:{MODELO}"
+    assert openai.ultimo_uso == Uso(120, 30)
+    assert openai.nome == f"openai:{MODELO}"
 
 
 @respx.mock
-def test_groq_tira_os_espacos_das_pontas(groq):
+def test_openai_tira_os_espacos_das_pontas(openai):
     respx.post(f"{URL}/chat/completions").mock(return_value=_resposta("\n  Oi, {divida}  \n"))
-    assert groq.redigir(PEDIDO) == "Oi, {divida}"
+    assert openai.redigir(PEDIDO) == "Oi, {divida}"
 
 
 @pytest.mark.parametrize(
@@ -104,24 +105,24 @@ def test_groq_tira_os_espacos_das_pontas(groq):
     ],
 )
 @respx.mock
-def test_groq_com_erro_fica_indisponivel(groq, resposta):
+def test_openai_com_erro_fica_indisponivel(openai, resposta):
     respx.post(f"{URL}/chat/completions").mock(return_value=resposta)
     with pytest.raises(RedatorIndisponivel):
-        groq.redigir(PEDIDO)
+        openai.redigir(PEDIDO)
 
 
 @respx.mock
-def test_groq_que_demora_fica_indisponivel(groq):
+def test_openai_que_demora_fica_indisponivel(openai):
     respx.post(f"{URL}/chat/completions").mock(side_effect=httpx.ReadTimeout("demorou"))
     with pytest.raises(RedatorIndisponivel, match="demorou"):
-        groq.redigir(PEDIDO)
+        openai.redigir(PEDIDO)
 
 
 @respx.mock
-def test_o_erro_nao_mostra_a_chave(groq):
+def test_o_erro_nao_mostra_a_chave(openai):
     respx.post(f"{URL}/chat/completions").mock(return_value=httpx.Response(401))
     with pytest.raises(RedatorIndisponivel) as erro:
-        groq.redigir(PEDIDO)
+        openai.redigir(PEDIDO)
     assert "chave-ficticia" not in str(erro.value)
 
 
@@ -184,14 +185,52 @@ def test_a_falsa_zera_o_uso_da_chamada_que_falha():
 
 
 @respx.mock
-def test_o_groq_zera_o_uso_da_chamada_que_falha(groq):
+def test_o_openai_zera_o_uso_da_chamada_que_falha(openai):
     rota = respx.post(f"{URL}/chat/completions")
     rota.mock(return_value=_resposta())
-    groq.redigir(PEDIDO)
-    assert groq.ultimo_uso == Uso(120, 30)
+    openai.redigir(PEDIDO)
+    assert openai.ultimo_uso == Uso(120, 30)
 
     rota.mock(return_value=httpx.Response(503))
     with pytest.raises(RedatorIndisponivel):
-        groq.redigir(PEDIDO)
+        openai.redigir(PEDIDO)
 
-    assert groq.ultimo_uso is None
+    assert openai.ultimo_uso is None
+
+
+@respx.mock
+def test_o_corpo_leva_o_reasoning_effort_e_a_temperatura():
+    rota = respx.post(f"{URL}/chat/completions").mock(return_value=_resposta())
+    corpo_extra = {"reasoning_effort": "none"}
+    with RedatorOpenAI("chave-ficticia", MODELO, url=URL, corpo_extra=corpo_extra) as luna:
+        luna.redigir(PEDIDO)
+
+    corpo = json.loads(rota.calls.last.request.content)
+    assert corpo["reasoning_effort"] == "none"
+    assert corpo["temperature"] == 0.3
+    assert corpo["model"] == MODELO
+
+
+@respx.mock
+def test_sem_corpo_extra_o_corpo_nao_leva_o_reasoning_effort(openai):
+    rota = respx.post(f"{URL}/chat/completions").mock(return_value=_resposta())
+    openai.redigir(PEDIDO)
+    assert "reasoning_effort" not in json.loads(rota.calls.last.request.content)
+
+
+@respx.mock
+def test_o_http_400_da_temperatura_fica_indisponivel_sem_a_chave(openai):
+    # Sem o reasoning_effort "none", o Luna recusa a temperatura com 400 (medido no outro agente).
+    erro = {"error": {"message": "temperature não suportada; Bearer chave-ficticia"}}
+    respx.post(f"{URL}/chat/completions").mock(return_value=httpx.Response(400, json=erro))
+
+    with pytest.raises(RedatorIndisponivel, match="400") as falha:
+        openai.redigir(PEDIDO)
+
+    assert "chave-ficticia" not in str(falha.value)
+
+
+def test_a_url_padrao_e_a_da_openai():
+    assert URL_OPENAI == "https://api.openai.com/v1"
+    with RedatorOpenAI("chave-ficticia", MODELO) as luna:
+        assert str(luna._cliente.base_url).rstrip("/") == URL_OPENAI

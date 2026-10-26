@@ -1,4 +1,4 @@
-"""A comparação dos redatores (tarefa 5.4), com redatores falsos e o Groq só no respx."""
+"""A comparação dos redatores (tarefa 5.4), com redatores falsos e o OpenAI só no respx."""
 
 import json
 
@@ -83,8 +83,8 @@ def test_o_relatorio_formatado_traz_cada_candidato(casos, politica):
 @pytest.mark.parametrize(
     ("valor", "esperado"),
     [
-        ("openai/gpt-oss-120b", ("openai/gpt-oss-120b", 0.0, 0.0)),
-        ("openai/gpt-oss-120b:0.15:0.75", ("openai/gpt-oss-120b", 0.15, 0.75)),
+        ("gpt-6-luna", ("gpt-6-luna", 0.0, 0.0)),
+        ("gpt-6-luna:0.10:0.50", ("gpt-6-luna", 0.10, 0.50)),
     ],
 )
 def test_le_o_modelo_e_o_preco_do_candidato(valor, esperado):
@@ -97,16 +97,16 @@ def test_candidato_invalido_e_recusado(valor):
         ler_candidato(valor)
 
 
-def test_comando_sem_a_chave_do_groq_sai_com_2(monkeypatch, capsys, tmp_path):
-    monkeypatch.delenv("AGENTE_GROQ_API_KEY", raising=False)
+def test_comando_sem_a_chave_do_llm_sai_com_2(monkeypatch, capsys, tmp_path):
+    monkeypatch.delenv("AGENTE_LLM_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)  # sem o .env do repo
     codigo = main(["comparar-redatores", str(CONVERSAS), "--politica", POLITICA, "--modelo", "m"])
     assert codigo == 2
-    assert "AGENTE_GROQ_API_KEY" in capsys.readouterr().out
+    assert "AGENTE_LLM_API_KEY" in capsys.readouterr().out
 
 
 def _responder_com_os_marcadores(requisicao):
-    """Um Groq de mentira que escreve só os marcadores obrigatórios do pedido."""
+    """Um LLM de mentira que escreve só os marcadores obrigatórios do pedido."""
     pedido = json.loads(requisicao.content)["messages"][1]["content"]
     linha = next(li for li in pedido.splitlines() if li.startswith("Marcadores obrigatórios:"))
     marcadores = linha.split(":", 1)[1].strip()
@@ -121,10 +121,10 @@ def _responder_com_os_marcadores(requisicao):
 
 
 @respx.mock
-def test_comando_compara_os_modelos_do_groq(monkeypatch, capsys, tmp_path):
-    monkeypatch.setenv("AGENTE_GROQ_API_KEY", "chave-ficticia")
+def test_comando_compara_os_modelos_do_llm(monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("AGENTE_LLM_API_KEY", "chave-ficticia")
     monkeypatch.chdir(tmp_path)
-    rota = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+    rota = respx.post("https://api.openai.com/v1/chat/completions").mock(
         side_effect=_responder_com_os_marcadores
     )
 
@@ -135,7 +135,7 @@ def test_comando_compara_os_modelos_do_groq(monkeypatch, capsys, tmp_path):
             "--politica",
             POLITICA,
             "--modelo",
-            "openai/gpt-oss-120b:0.15:0.75",
+            "gpt-6-luna:0.10:0.50",
             "--modelo",
             "outro-modelo",
         ]
@@ -143,9 +143,11 @@ def test_comando_compara_os_modelos_do_groq(monkeypatch, capsys, tmp_path):
 
     saida = capsys.readouterr().out
     assert codigo == 0
-    assert "groq:openai/gpt-oss-120b" in saida and "groq:outro-modelo" in saida
-    modelos = {json.loads(c.request.content)["model"] for c in rota.calls}
-    assert modelos == {"openai/gpt-oss-120b", "outro-modelo"}
+    assert "openai:gpt-6-luna" in saida and "openai:outro-modelo" in saida
+    corpos = [json.loads(c.request.content) for c in rota.calls]
+    assert all(corpo["reasoning_effort"] == "none" for corpo in corpos)
+    modelos = {corpo["model"] for corpo in corpos}
+    assert modelos == {"gpt-6-luna", "outro-modelo"}
 
 
 def test_a_chamada_que_falha_nao_soma_os_tokens_da_anterior():

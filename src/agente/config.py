@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agente.integracoes.redator import URL_OPENAI
+
 _SEGREDO_WEBCHAT_MINIMO = 32
 
 
@@ -18,11 +20,15 @@ class ConfigPolitica(BaseSettings):
 
 
 class ConfigRedator(ConfigPolitica):
-    """O LLM que redige (T6), para o serviço e o `agente comparar-redatores`."""
+    """O LLM que redige (D42, T6), para o serviço e o `agente comparar-redatores`."""
 
     # Sem a chave, o serviço usa o RedatorFalso.
-    groq_api_key: str | None = None
-    groq_modelo: str = "openai/gpt-oss-120b"  # o candidato da D6
+    llm_api_key: str | None = None
+    llm_url: str = URL_OPENAI
+    llm_modelo: str = "gpt-6-luna"
+    # Entra no corpo de todo pedido. O Luna recusa a temperatura (HTTP 400) sem o reasoning_effort
+    # "none". Em variável de ambiente, vai como JSON.
+    llm_corpo_extra: dict = {"reasoning_effort": "none"}
 
 
 class Config(ConfigRedator):
