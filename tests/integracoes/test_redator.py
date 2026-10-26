@@ -234,3 +234,13 @@ def test_a_url_padrao_e_a_da_openai():
     assert URL_OPENAI == "https://api.openai.com/v1"
     with RedatorOpenAI("chave-ficticia", MODELO) as luna:
         assert str(luna._cliente.base_url).rstrip("/") == URL_OPENAI
+
+
+def test_as_instrucoes_explicam_o_rotulo_do_audio_transcrito():
+    # O áudio do cliente chega ao histórico como texto, com um rótulo (D43, tarefa 8.4).
+    [sistema, _] = montar_mensagens(PEDIDO)
+
+    instrucoes = " ".join(sistema["content"].split())
+    assert "[áudio transcrito:" in instrucoes
+    assert "pode ter erro de transcrição" in instrucoes
+    assert "[áudio longo demais" in instrucoes and "[áudio — não foi possível ouvir]" in instrucoes

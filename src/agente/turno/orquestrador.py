@@ -68,6 +68,7 @@ from agente.turno.handoff import fazer_handoff
 from agente.turno.jev1 import laudo_do_risco
 from agente.turno.liberacao import modo_da_conversa
 from agente.turno.redacao import Redacao, montar_pedido, redigir_validado
+from agente.turno.transcricao import audios_sem_resultado, texto_da_mensagem, transcrever_audios
 from agente.webchat.link import ConfigWebchat
 
 log = logging.getLogger(__name__)
@@ -141,7 +142,36 @@ def _historico(sessao: Session, conversa_id: int) -> list[tuple[str, str]]:
         .where(Mensagem.conversa_id == conversa_id, Mensagem.envio != EstadoEnvio.DESCARTADA)
         .order_by(Mensagem.id)
     )
-    return [(mensagem.origem.value, mensagem.texto) for mensagem in mensagens]
+    # O áudio do cliente entra como o texto transcrito, com o rótulo (D43).
+    return [(mensagem.origem.value, texto_da_mensagem(mensagem)) for mensagem in mensagens]
+
+
+def _ouvir_os_audios(
+    sessao: Session, conversa: Conversa, agora: datetime, deps: Dependencias
+) -> None:
+    """Transcreve os áudios da rajada se o turno vai seguir (D43), antes de qualquer decisão.
+
+    Os gates rodam antes: cobrança inativa, humano na conversa, fora da janela e fora das 24h não
+    transcrevem nada (o áudio adiado é transcrito quando o turno roda). Em sombra também transcreve,
+    porque o Jev da sombra precisa ler o texto. Sem transcritor, o áudio fica como não ouvido.
+    """
+    if deps.transcritor is None:
+        return
+    pendentes = mensagens_pendentes(sessao, conversa.id)
+    if not audios_sem_resultado(pendentes):
+        return
+    gate = avaliar_gates(
+        conversa,
+        pendentes,
+        agora,
+        deps.politica,
+        sessao,
+        barrar_humano=deps.modo is Modo.ATIVO,
+    )
+    if isinstance(gate, Seguir):
+        transcrever_audios(
+            sessao, conversa, pendentes, deps.chatwoot, deps.transcritor, deps.politica
+        )
 
 
 def _gravar_laudos(
@@ -812,6 +842,7 @@ def processar_turno(
         if conversa.erros_turno >= deps.politica.erro_interno_tentativas:
             # As tentativas acabaram e o encerramento ficou para depois (janela, Chatwoot fora).
             return _encerrar_por_erro_interno(sessao, conversa, efetivo, agora)
+        _ouvir_os_audios(sessao, conversa, agora, efetivo)
         if efetivo.modo is Modo.ATIVO:
             resultado = _turno_ativo(sessao, conversa, agora, efetivo)
         else:
