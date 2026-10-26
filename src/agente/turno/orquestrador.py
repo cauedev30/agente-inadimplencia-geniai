@@ -536,9 +536,11 @@ def _seguir(
 
 
 def _ja_pediu_texto(sessao: Session, conversa_id: int) -> bool:
-    """Já houve, nesta conversa, um turno que pediu (ou, em sombra, pediria) o texto do áudio.
+    """Já houve, nesta conversa e neste modo, um turno que pediu (ou pediria) o texto do áudio.
 
-    O pedido descartado (o texto não saiu) não conta: o cliente nunca o viu.
+    O modo conta: o pedido que só a sombra gravou nunca chegou ao cliente, então o ativo não o
+    toma por a 1ª vez; a sombra, por sua vez, prevê a 2ª vez pelos pedidos da própria sombra.
+    O pedido descartado (o texto não saiu) também não conta.
     """
     consulta = select(
         exists().where(
@@ -563,6 +565,17 @@ def _pedir_texto(
     Sem Jev e sem LLM. Na 1ª vez da conversa sai a fixa PEDIR_TEXTO, fora do teto; na 2ª, o humano
     assume pelo caminho de sempre (D5), com o motivo AUDIO. Em sombra, só grava o que faria.
     """
+    if deps.modo is Modo.ATIVO and _cobranca_fechou_no_meio(sessao, conversa):
+        # O pagamento foi confirmado depois dos gates: nem o pedido nem o handoff valem mais.
+        fechar_turno(
+            sessao,
+            turno.id,
+            ResultadoTurno.IGNORADO,
+            acao_principal=ROTULO_PEDIR_TEXTO,
+            redacao={"saida": "IGNORADO", "motivo": "sem_cobranca_ativa"},
+            momento=agora,
+        )
+        return ResultadoTurno.IGNORADO
     if _ja_pediu_texto(sessao, conversa.id):
         rotulo = rotulo_humano(MotivoHumano.AUDIO)
         if deps.modo is Modo.SOMBRA:

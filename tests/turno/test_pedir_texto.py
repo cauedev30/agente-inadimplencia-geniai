@@ -21,6 +21,7 @@ from agente.tipos import (
     MotivoHumano,
     OrigemMensagem,
     ResultadoTurno,
+    StatusCobranca,
     TipoFixa,
 )
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, DadosFixa, mensagem_fixa
@@ -30,6 +31,7 @@ from agente.turno.transcricao import pedido_de_texto
 from tests.ogg_opus import ogg_opus
 
 from .test_orquestrador_gates import SEGUNDA_10H
+from .test_orquestrador_pagamento_concorrente import _estado_no_banco, _pagar_por_fora
 from .test_transcricao import SEGUNDA_19H, _audio, _cliente, _deps
 
 LONGO = "Seu áudio passou de 2 minutos. Pode mandar um mais curto ou escrever, por favor?"
@@ -307,6 +309,62 @@ class TestEmSombra:
         assert _rotulos(sessao) == ["FIXA:PEDIR_TEXTO", "HUMAN:AUDIO"]
         assert deps.chatwoot.chamadas == []
         assert ligada.estado is EstadoConversa.INICIADO
+
+
+class TestOPagamentoNoMeioDoTurno:
+    """O webhook do Pix confirma o pagamento depois dos gates e antes de o pedido ser gravado."""
+
+    @pytest.fixture
+    def pagamento_chega(self, sessao, ligada, monkeypatch):
+        from agente.turno import orquestrador
+
+        original = orquestrador.pedido_de_texto
+
+        def pedido_e_pagamento(mensagens):
+            _pagar_por_fora(sessao, ligada)
+            return original(mensagens)
+
+        monkeypatch.setattr(orquestrador, "pedido_de_texto", pedido_e_pagamento)
+
+    def test_o_pedido_nao_sai_depois_da_confirmacao(
+        self, sessao, ligada, politica, pagamento_chega
+    ):
+        deps = _deps(politica, transcritor=None)
+        _cliente(sessao, ligada, anexos=[_audio()])
+
+        resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+        assert resultado is ResultadoTurno.IGNORADO
+        assert deps.chatwoot.chamadas == [] and _do_agente(sessao) == []
+        turno = sessao.scalars(select(Turno)).one()
+        assert turno.resultado is ResultadoTurno.IGNORADO and turno.texto_enviado is None
+        assert _estado_no_banco(sessao, ligada) == (EstadoConversa.ENCERRADO, StatusCobranca.PAGA)
+
+    def test_o_handoff_do_audio_nao_sobrescreve_o_encerrado(
+        self, sessao, ligada, politica, monkeypatch
+    ):
+        deps = _deps(politica, transcritor=None)
+        _cliente(sessao, ligada, anexos=[_audio()])
+        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)  # a 1ª vez: o pedido sai
+        agora = SEGUNDA_10H + timedelta(minutes=2)
+        _cliente(sessao, ligada, anexos=[_audio()], momento=agora, mid="cw-2")
+        from agente.turno import orquestrador
+
+        original = orquestrador.pedido_de_texto
+
+        def pedido_e_pagamento(mensagens):
+            _pagar_por_fora(sessao, ligada)
+            return original(mensagens)
+
+        monkeypatch.setattr(orquestrador, "pedido_de_texto", pedido_e_pagamento)
+        antes = len(deps.chatwoot.chamadas)
+
+        resultado = processar_turno(sessao, ligada.id, agora, deps)
+
+        assert resultado is ResultadoTurno.IGNORADO
+        assert deps.chatwoot.chamadas[antes:] == []  # nem nota, nem etiqueta, nem canal externo
+        assert _estado_no_banco(sessao, ligada) == (EstadoConversa.ENCERRADO, StatusCobranca.PAGA)
+        assert sessao.get_one(type(ligada), ligada.id).motivo_humano is None
 
 
 class TestAvaliarEnvioDoPedidoPendente:
