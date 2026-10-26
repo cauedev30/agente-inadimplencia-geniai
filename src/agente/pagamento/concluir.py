@@ -196,7 +196,11 @@ def _avisar_esgotado(
         log.warning("pagamento %s pago e sem concluir, sem conversa: conferir à mão", pagamento.id)
         return
     chatwoot_id = conversa.chatwoot_conversa_id
-    faltando = [nome for nome in pagamento.pendencias if nome != Pendencia.AVISO_ESGOTADO.value]
+    faltando = [
+        nome
+        for nome in pagamento.pendencias
+        if nome not in (Pendencia.AVISO_ESGOTADO.value, Pendencia.AVISO_CONCLUIDO.value)
+    ]
     deps.chatwoot.etiquetar(chatwoot_id, [_ETIQUETA_ESGOTADO])
     if deps.time_humano is not None:
         deps.chatwoot.atribuir(chatwoot_id, deps.time_humano)
@@ -268,18 +272,39 @@ def _passo(
     return True
 
 
+# O que o cliente e o CTN esperam do pagamento: só quando o aviso de esgotado diz que um deles
+# faltava é que a nota de concluído faz sentido. O divergente e o em dobro esgotam sem nenhum.
+_DA_CONCLUSAO = (Pendencia.BAIXA.value, Pendencia.MENSAGEM.value)
+
+
 def _concluir(
     sessao: Session, deps: DependenciasConcluir, pagamento: Pagamento, agora: datetime
 ) -> None:
-    restantes = [
-        nome for nome in pagamento.pendencias if not _passo(sessao, deps, pagamento, nome, agora)
-    ]
+    """Refaz as pendências do pagamento e reagenda o que falhou.
+
+    O AVISO_CONCLUIDO é uma marca na lista, posta quando o aviso de esgotado sai com a baixa ou a
+    mensagem faltando: ele só roda quando nada mais resta.
+    """
     concluido = Pendencia.AVISO_CONCLUIDO.value
-    if not restantes and pagamento.atencao_em is not None and concluido not in pagamento.pendencias:
+    aviso = Pendencia.AVISO_ESGOTADO.value
+    anteriores = list(pagamento.pendencias)
+    marcado = concluido in anteriores
+    restantes = [
+        nome
+        for nome in anteriores
+        if nome != concluido and not _passo(sessao, deps, pagamento, nome, agora)
+    ]
+    if aviso in anteriores and aviso not in restantes:
+        marcado = marcado or any(nome in _DA_CONCLUSAO for nome in anteriores)
+    if not restantes and marcado and pagamento.atencao_em is not None:
         # O atendente foi chamado pelo teto: avisa que a conclusão saiu. Se falhar, tenta de novo.
-        if not _passo(sessao, deps, pagamento, concluido, agora):
+        if _passo(sessao, deps, pagamento, concluido, agora):
+            marcado = False
+        else:
             restantes = [concluido]
     pagamento.pendencias = restantes
+    if marcado and restantes and concluido not in restantes:
+        pagamento.pendencias = [*restantes, concluido]
     if not restantes:
         pagamento.proxima_tentativa_em = None
         return
@@ -288,7 +313,6 @@ def _concluir(
         pagamento.tentativas_conclusao
     )
     esgotou = pagamento.tentativas_conclusao >= deps.politica.integracao_tentativas
-    aviso = Pendencia.AVISO_ESGOTADO.value
     if esgotou and pagamento.atencao_em is None and aviso not in restantes:
         log.error(
             "pagamento %s pago, mas sem concluir %s depois de %s tentativas: conferir à mão",
@@ -298,6 +322,8 @@ def _concluir(
         )
         if not _passo(sessao, deps, pagamento, aviso, agora):
             pagamento.pendencias = [*restantes, aviso]
+        elif any(nome in _DA_CONCLUSAO for nome in restantes):
+            pagamento.pendencias = [*restantes, concluido]
 
 
 def concluir_pagamentos(sessao: Session, deps: DependenciasConcluir, agora: datetime) -> int:

@@ -891,7 +891,9 @@ def test_esgotadas_as_tentativas_a_conversa_reabre_com_nota_e_etiqueta(sessao, l
     assert avisos[0][2] == ["pagamento_sem_concluir"]
     assert txid in avisos[-1][2] and "BAIXA" in avisos[-1][2]
     pagamento = sessao.scalars(select(Pagamento)).one()
-    assert pagamento.atencao_em is not None and pagamento.pendencias == [Pendencia.BAIXA.value]
+    assert pagamento.atencao_em is not None
+    # A marca do AVISO_CONCLUIDO fica na lista: só roda quando a baixa sair.
+    assert pagamento.pendencias == [Pendencia.BAIXA.value, Pendencia.AVISO_CONCLUIDO.value]
     assert contar_sem_concluir(sessao) == 1
 
 
@@ -938,6 +940,86 @@ def test_a_nota_de_concluido_com_o_chatwoot_fora_fica_pendente_ate_sair(sessao, 
     assert pagamento.pendencias == [] and pagamento.proxima_tentativa_em is None
     notas = [c[2] for c in deps.chatwoot.chamadas if c[0] == "nota_privada"]
     assert notas[-1].startswith("Pagamento concluído")
+
+
+def _notas_de_concluido(deps):
+    return [c[2] for c in deps.chatwoot.chamadas if c[0] == "nota_privada" and "concluído" in c[2]]
+
+
+def _chatwoot_volta_e_a_rotina_roda(sessao, deps, agora):
+    deps.chatwoot.fora = False
+    for _ in range(3):
+        concluir_pagamentos(sessao, deps, agora)
+        agora = sessao.scalars(select(Pagamento)).one().proxima_tentativa_em or agora
+
+
+def test_o_pagamento_divergente_nunca_recebe_a_nota_de_concluido(sessao, ligada, politica):
+    deps = _deps(politica)
+    deps.chatwoot = ChatwootInstavel()
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA - 500, PAGO_EM)
+    deps.chatwoot.fora = True
+    agora = _esgotar(sessao, deps, deps.politica.integracao_tentativas + 1)
+
+    _chatwoot_volta_e_a_rotina_roda(sessao, deps, agora)
+
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert pagamento.pendencias == [] and deps.ctn.baixas == []
+    assert _notas_de_concluido(deps) == []
+
+
+def test_o_pagamento_em_dobro_nunca_recebe_a_nota_de_concluido(sessao, ligada, politica):
+    deps = _deps(politica)
+    deps.chatwoot = ChatwootInstavel()
+    txid = _pix(sessao, ligada, deps)
+    id_externo = _link(sessao, ligada, deps)
+    _pagar(sessao, deps, id_externo, DIVIDA)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    deps.chatwoot.fora = True
+    duplicado = sessao.scalar(select(Pagamento).where(Pagamento.referencia == txid))
+    agora = duplicado.proxima_tentativa_em
+    for _ in range(deps.politica.integracao_tentativas + 1):
+        concluir_pagamentos(sessao, deps, agora)
+        agora = duplicado.proxima_tentativa_em or agora
+
+    deps.chatwoot.fora = False
+    for _ in range(3):
+        concluir_pagamentos(sessao, deps, agora)
+        agora = duplicado.proxima_tentativa_em or agora
+
+    assert duplicado.pendencias == [] and deps.ctn.baixas == []
+    assert _notas_de_concluido(deps) == []
+    assert any(
+        "Pagamento em dobro" in c[2] for c in deps.chatwoot.chamadas if c[0] == "nota_privada"
+    )
+
+
+def test_a_nota_de_concluido_vale_mesmo_quando_o_ultimo_passo_e_outro(sessao, ligada, politica):
+    """A baixa sai antes do último passo: a nota de concluído não depende de ser ele o da baixa."""
+    deps = _deps(politica)
+    ligada.cobranca.webchat_conversa_id = 777
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    mudar_status = deps.chatwoot.mudar_status
+
+    def mudar_status_sem_o_webchat(conversa_id, status):
+        if conversa_id == 777:
+            raise httpx.ConnectError("fora")
+        mudar_status(conversa_id, status)
+
+    deps.ctn.fora_do_ar = True
+    deps.chatwoot.mudar_status = mudar_status_sem_o_webchat
+    agora = _esgotar(sessao, deps)
+    deps.ctn.fora_do_ar = False
+    concluir_pagamentos(sessao, deps, agora)
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert len(deps.ctn.baixas) == 1 and _notas_de_concluido(deps) == []
+    assert Pendencia.RESOLVER_WEBCHAT.value in pagamento.pendencias
+
+    del deps.chatwoot.mudar_status
+    concluir_pagamentos(sessao, deps, pagamento.proxima_tentativa_em)
+
+    assert pagamento.pendencias == [] and len(_notas_de_concluido(deps)) == 1
 
 
 def test_o_pagamento_que_nunca_chamou_o_atendente_conclui_sem_nota(sessao, ligada, deps):
