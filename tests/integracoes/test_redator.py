@@ -251,11 +251,13 @@ def test_as_instrucoes_proibem_fato_do_produto_sem_fonte_e_promessa_fora_das_aco
     [sistema, _] = montar_mensagens(PEDIDO)
 
     instrucoes = " ".join(sistema["content"].split())
-    assert (
-        "Não afirme nada sobre o Cartão de Todos, a rede, as clínicas, os serviços ou as coberturas"
-        in instrucoes
-    )
+    assert "Não afirme nada sobre a rede, as clínicas, os serviços ou as coberturas" in instrucoes
+    assert "Não afirme nada sobre o Cartão de Todos" not in instrucoes
     assert "o assunto não é tratado por aqui" in instrucoes
+    assert (
+        "Se o cliente desconfiar de golpe, acolha a preocupação sem negar nem pôr em dúvida quem "
+        "está falando, e siga com as ações do turno"
+    ) in instrucoes
     assert (
         "Não prometa verificar, retornar, avisar nem fazer qualquer coisa que não esteja nas ações"
         in instrucoes
