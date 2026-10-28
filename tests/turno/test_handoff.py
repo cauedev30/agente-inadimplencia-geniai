@@ -141,3 +141,75 @@ def test_o_handoff_sem_webchat_mantem_o_link_provisorio(sessao, conversa, politi
 
     [botao] = chatwoot.chamadas[-1][3]
     assert botao.valor == politica.link_canal_externo
+
+
+def test_desconfianca_manda_a_fixa_sem_botao_e_sem_gerar_token(
+    sessao, conversa, politica, monkeypatch
+):
+    def _nao_deve_gerar_link(*args, **kwargs):
+        raise AssertionError("o link do webchat não deve ser gerado")
+
+    monkeypatch.setattr("agente.turno.handoff.link_canal_externo", _nao_deve_gerar_link)
+    conversa.chatwoot_conversa_id = 555
+    chatwoot = ChatwootFalso()
+    webchat = ConfigWebchat(
+        "https://atendimento.exemplo.invalid", "segredo-do-webchat-com-32-caracteres-ou-mais"
+    )
+
+    fazer_handoff(
+        sessao,
+        chatwoot,
+        conversa,
+        MotivoHumano.DESCONFIANCA,
+        [Laudo("desconfia_golpe", True, 0.91, 0.80)],
+        politica,
+        4,
+        AGORA,
+        webchat=webchat,
+    )
+
+    # Tudo igual ao handoff de sempre: nota, etiqueta, atribuição, status, mensagem.
+    assert [chamada[0] for chamada in chatwoot.chamadas] == [
+        "nota_privada",
+        "etiquetar",
+        "atribuir",
+        "mudar_status",
+        "enviar_mensagem",
+    ]
+    assert (
+        "DESCONFIANCA" in chatwoot.chamadas[0][2] and "desconfia_golpe" in chatwoot.chamadas[0][2]
+    )
+    assert chatwoot.chamadas[1][2] == ["desconfianca"]
+    assert chatwoot.chamadas[2][2] == 4
+    assert chatwoot.chamadas[3][2] == "open"
+    assert chatwoot.enviadas(555) == [politica.texto_humano_no_whatsapp]
+    assert chatwoot.chamadas[-1][3] == []
+    assert conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO
+    assert conversa.motivo_humano is MotivoHumano.DESCONFIANCA
+    mensagem = sessao.scalars(select(Mensagem)).one()
+    assert mensagem.origem is OrigemMensagem.FIXA
+    assert mensagem.texto == politica.texto_humano_no_whatsapp
+    assert mensagens_no_teto(sessao, conversa.id) == 0
+
+
+def test_desconfianca_ainda_expira_o_pix_quando_a_politica_manda(sessao, conversa, politica):
+    pix = _pix_pendente(conversa)
+    conversa.chatwoot_conversa_id = 555
+    politica = politica.model_copy(update={"handoff_expira_pix": True})
+
+    fazer_handoff(
+        sessao, ChatwootFalso(), conversa, MotivoHumano.DESCONFIANCA, [], politica, None, AGORA
+    )
+
+    assert pix.status is StatusPagamento.EXPIRADO
+
+
+def test_os_outros_motivos_seguem_mandando_o_canal_externo(sessao, conversa, politica):
+    chatwoot = ChatwootFalso()
+    conversa.chatwoot_conversa_id = 555
+
+    for motivo in (MotivoHumano.CONTESTACAO, MotivoHumano.TETO):
+        assert motivo not in politica.motivos_humano_no_whatsapp
+        fazer_handoff(sessao, chatwoot, conversa, motivo, [], politica, None, AGORA)
+
+    assert chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO, TEXTO_CANAL_EXTERNO]

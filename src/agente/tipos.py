@@ -62,6 +62,8 @@ class MotivoHumano(StrEnum):
     JURIDICO = "JURIDICO"
     CONCILIACAO = "CONCILIACAO"
     CONTESTACAO = "CONTESTACAO"
+    # Desconfia de golpe ou pede prova de que a mensagem é do Cartão de Todos (D44).
+    DESCONFIANCA = "DESCONFIANCA"
     CAUTELA = "CAUTELA"
     ATRITO = "ATRITO"
     ENERGISA = "ENERGISA"
@@ -173,3 +175,5 @@ class TipoFixa(StrEnum):
     CANAL_EXTERNO = "CANAL_EXTERNO"
     # A rajada ficou sem nada legível (só áudio que não foi lido): pede o texto, fora do teto (D43).
     PEDIR_TEXTO = "PEDIR_TEXTO"
+    # A saída para o humano sem link: o atendente segue na mesma conversa do WhatsApp (D44).
+    HUMANO_NO_WHATSAPP = "HUMANO_NO_WHATSAPP"

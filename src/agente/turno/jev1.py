@@ -1,6 +1,6 @@
 """Jev 1: a leitura de toda mensagem do cliente e os gatilhos de saída (arquitetura, seção 2).
 
-As 13 perguntas rodam num batch só. Um gatilho de saída leva a conversa para o humano; o Jev só
+As 14 perguntas rodam num batch só. Um gatilho de saída leva a conversa para o humano; o Jev só
 classifica, e quem decide a saída é a regra daqui.
 """
 
@@ -22,6 +22,12 @@ PERGUNTAS_JEV1 = (
     Pergunta("risco_juridico", "bool", "cita Procon, advogado, processo, ação"),
     Pergunta("alega_pagamento", "bool", "afirma que já pagou"),
     Pergunta("contesta_divida", "bool", "nega dever ou diz não ser a pessoa"),
+    Pergunta(
+        "desconfia_golpe",
+        "bool",
+        "desconfia que a cobrança é golpe ou pede prova de que a mensagem é mesmo do "
+        "Cartão de Todos",
+    ),
     Pergunta("terceiro", "bool", "quem escreve não é o devedor"),
     Pergunta("vulnerabilidade", "bool", "desemprego, doença, luto, dificuldade"),
     Pergunta(
@@ -40,6 +46,7 @@ GATILHOS = {
     MotivoHumano.JURIDICO: "risco_juridico",
     MotivoHumano.CONCILIACAO: "alega_pagamento",
     MotivoHumano.CONTESTACAO: "contesta_divida",
+    MotivoHumano.DESCONFIANCA: "desconfia_golpe",
     MotivoHumano.CAUTELA: "vulnerabilidade",
     MotivoHumano.ATRITO: "atrito_clinica",
     MotivoHumano.ENERGISA: "quer_conta_energia",

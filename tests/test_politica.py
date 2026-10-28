@@ -3,6 +3,7 @@ from datetime import date, time, timedelta
 import pytest
 
 from agente.politica import PoliticaInvalida, Regua, carregar_politica
+from agente.tipos import MotivoHumano
 
 from .conftest import RAIZ
 
@@ -146,3 +147,22 @@ def test_parametros_do_webchat_tem_padrao(politica):
     assert politica.webchat_cpf_tentativas == 3
     assert politica.webchat_cpf_bloqueio_horas == 1
     assert politica.webchat_verificacao_validade_minutos == 120
+
+
+def test_a_saida_no_whatsapp_tem_padrao(politica):
+    assert politica.motivos_humano_no_whatsapp == {MotivoHumano.DESCONFIANCA}
+    assert politica.texto_humano_no_whatsapp == (
+        "Entendo a sua preocupação. Um atendente da unidade vai continuar com você aqui mesmo, "
+        "nesta conversa."
+    )
+    assert politica.limiares_jev1["desconfia_golpe"] == 0.70
+
+
+def test_motivo_desconhecido_na_saida_no_whatsapp_e_recusado(tmp_path):
+    caminho = _arquivo_com(
+        tmp_path,
+        'motivos_humano_no_whatsapp = ["DESCONFIANCA"]',
+        'motivos_humano_no_whatsapp = ["DESCONFIANCA", "NAO_EXISTE"]',
+    )
+    with pytest.raises(PoliticaInvalida, match="motivos_humano_no_whatsapp"):
+        carregar_politica(caminho)

@@ -74,7 +74,7 @@ def test_em_sombra_grava_os_laudos_e_o_que_teria_feito(sessao, ligada, politica)
     assert deps.chatwoot.chamadas == []
     turno = _turno(sessao)
     assert turno.modo is Modo.SOMBRA
-    assert len(_laudos(sessao, BatchJev.JEV1)) == 13
+    assert len(_laudos(sessao, BatchJev.JEV1)) == 14
     [jev2] = _laudos(sessao, BatchJev.JEV2)
     assert (jev2.pergunta, jev2.valor, jev2.turno_id) == ("acao", "INFORM_DEBT", turno.id)
     assert {laudo.origem for laudo in turno.laudos} == {"falso"}
@@ -159,7 +159,7 @@ def test_jev2_indisponivel_guarda_a_leitura_do_jev1(sessao, ligada, politica):
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    assert len(_laudos(sessao, BatchJev.JEV1)) == 13
+    assert len(_laudos(sessao, BatchJev.JEV1)) == 14
     assert _turno(sessao).acao_principal == "HUMAN:JEV_INDISPONIVEL"
 
 
@@ -225,7 +225,7 @@ def test_em_sombra_o_humano_na_conversa_nao_barra_a_avaliacao(sessao, ligada, po
     turno = _turno(sessao)
     assert turno.humano_na_conversa is True
     assert turno.acao_principal == "INFORM_DEBT"
-    assert len(turno.laudos) == 14
+    assert len(turno.laudos) == 15
     assert ("HUMANO", "Oi, aqui é a atendente") in deps.jev.chamadas[0][1].historico
     assert ligada.human_owned is True
 
@@ -288,7 +288,7 @@ def test_ativo_jev2_indisponivel_vai_para_o_humano(sessao, ligada, politica):
     assert resultado is ResultadoTurno.HANDOFF
     assert ligada.motivo_humano is MotivoHumano.JEV_INDISPONIVEL
     assert sessao.scalars(select(Transicao)).one().laudo_id is None
-    assert len(_laudos(sessao, BatchJev.JEV1)) == 13
+    assert len(_laudos(sessao, BatchJev.JEV1)) == 14
 
 
 def test_ativo_objecao_sem_desconto_aponta_o_laudo_da_objecao(sessao, ligada, politica):
@@ -364,5 +364,5 @@ def test_o_servico_grava_o_laudo_de_toda_rajada(politica):
             ResultadoTurno.SOMBRA,
             2,
         )
-        assert len(turno.laudos) == 14
+        assert len(turno.laudos) == 15
     assert deps.chatwoot.chamadas == []

@@ -259,6 +259,21 @@ def test_o_gatilho_de_retencao_nao_redige_nada(sessao, ligada, cliente, politica
     assert ligada.motivo_humano is MotivoHumano.RETENCAO
 
 
+def test_o_gatilho_de_desconfianca_fica_no_whatsapp_sem_redigir_nem_botao(
+    sessao, ligada, cliente, politica
+):
+    redator = RedatorFalso(registrar=True)
+    deps = _deps(politica, [responder("desconfia_golpe", True, 0.92)], redator=redator)
+
+    assert cliente("Isso é golpe né?", deps) is ResultadoTurno.HANDOFF
+
+    assert redator.pedidos == []
+    assert _do_agente(sessao) == []
+    assert deps.chatwoot.enviadas(555) == [politica.texto_humano_no_whatsapp]
+    assert deps.chatwoot.chamadas[-1][3] == []
+    assert ligada.motivo_humano is MotivoHumano.DESCONFIANCA
+
+
 class Jev3Fora(JevFalso):
     def avaliar(self, perguntas, estado):
         if perguntas[0].nome == "bate_com_acao":

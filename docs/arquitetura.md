@@ -65,6 +65,7 @@ mesmo state (histórico, dívida, política e estado atual).
 | `risco_juridico` | bool | cita Procon, advogado, processo, ação |
 | `alega_pagamento` | bool | afirma que já pagou |
 | `contesta_divida` | bool | nega dever ou diz não ser a pessoa |
+| `desconfia_golpe` | bool | desconfia que a cobrança é golpe ou pede prova de que a mensagem é mesmo do Cartão de Todos (D44) |
 | `terceiro` | bool | quem escreve não é o devedor |
 | `vulnerabilidade` | bool | desemprego, doença, luto, dificuldade |
 | `objecao_valor` | bool | acha caro, diz que não consegue pagar tudo ou pede desconto |
@@ -83,16 +84,25 @@ turno, antes de redigir qualquer coisa.
 | `risco_juridico` | ≥ 0,70 | JURÍDICO |
 | `alega_pagamento` | ≥ 0,70 | CONCILIAÇÃO |
 | `contesta_divida` | ≥ 0,70 | CONTESTAÇÃO |
+| `desconfia_golpe` | ≥ 0,70 | DESCONFIANÇA (sem link, no próprio WhatsApp, D44) |
 | `vulnerabilidade` | ≥ 0,75 | CAUTELA |
 | `atrito_clinica` | ≥ 0,70 | ATRITO |
 | `quer_conta_energia` | ≥ 0,70 | ENERGISA (a troca é manual, D30) |
 | `tom` irritado ou hostil | — | TOM |
 
-Os limiares das duas perguntas novas seguem os das vizinhas e também precisam de calibração.
+Os limiares das duas perguntas novas seguem os das vizinhas e também precisam de calibração. A ordem
+da tabela é a ordem em que os gatilhos vencem: a DESCONFIANÇA vem logo depois da CONTESTAÇÃO, e quem
+diz "é golpe, eu já paguei" vai antes para a CONCILIAÇÃO, que pede o comprovante.
 
 No handoff, o agente deixa no Chatwoot uma nota privada com o laudo do Jev, uma etiqueta com o motivo,
 atribui a conversa e põe o status como aberta. O estado vira `ATENDIMENTO_HUMANO`. Com o D5, o cliente
-é levado para o canal externo da franquia.
+é levado para o canal externo da franquia, com a fixa `CANAL_EXTERNO` e o botão do webchat (D32).
+
+**A exceção é a DESCONFIANÇA (D44).** Mandar um link a quem já desconfia de golpe só aumenta a
+desconfiança. Os motivos de `motivos_humano_no_whatsapp` (no `politica.toml`, hoje só a DESCONFIANÇA)
+fazem o mesmo handoff, com a nota, a etiqueta, a atribuição e o estado, mas mandam a fixa
+`HUMANO_NO_WHATSAPP`: o texto de `texto_humano_no_whatsapp`, sem botão, e o token do webchat nem é
+gerado. O atendente segue na mesma conversa do WhatsApp.
 
 Alegação de pagamento e contestação saem do robô por decisão de negócio: insistir vira constrangimento
 (CDC, art. 42). O Jev só classifica; quem autoriza a ação é a regra da aplicação.

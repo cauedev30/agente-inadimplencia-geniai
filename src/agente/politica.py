@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from agente.dominio.telefone import normalizar_telefone
+from agente.tipos import MotivoHumano
 
 
 class Regua(StrEnum):
@@ -159,6 +160,9 @@ class Politica(_Imutavel):
     integracao_espera_segundos: int = Field(ge=1)
     integracao_espera_maxima_segundos: int = Field(ge=1)
     link_canal_externo: str
+    # Os motivos de saída que ficam no WhatsApp, sem o link do webchat (D44), e o texto da fixa.
+    motivos_humano_no_whatsapp: frozenset[MotivoHumano]
+    texto_humano_no_whatsapp: str = Field(min_length=1)
     webchat_token_validade_horas: int = Field(ge=1)
     webchat_cpf_digitos: int = Field(ge=1, le=11)
     webchat_cpf_tentativas: int = Field(ge=1)

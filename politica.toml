@@ -30,6 +30,11 @@ integracao_espera_segundos = 60      # padrão: a espera até a 2ª tentativa; d
 integracao_espera_maxima_segundos = 3600  # padrão: a espera não passa disto
 # O link provisório da 6ª mensagem: só vale sem AGENTE_WEBCHAT_URL_BASE; com ela, o link leva o token (7.4).
 link_canal_externo = "https://atendimento.invalid/provisorio"
+# D44: a saída para o humano por estes motivos não manda o link do webchat; o atendente segue na mesma
+# conversa do WhatsApp. Quem desconfia de golpe e recebe um link só desconfia mais.
+motivos_humano_no_whatsapp = ["DESCONFIANCA"]
+# Padrão (G7.5, a confirmar com o gestor): a fixa HUMANO_NO_WHATSAPP, sem botão.
+texto_humano_no_whatsapp = "Entendo a sua preocupação. Um atendente da unidade vai continuar com você aqui mesmo, nesta conversa."
 # Webchat (D32, G7): padrões até o gestor responder.
 webchat_token_validade_horas = 720   # padrão (G7): o link vale 30 dias, ou até a cobrança encerrar
 webchat_cpf_digitos = 3              # padrão (G7.2): os primeiros dígitos do CPF pedidos antes de abrir o chat
@@ -113,6 +118,7 @@ quer_retencao = 0.80
 risco_juridico = 0.70
 alega_pagamento = 0.70
 contesta_divida = 0.70
+desconfia_golpe = 0.70
 vulnerabilidade = 0.75
 atrito_clinica = 0.70
 quer_conta_energia = 0.70

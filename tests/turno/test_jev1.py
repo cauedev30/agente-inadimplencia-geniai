@@ -21,6 +21,7 @@ ORDEM = [
     MotivoHumano.JURIDICO,
     MotivoHumano.CONCILIACAO,
     MotivoHumano.CONTESTACAO,
+    MotivoHumano.DESCONFIANCA,
     MotivoHumano.CAUTELA,
     MotivoHumano.ATRITO,
     MotivoHumano.ENERGISA,
@@ -32,13 +33,14 @@ def _leitura(*regras):
     return ler(JevFalso(list(regras)), ESTADO)
 
 
-def test_sao_as_13_perguntas_da_arquitetura():
+def test_sao_as_14_perguntas_da_arquitetura():
     assert [p.nome for p in PERGUNTAS_JEV1] == [
         "tom",
         "quer_retencao",
         "risco_juridico",
         "alega_pagamento",
         "contesta_divida",
+        "desconfia_golpe",
         "terceiro",
         "vulnerabilidade",
         "objecao_valor",
@@ -51,12 +53,12 @@ def test_sao_as_13_perguntas_da_arquitetura():
     tom = PERGUNTAS_JEV1[0]
     assert tom.tipo == "score"
     assert tom.opcoes == ("cordial", "neutro", "impaciente", "irritado", "hostil")
-    assert PERGUNTAS_JEV1[10].opcoes == ("nenhuma", "hesitante", "disposto", "pronto")
+    assert PERGUNTAS_JEV1[11].opcoes == ("nenhuma", "hesitante", "disposto", "pronto")
 
 
 def test_ler_devolve_um_laudo_por_pergunta(politica):
     leitura = _leitura(responder("objecao_valor", True, 0.88))
-    assert len(leitura.laudos) == 13
+    assert len(leitura.laudos) == 14
     assert leitura.sim("objecao_valor")
     assert leitura.laudo("objecao_valor") == Laudo("objecao_valor", True, 0.88, 0.90)
     assert leitura.tom == "cordial"
@@ -82,6 +84,26 @@ def test_limites_da_arquitetura(politica):
     assert gatilho_de_saida(_leitura(responder("risco_juridico", True, 0.69)), politica) is None
     juridico = _leitura(responder("risco_juridico", True, 0.70))
     assert gatilho_de_saida(juridico, politica) is MotivoHumano.JURIDICO
+
+
+def test_desconfianca_dispara_no_limiar_depois_da_contestacao(politica):
+    assert politica.limiares_jev1["desconfia_golpe"] == 0.70
+    assert list(GATILHOS)[list(GATILHOS).index(MotivoHumano.CONTESTACAO) + 1] is (
+        MotivoHumano.DESCONFIANCA
+    )
+    abaixo = _leitura(responder("desconfia_golpe", True, 0.69))
+    no_limite = _leitura(responder("desconfia_golpe", True, 0.70))
+
+    assert gatilho_de_saida(abaixo, politica) is None
+    assert gatilho_de_saida(no_limite, politica) is MotivoHumano.DESCONFIANCA
+
+
+def test_alegar_pagamento_e_desconfiar_vai_para_a_conciliacao(politica):
+    # "É golpe, eu já paguei": a CONCILIACAO vence e pede o comprovante.
+    leitura = _leitura(
+        responder("desconfia_golpe", True, 0.95), responder("alega_pagamento", True, 0.90)
+    )
+    assert gatilho_de_saida(leitura, politica) is MotivoHumano.CONCILIACAO
 
 
 def test_resposta_nao_com_probabilidade_alta_nao_dispara(politica):

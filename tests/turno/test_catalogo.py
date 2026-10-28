@@ -54,3 +54,17 @@ def test_confirmacao_sem_valor_e_erro():
     sem_valor = DadosFixa("Maria", None, None, "https://atendimento.invalid/x")
     with pytest.raises(ValueError, match="valor"):
         mensagem_fixa(TipoFixa.CONFIRMACAO, sem_valor)
+
+
+def test_humano_no_whatsapp_usa_o_texto_da_politica_e_nao_tem_botao():
+    dados = DadosFixa("Maria", None, None, "", texto="Um atendente segue aqui.")
+
+    mensagem = mensagem_fixa(TipoFixa.HUMANO_NO_WHATSAPP, dados)
+
+    assert mensagem.texto == "Um atendente segue aqui."
+    assert mensagem.botoes == []
+
+
+def test_humano_no_whatsapp_sem_o_texto_e_erro():
+    with pytest.raises(ValueError, match="texto"):
+        mensagem_fixa(TipoFixa.HUMANO_NO_WHATSAPP, DadosFixa("Maria", None, None, ""))
