@@ -21,11 +21,12 @@ def _aprovadas():
     ]
 
 
-def test_sao_as_8_perguntas_da_arquitetura():
+def test_sao_as_9_perguntas_da_arquitetura():
     assert [p.nome for p in PERGUNTAS_JEV3] == [
         "bate_com_acao",
         "valor_nao_autorizado",
         "promessa_indevida",
+        "afirma_fato_sem_fonte",
         "tom_adequado",
         "expoe_terceiro",
         "responde_a_pergunta",
@@ -42,6 +43,7 @@ def test_sao_as_8_perguntas_da_arquitetura():
     assert set(DEVEM_DAR_NAO) == {
         "valor_nao_autorizado",
         "promessa_indevida",
+        "afirma_fato_sem_fonte",
         "expoe_terceiro",
         "vazou_instrucao",
     }
@@ -51,7 +53,7 @@ def test_texto_bom_e_aprovado():
     validacao = validar(JevFalso(_aprovadas()), TEXTO, ACOES, NUMEROS, ESTADO)
     assert validacao.aprovado
     assert validacao.reprovadas == []
-    assert len(validacao.laudos) == 8
+    assert len(validacao.laudos) == 9
 
 
 @pytest.mark.parametrize("pergunta", DEVEM_DAR_SIM)
@@ -86,3 +88,11 @@ def test_o_jev3_le_o_texto_as_acoes_e_os_numeros():
     assert estado.acoes_do_turno == ("INFORM_DEBT", "GENERATE_PIX")
     assert estado.numeros == NUMEROS
     assert estado.historico == ESTADO.historico
+
+
+def test_o_texto_que_afirma_fato_sem_fonte_e_reprovado():
+    texto = "Sim, o cartão vale para dentista! O valor em aberto é R$ 100,20."
+    jev = JevFalso([responder("afirma_fato_sem_fonte", True), *_aprovadas()])
+    validacao = validar(jev, texto, ACOES, NUMEROS, ESTADO)
+    assert not validacao.aprovado
+    assert validacao.reprovadas == ["afirma_fato_sem_fonte"]

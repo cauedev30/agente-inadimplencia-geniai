@@ -110,7 +110,7 @@ def test_r3_propenso_o_link_vai_na_1a_mensagem(sessao, ligada, cliente, politica
     assert turno.texto_enviado == texto
     assert turno.redacao["saida"] == "LLM"
     jev3 = sessao.scalars(select(LaudoGravado).where(LaudoGravado.batch == BatchJev.JEV3)).all()
-    assert len(jev3) == 8
+    assert len(jev3) == 9
     assert (ligada.estado, ligada.forma_enviada) == (
         EstadoConversa.AGUARDANDO_PAGAMENTO,
         FormaPagamento.LINK_CTN,
@@ -193,7 +193,7 @@ def test_duas_reprovacoes_no_jev3_levam_ao_catalogo(sessao, ligada, cliente, pol
     assert turno.redacao["saida"] == "RESPOSTA_SEGURA"
     assert len(turno.redacao["tentativas"]) == 2
     jev3 = sessao.scalars(select(LaudoGravado).where(LaudoGravado.batch == BatchJev.JEV3)).all()
-    assert len(jev3) == 16
+    assert len(jev3) == 18
     # O texto com os números não saiu: nada do backend fica valendo.
     assert sessao.scalars(select(Pagamento)).all() == []
     assert (ligada.forma_enviada, ligada.estado) == (None, EstadoConversa.INICIADO)

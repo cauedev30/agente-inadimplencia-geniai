@@ -244,3 +244,19 @@ def test_as_instrucoes_explicam_o_rotulo_do_audio_transcrito():
     assert "[áudio transcrito:" in instrucoes
     assert "pode ter erro de transcrição" in instrucoes
     assert "[áudio longo demais" in instrucoes and "[áudio — não foi possível ouvir]" in instrucoes
+
+
+def test_as_instrucoes_proibem_fato_do_produto_sem_fonte_e_promessa_fora_das_acoes():
+    # O redator não afirma nada do produto e não promete o que o agente não faz (tarefa 8.8).
+    [sistema, _] = montar_mensagens(PEDIDO)
+
+    instrucoes = " ".join(sistema["content"].split())
+    assert (
+        "Não afirme nada sobre o Cartão de Todos, a rede, as clínicas, os serviços ou as coberturas"
+        in instrucoes
+    )
+    assert "o assunto não é tratado por aqui" in instrucoes
+    assert (
+        "Não prometa verificar, retornar, avisar nem fazer qualquer coisa que não esteja nas ações"
+        in instrucoes
+    )

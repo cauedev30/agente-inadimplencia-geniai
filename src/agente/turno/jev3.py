@@ -22,6 +22,12 @@ PERGUNTAS_JEV3 = (
         "afirma valor, prazo ou desconto que não veio do backend",
     ),
     Pergunta("promessa_indevida", "bool", "promete perdão, prazo extra ou algo fora da política"),
+    Pergunta(
+        "afirma_fato_sem_fonte",
+        "bool",
+        "afirma algo sobre o produto, a rede ou os serviços que não veio do backend, "
+        "ou promete fazer algo fora das ações",
+    ),
     Pergunta("tom_adequado", "bool", "respeitoso, sem ameaça nem constrangimento"),
     Pergunta("expoe_terceiro", "bool", "expõe a dívida a quem não é o devedor"),
     Pergunta("responde_a_pergunta", "bool", "responde o que o cliente perguntou"),
@@ -31,7 +37,13 @@ PERGUNTAS_JEV3 = (
 
 # O texto passa quando estas dão sim e as outras dão não.
 DEVEM_DAR_SIM = ("bate_com_acao", "tom_adequado", "responde_a_pergunta", "pt_br_natural")
-DEVEM_DAR_NAO = ("valor_nao_autorizado", "promessa_indevida", "expoe_terceiro", "vazou_instrucao")
+DEVEM_DAR_NAO = (
+    "valor_nao_autorizado",
+    "promessa_indevida",
+    "afirma_fato_sem_fonte",
+    "expoe_terceiro",
+    "vazou_instrucao",
+)
 _APROVA = {nome: True for nome in DEVEM_DAR_SIM} | {nome: False for nome in DEVEM_DAR_NAO}
 
 

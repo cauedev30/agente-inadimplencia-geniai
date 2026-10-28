@@ -175,6 +175,7 @@ uma lista; o que vai junto na mesma mensagem é anexado pelo código (D37).
 | `bate_com_acao` | o texto cobre todas as ações do turno, a principal e as anexadas (D37) |
 | `valor_nao_autorizado` | afirma valor, prazo ou desconto que não veio do backend |
 | `promessa_indevida` | promete perdão, prazo extra ou algo fora da política |
+| `afirma_fato_sem_fonte` | afirma algo sobre o produto, a rede ou os serviços que não veio do backend, ou promete fazer algo fora das ações |
 | `tom_adequado` | respeitoso, sem ameaça nem constrangimento (CDC, art. 42) |
 | `expoe_terceiro` | expõe a dívida a quem não é o devedor (CDC, art. 42; LGPD) |
 | `responde_a_pergunta` | responde o que o cliente perguntou |
