@@ -200,6 +200,25 @@ o aviso abaixo, agora para a OpenAI.
 O LLM de redação é escolhido por teste (D6). **Como é esse teste**: quais conversas, quais critérios? E
 quem aprova o resultado?
 
+**Teste de 2026-10-27, que confirma a D42:** os 15 casos de `tests/conversas` (13 turnos redigidos), 3
+rodadas por modelo, temperatura 0.3, com o Jev 3 falso; a OpenAI direto e a nuvem do Ollama. Nenhum
+modelo foi reprovado na interpolação; a diferença está no texto, na leitura às cegas.
+
+| Modelo | Texto | Tempo médio | US$ por 1000 conversas |
+|---|---|---|---|
+| `gpt-6-luna` | claro, sempre diz que o desconto só vale no link | 1,5 s | 0,05 |
+| `gpt-5.6-luna` | empata com o `gpt-6-luna` | 1,2 s | 0,11 |
+| `gpt-5.4-nano` | bom; no fora do escopo, oferece ajuda que não dá | 1,0 s | 0,12 |
+| `gemma4:31b` | longo; diz "o melhor valor que conseguimos" | 0,7 s | 0,10 |
+| `gpt-oss:120b` | "Oi, tudo bem?" em todo turno; fala em "parcela" | 1,3 s | 0,22 |
+| `gpt-oss:20b` | esquece que o desconto só vale no link; até 14 s | 4,9 s | 0,04 |
+
+O preço é o de referência do OpenRouter. A estimativa para 300 conversas por dia é de US$ 4 a 16 por
+mês no LLM, mais US$ 4 a 8 de transcrição. O `deepseek-v4.1-flash`, o `glm-5.3-flash` e o
+`minimax-m3.1-flash` pedem assinatura no Ollama; ficam para a rodada pelo OpenRouter, com o
+`gpt-6-luna-pro` e o `nemotron-3.5-lightning`. O teste só cobriu o caminho comum: falta o cliente
+irritado, o terceiro, o "já paguei" e a reescrita depois de reprovar.
+
 
 **Antes de ligar a chave em produção (2026-10-22):** o histórico da conversa vai para o Groq a cada
 turno. *(Desde a D42, a OpenAI.)* Falta confirmar a retenção de dados (LGPD) e se dá para desligar o uso para treino.
