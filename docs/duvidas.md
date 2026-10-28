@@ -108,7 +108,14 @@ abertas:
 
 1. Tem **atendente de plantão** na janela, para responder o webchat em tempo real?
 2. A **confirmação pelos 3 primeiros dígitos do CPF** antes de mostrar a dívida é aceitável?
+   *(2026-10-28: pedir dado pessoal num link é o sinal clássico de phishing. Alternativa a avaliar: o
+   link já chega aberto para a conversa, porque o token cifrado identifica a cobrança, e a página não
+   pede nada.)*
 3. Em qual **domínio** a página fica: da franquia, do Cartão de Todos ou da GeniAI?
+   *(2026-10-28: da franquia ou do Cartão de Todos, nunca da GeniAI; um domínio estranho assusta
+   quem recebe o link. Ver a D44.)*
+5. **Quem responde a inbox do WhatsApp** quando a conversa vai ao humano por desconfiança de golpe
+   (D44)? O atendente segue na mesma conversa, e a janela de 24h do WhatsApp vale para ele.
 4. **Quando a conversa do webchat é encerrada sem pagamento?** Hoje "fechada" significa "paga": o
    pagamento revoga o link do token e resolve a conversa do webchat amarrada no Chatwoot. Nada mais
    encerra a cobrança, e o "resolvido" do atendente não revoga o link. **Padrão:** o link vale até o
