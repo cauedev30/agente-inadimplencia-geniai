@@ -14,6 +14,7 @@ from agente.turno.jev1 import PERGUNTAS_JEV1, LeituraJev1
 from agente.turno.redacao import (
     MARCADORES,
     RedacaoInvalida,
+    anexar_recebedor,
     interpolar,
     marcadores_do_turno,
     montar_pedido,
@@ -329,3 +330,39 @@ def test_o_texto_da_falsa_passa_na_interpolacao(acoes, politica):
     )
     texto = interpolar(RedatorFalso().redigir(pedido), numeros)
     assert "{" not in texto
+
+
+def _com_recebedor(politica, nome="Cartão de Todos Ltda"):
+    return politica.model_copy(update={"pix_recebedor": nome})
+
+
+def test_anexar_recebedor_poe_a_frase_uma_vez_no_fim(politica):
+    numeros = _numeros(Acao.GENERATE_PIX)
+    texto = anexar_recebedor("Segue o Pix.", numeros, _com_recebedor(politica))
+    assert texto == (
+        "Segue o Pix. Ao colar o código no seu banco, confira que o recebedor é "
+        "Cartão de Todos Ltda."
+    )
+    assert texto.count("Cartão de Todos Ltda") == 1
+
+
+def test_anexar_recebedor_com_o_nome_vazio_nao_muda_o_texto(politica):
+    numeros = _numeros(Acao.GENERATE_PIX)
+    assert politica.pix_recebedor == ""
+    assert anexar_recebedor("Segue o Pix.", numeros, politica) == "Segue o Pix."
+
+
+@pytest.mark.parametrize(
+    "acoes", [(Acao.SEND_CTN_LINK,), (Acao.INFORM_DEBT,), (Acao.OUT_OF_SCOPE,)]
+)
+def test_anexar_recebedor_sem_pix_no_turno_nao_muda_o_texto(acoes, politica):
+    numeros = _numeros(*acoes)
+    assert anexar_recebedor("Segue o link.", numeros, _com_recebedor(politica)) == "Segue o link."
+
+
+def test_anexar_recebedor_nao_interpreta_chaves_nem_digitos_do_nome(politica):
+    # O nome vai como está: CNPJ com dígitos e chaves não quebram nem passam pelo `interpolar`.
+    numeros = _numeros(Acao.GENERATE_PIX)
+    nome = "CDT {Franquia} 12.345.678/0001-90"
+    texto = anexar_recebedor("Oi.", numeros, _com_recebedor(politica, nome))
+    assert texto.endswith(f"o recebedor é {nome}.")

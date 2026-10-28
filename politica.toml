@@ -6,6 +6,10 @@ teto_resolucao = 5                   # D33: 5 mensagens de resolução; a 6ª é
 regua_acima_de_6 = "R6"              # padrão (G1.1): mais de 6 mensalidades usam a condição da R6
 pix_validade_horas = 24              # padrão (G2.4)
 pix_reaproveitar_minimo_minutos = 60 # padrão: o Pix a menos disto de vencer não é reaproveitado; o cliente ganha um novo
+# D44: o nome do recebedor do Pix, como o banco do cliente o mostra ao colar o código. Vazio desliga a frase
+# (a confirmar com o dev e o gestor, T1); preenchido, o backend a anexa a toda mensagem que traz o Pix.
+pix_recebedor = ""
+texto_pix_recebedor = "Ao colar o código no seu banco, confira que o recebedor é {recebedor}."
 # padrão: o Pix pendente continua valendo depois do handoff; true o expira só no banco do agente (o
 # Pix segue pagável no banco do CDT, e o pagamento ainda é confirmado) até a T1 dizer se dá para cancelá-lo
 handoff_expira_pix = false

@@ -177,6 +177,9 @@ uma lista; o que vai junto na mesma mensagem é anexado pelo código (D37).
   ao humano (CONCILIAÇÃO) e o pagamento se confirma pelo webhook.
 - Um número errado não tem por onde entrar: ele é interpolado no texto a partir do backend, e não
   gerado pelo LLM.
+- O **recebedor do Pix** (D44) também é do backend: quando o turno traz o Pix e o `pix_recebedor` está
+  preenchido, a frase fixa `texto_pix_recebedor` entra no fim do texto, depois do Jev 3 e antes de gravar
+  e enviar. O Jev 3 valida o texto do LLM sem ela; a resposta segura não a leva, porque não tem o Pix.
 
 ## 6. Jev 3: validação (antes de enviar)
 

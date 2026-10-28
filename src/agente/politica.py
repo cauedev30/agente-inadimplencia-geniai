@@ -163,6 +163,9 @@ class Politica(_Imutavel):
     # Os motivos de saída que ficam no WhatsApp, sem o link do webchat (D44), e o texto da fixa.
     motivos_humano_no_whatsapp: frozenset[MotivoHumano]
     texto_humano_no_whatsapp: str = Field(min_length=1)
+    # O recebedor do Pix (D44): vazio desliga a frase; o texto traz `{recebedor}`.
+    pix_recebedor: str
+    texto_pix_recebedor: str = Field(min_length=1)
     webchat_token_validade_horas: int = Field(ge=1)
     webchat_cpf_digitos: int = Field(ge=1, le=11)
     webchat_cpf_tentativas: int = Field(ge=1)
@@ -195,6 +198,13 @@ class Politica(_Imutavel):
         return {"modo": valor} if isinstance(valor, str) else valor
 
     _normalizar_equipe = field_validator("telefones_equipe")(_em_e164)
+
+    @field_validator("texto_pix_recebedor")
+    @classmethod
+    def _traz_o_recebedor(cls, valor: str) -> str:
+        if "{recebedor}" not in valor:
+            raise ValueError("texto_pix_recebedor: falta o marcador {recebedor}")
+        return valor
 
     @model_validator(mode="after")
     def _espera_maxima_nao_menor_que_a_inicial(self):

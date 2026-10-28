@@ -73,7 +73,7 @@ from agente.turno.gates import (
 from agente.turno.handoff import fazer_handoff
 from agente.turno.jev1 import laudo_do_risco
 from agente.turno.liberacao import modo_da_conversa
-from agente.turno.redacao import Redacao, montar_pedido, redigir_validado
+from agente.turno.redacao import Redacao, anexar_recebedor, montar_pedido, redigir_validado
 from agente.turno.transcricao import (
     LONGO_DEMAIS,
     audios_sem_resultado,
@@ -471,6 +471,9 @@ def _agir(
 
     texto = redacao.texto
     if texto is not None:
+        # Depois do Jev 3 e antes de gravar: o histórico guarda o texto que sai, com o recebedor
+        # (D44).
+        texto = anexar_recebedor(texto, numeros, deps.politica)
         _gravar_envio(sessao, conversa, texto, agora)
         _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
         saida, resultado = "LLM", ResultadoTurno.ENVIADO

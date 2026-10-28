@@ -168,6 +168,19 @@ def interpolar(texto: str, numeros: Numeros) -> str:
     return _MARCADOR.sub(lambda achado: preenchidos[achado.group(1)], texto)
 
 
+def anexar_recebedor(texto: str, numeros: Numeros, politica: Politica) -> str:
+    """A frase do recebedor do Pix no fim do texto aprovado (D44), ou o texto igual.
+
+    Só quando o turno traz o Pix e o `pix_recebedor` está preenchido. É o backend que a escreve, não
+    o LLM, e ela entra depois do Jev 3: o nome do recebedor não passa pelo `interpolar`, que
+    recusaria dígito (o CNPJ, por exemplo) e é feito para o texto do LLM.
+    """
+    if numeros.br_code is None or not politica.pix_recebedor:
+        return texto
+    frase = politica.texto_pix_recebedor.replace("{recebedor}", politica.pix_recebedor)
+    return f"{texto} {frase}"
+
+
 def montar_pedido(
     numeros: Numeros,
     leitura: LeituraJev1 | None,

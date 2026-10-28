@@ -166,3 +166,25 @@ def test_motivo_desconhecido_na_saida_no_whatsapp_e_recusado(tmp_path):
     )
     with pytest.raises(PoliticaInvalida, match="motivos_humano_no_whatsapp"):
         carregar_politica(caminho)
+
+
+def test_o_recebedor_do_pix_vem_desligado_e_o_texto_traz_o_marcador(politica):
+    assert politica.pix_recebedor == ""
+    assert politica.texto_pix_recebedor == (
+        "Ao colar o código no seu banco, confira que o recebedor é {recebedor}."
+    )
+
+
+def test_o_recebedor_do_pix_preenchido_e_aceito(tmp_path):
+    caminho = _arquivo_com(tmp_path, 'pix_recebedor = ""', 'pix_recebedor = "Cartão de Todos Ltda"')
+    assert carregar_politica(caminho).pix_recebedor == "Cartão de Todos Ltda"
+
+
+def test_o_texto_do_recebedor_sem_o_marcador_e_recusado(tmp_path):
+    caminho = _arquivo_com(
+        tmp_path,
+        "confira que o recebedor é {recebedor}.",
+        "confira o recebedor.",
+    )
+    with pytest.raises(PoliticaInvalida, match="texto_pix_recebedor"):
+        carregar_politica(caminho)

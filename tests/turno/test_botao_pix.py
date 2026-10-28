@@ -373,3 +373,19 @@ def test_o_pix_com_valor_divergente_nao_e_reaproveitado(sessao, ligada, cliente,
     cliente(TOQUE, deps)
 
     assert len(deps.pix.cobrancas) == 2
+
+
+def test_a_resposta_ao_toque_traz_a_frase_do_recebedor(sessao, ligada, cliente, politica):
+    recebedor = "Cartão de Todos Ltda"
+    deps = _deps(politica.model_copy(update={"pix_recebedor": recebedor}))
+
+    assert cliente(TOQUE, deps) is ResultadoTurno.ENVIADO
+
+    [pix] = deps.pix.cobrancas.values()
+    [texto] = deps.chatwoot.enviadas(555)
+    frase = f"Ao colar o código no seu banco, confira que o recebedor é {recebedor}."
+    assert pix.br_code in texto and texto.endswith(f" {frase}")
+    [mensagem] = sessao.scalars(
+        select(Mensagem).where(Mensagem.origem == OrigemMensagem.AGENTE)
+    ).all()
+    assert mensagem.texto == texto

@@ -455,3 +455,58 @@ def test_o_handoff_do_redator_fora_nao_registra_o_que_o_savepoint_desfez(
     assert turno.resultado is ResultadoTurno.HANDOFF
     # O que o Jev decidiu continua nos laudos; o turno diz só que nada foi executado.
     assert turno.acoes_anexadas == ["GENERATE_PIX"]
+
+
+# --- o recebedor do Pix (D44) ---
+
+RECEBEDOR = "Cartão de Todos Ltda"
+FRASE = f"Ao colar o código no seu banco, confira que o recebedor é {RECEBEDOR}."
+
+
+def test_o_pix_sai_com_a_frase_do_recebedor_e_o_jev3_viu_o_texto_sem_ela(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica.model_copy(update={"pix_recebedor": RECEBEDOR}))
+
+    assert cliente("quanto eu devo?", deps) is ResultadoTurno.ENVIADO
+
+    [pix] = deps.pix.cobrancas.values()
+    [texto] = deps.chatwoot.enviadas(555)
+    assert pix.br_code in texto
+    assert texto.endswith(f" {FRASE}") and texto.count(FRASE) == 1
+    # O histórico guarda o que saiu, com a frase.
+    [mensagem] = _do_agente(sessao)
+    assert mensagem.texto == texto
+    assert _turno(sessao).texto_enviado == texto
+    # O Jev 3 aprovou o texto do LLM, antes da frase.
+    candidatos = [e.texto_candidato for _, e in deps.jev.chamadas if e.texto_candidato]
+    assert candidatos and all(RECEBEDOR not in c for c in candidatos)
+    assert texto.removesuffix(f" {FRASE}") == candidatos[-1]
+
+
+def test_com_o_recebedor_vazio_o_pix_sai_sem_a_frase(sessao, ligada, cliente, politica):
+    deps = _deps(politica)
+
+    cliente("quanto eu devo?", deps)
+
+    [texto] = deps.chatwoot.enviadas(555)
+    assert "recebedor" not in texto
+
+
+def test_o_link_do_ctn_sai_sem_a_frase_do_recebedor(sessao, ligada, cliente, politica):
+    ligada.cobranca.propenso_cartao = True
+    deps = _deps(politica.model_copy(update={"pix_recebedor": RECEBEDOR}))
+
+    cliente("quanto eu devo?", deps)
+
+    [texto] = deps.chatwoot.enviadas(555)
+    assert deps.pix.cobrancas == {} and RECEBEDOR not in texto
+
+
+def test_a_resposta_segura_do_turno_com_pix_sai_sem_a_frase(sessao, ligada, cliente, politica):
+    deps = _deps(politica.model_copy(update={"pix_recebedor": RECEBEDOR}), REPROVA_TOM)
+
+    cliente("quanto eu devo?", deps)
+
+    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
+    assert _turno(sessao).texto_enviado == TEXTO_RESPOSTA_SEGURA
