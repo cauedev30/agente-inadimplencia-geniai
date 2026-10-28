@@ -246,6 +246,11 @@ OpenRouter não vale como medida (o `gpt-6-luna` levou 5 s, contra 1,5 s direto 
   `gpt-6-luna` e o `deepseek-v4.1-flash` responderam "sim" de conhecimento próprio, que não estava no
   pedido; o `claude-haiku-5.5` prometeu "verifico para você", o que o agente não faz. Falta o prompt
   (e talvez o validador) proibir afirmar sobre o produto o que não vem no pedido.
+  *Corrigido na tarefa 8.8 (`9156fed`): duas regras no prompt e a pergunta `afirma_fato_sem_fonte` no
+  Jev 3. Conferido em 2026-10-28 com o `gpt-6-luna` direto na OpenAI, 3 rodadas dos casos difíceis: o
+  "dentista" virou "esse assunto não é tratado por aqui" nas 3. Efeito colateral: no "isso é golpe?",
+  2 das 3 respostas dizem "por aqui não tratamos de confirmação sobre o Cartão de Todos", o que soa
+  como golpe. Falta decidir o que o agente responde a quem desconfia (pendente com o Cauê).*
 
 
 **Antes de ligar a chave em produção (2026-10-22):** o histórico da conversa vai para o Groq a cada
