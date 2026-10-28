@@ -70,7 +70,7 @@ ser uma métrica de custo, e não só de experiência do cliente.
 | **Propensão ao cartão.** Para o cliente propenso, o link do CTN vai primeiro, e a confirmação já convida a cadastrar o cartão. Para o não propenso, o Pix vai primeiro | D36 |
 | **Janela de atendimento:** segunda a sexta, das 8h às 18h; sábado, das 8h às 12h. Domingo e feriado ficam fora. O sábado espera a G3 | D11, D16 |
 | **Fora da janela, o agente não responde nada**, porque cada mensagem custa. O que chegou fora do horário é respondido quando a janela abre, como se tivesse chegado no horário. Os atendentes também veem essas mensagens no horário deles | D16 |
-| **Toda saída do robô vai para o canal externo da franquia**, seja pelo teto ou por um gatilho do Jev | D5 |
+| **Toda saída do robô vai para o canal externo da franquia**, seja pelo teto ou por um gatilho do Jev. A exceção é quem desconfia de golpe: o atendente segue no próprio WhatsApp, sem link | D5, D44 |
 | **O canal externo é um webchat** (widget do Chatwoot), em vez de outro WhatsApp, com rodízio igualitário entre os atendentes. Ver [`ideia-webchat.md`](ideia-webchat.md) | D32 |
 
 **Padrões até as dúvidas fecharem** (todos são parâmetros):
