@@ -202,7 +202,8 @@ Quem cria e paga as contas de cada serviço: **Vercel AI Gateway** (Jev), **Groq
 ### T6. Escolha do LLM
 
 **Respondida em 2026-10-26 → D42:** o LLM é o `gpt-6-luna`, com a chave da empresa. Continua valendo
-o aviso abaixo, agora para a OpenAI.
+o aviso abaixo, agora para a OpenAI. As duas rodadas de comparação estão reunidas, com os resultados
+brutos, em [`comparacao-llm.md`](comparacao-llm.md).
 
 O LLM de redação é escolhido por teste (D6). **Como é esse teste**: quais conversas, quais critérios? E
 quem aprova o resultado?

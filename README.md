@@ -8,7 +8,11 @@ A primeira franquia é o **Cartão de Todos João Pessoa Sul**.
 
 ## Status
 
-**Em implementação: etapas 1 a 5 prontas, com o serviço em modo sombra.** A spec está fechada para começar ([`docs/spec.md`](docs/spec.md)).
+**Em implementação. O código da v1 (etapas 1 a 7) e o da etapa 8 (redator e áudio) estão escritos e os
+testes automáticos passam, mas o serviço ainda não está hospedado em lugar nenhum e ninguém o testou à
+mão.** O Jev, o Pix, o CTN e a transcrição são peças falsas até os sistemas reais serem ligados
+([`docs/integracoes.md`](docs/integracoes.md)); só o redator `gpt-6-luna` foi conferido com o modelo
+real. A spec está fechada ([`docs/spec.md`](docs/spec.md)).
 As decisões estão em [`docs/decisoes.md`](docs/decisoes.md), e as perguntas em aberto, cada uma com o
 padrão usado até a resposta, em [`docs/duvidas.md`](docs/duvidas.md).
 
@@ -22,6 +26,7 @@ padrão usado até a resposta, em [`docs/duvidas.md`](docs/duvidas.md).
 | ⭐ [`docs/ideia-webchat.md`](docs/ideia-webchat.md) | **Ideia em avaliação, com prioridade alta:** atendimento humano por webchat no lugar de outro WhatsApp |
 | [`docs/decisoes.md`](docs/decisoes.md) | Decisões numeradas (D1, D2, …), com data |
 | [`docs/duvidas.md`](docs/duvidas.md) | Perguntas em aberto, separadas por quem responde |
+| [`docs/comparacao-llm.md`](docs/comparacao-llm.md) | Por que o redator é o `gpt-6-luna`: as duas rodadas de comparação dos LLMs, com os resultados brutos |
 | [`docs/integracoes.md`](docs/integracoes.md) | Guia para ligar os sistemas reais (T1 a T11): o que precisamos, onde entra e o teste de cada um |
 
 ## Stack

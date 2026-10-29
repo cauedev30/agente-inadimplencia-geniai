@@ -1,0 +1,500 @@
+{
+ "modelo": "gpt-5.6-luna",
+ "provedor": "openai",
+ "extra": {
+  "reasoning_effort": "none"
+ },
+ "resultados": [
+  {
+   "tentativas": 13,
+   "reprovadas": 0,
+   "respostas_seguras": 0,
+   "divergencias": 0,
+   "tamanho_medio": 151.0,
+   "latencia_media_s": 1.280446669230759,
+   "tokens_por_conversa": 403.6,
+   "custo_por_conversa_usd": 0.00011172
+  },
+  {
+   "tentativas": 13,
+   "reprovadas": 0,
+   "respostas_seguras": 0,
+   "divergencias": 0,
+   "tamanho_medio": 152.3846153846154,
+   "latencia_media_s": 1.1373616538461857,
+   "tokens_por_conversa": 404.6,
+   "custo_por_conversa_usd": 0.00011238666666666667
+  },
+  {
+   "tentativas": 13,
+   "reprovadas": 0,
+   "respostas_seguras": 0,
+   "divergencias": 0,
+   "tamanho_medio": 145.76923076923077,
+   "latencia_media_s": 1.2342800000000211,
+   "tokens_por_conversa": 403.2,
+   "custo_por_conversa_usd": 0.00011084
+  }
+ ],
+ "chamadas": [
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Tá caro, tem desconto?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo, mas para essa dívida não há desconto disponível. O valor em aberto é {divida}. Para facilitar, segue o Pix copia e cola do valor integral: {pix_copia_e_cola}",
+   "segundos": 1.62,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Tá caro.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo. Consigo oferecer {valor_final} com desconto, válido somente pelo link do cartão. Por ele, você paga e já cadastra o cartão: {link_ctn}",
+   "segundos": 1.22,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Ainda tá caro para mim.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Consigo oferecer {valor_final} com desconto, válido somente pelo link do cartão. Por ele, você paga e já cadastra o cartão: {link_ctn}",
+   "segundos": 1.09,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Não dá, consegue baixar mais?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Consigo oferecer {valor_final} com desconto, válido somente pelo link do cartão. Por ele, você paga e já cadastra o cartão: {link_ctn}",
+   "segundos": 1.0,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Oi, recebi a mensagem. Quanto está o meu débito?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Olá! Seu débito em aberto é de {divida}. Para facilitar, segue o Pix copia e cola do valor integral:\n\n{pix_copia_e_cola}",
+   "segundos": 1.51,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Não consigo pagar tudo de uma vez.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo. Para facilitar, você pode pagar {valor_final} com desconto pelo link do cartão. Nele, você realiza o pagamento e já cadastra o cartão: {link_ctn}",
+   "segundos": 1.2,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Quero resolver isso hoje, como eu pago?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Para resolver hoje, o valor em aberto é {divida}. Você pode pagar e já cadastrar seu cartão por este link: {link_ctn}",
+   "segundos": 1.33,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Prefiro pagar no Pix, pode mandar?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Claro! Segue o Pix copia e cola para pagamento integral:\n\n{pix_copia_e_cola}",
+   "segundos": 1.28,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Tá muito caro, não tem um desconto?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo, mas no momento não temos desconto disponível para essa dívida. O valor em aberto é {divida}. Para facilitar, segue o Pix copia e cola do valor integral: {pix_copia_e_cola}",
+   "segundos": 1.3,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Bom dia, quanto eu estou devendo?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Bom dia! O valor em aberto é {divida}. Para pagar e já cadastrar seu cartão, acesse: {link_ctn}",
+   "segundos": 1.14,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Consegue fazer um valor melhor?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Consigo sim! O valor com desconto fica em {valor_final}, válido somente pelo link do cartão. Pague e já cadastre seu cartão por aqui: {link_ctn}",
+   "segundos": 1.23,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Me manda o link para eu pagar no cartão.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Claro! Segue o link para pagar e já cadastrar seu cartão: {link_ctn}",
+   "segundos": 1.34,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "OUT_OF_SCOPE"
+   ],
+   "ultima_do_cliente": "Qual o horário de funcionamento da clínica do centro?",
+   "estado": "ENGAJADO",
+   "reescrita": false,
+   "texto": "Esse assunto não é tratado por aqui. Por favor, entre em contato diretamente com a clínica do centro para consultar o horário de funcionamento.",
+   "segundos": 1.36,
+   "rodada": 0
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Tá caro, tem desconto?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo, mas essa dívida não tem desconto disponível. O valor em aberto é {divida}. Para facilitar, segue o Pix copia e cola do valor integral: {pix_copia_e_cola}",
+   "segundos": 1.45,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Tá caro.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo. Consigo oferecer o valor com desconto de {valor_final}, válido somente pelo link do cartão. Pague e já cadastre seu cartão por aqui: {link_ctn}",
+   "segundos": 1.34,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Ainda tá caro para mim.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo, Cliente. Posso oferecer {valor_final} com desconto, válido somente pelo link do cartão. Pague e já cadastre seu cartão por aqui: {link_ctn}",
+   "segundos": 1.06,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Não dá, consegue baixar mais?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo, Cliente. O valor com desconto fica em {valor_final}, válido somente pelo link do cartão. Pague e já cadastre seu cartão por aqui: {link_ctn}",
+   "segundos": 1.16,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Oi, recebi a mensagem. Quanto está o meu débito?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Olá! Seu débito em aberto é de {divida}. Para pagar o valor integral, segue o Pix copia e cola:\n\n{pix_copia_e_cola}",
+   "segundos": 1.17,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Não consigo pagar tudo de uma vez.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo. Para facilitar, você pode pagar {valor_final} com desconto pelo link do cartão. Nele, você realiza o pagamento e já cadastra o cartão: {link_ctn}",
+   "segundos": 1.16,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Quero resolver isso hoje, como eu pago?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Para resolver hoje, o valor em aberto é {divida}. Você pode pagar e já cadastrar o cartão por este link: {link_ctn}",
+   "segundos": 1.11,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Prefiro pagar no Pix, pode mandar?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Claro! Segue o Pix copia e cola para pagamento do valor integral:\n\n{pix_copia_e_cola}",
+   "segundos": 1.16,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Tá muito caro, não tem um desconto?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo, mas essa dívida não tem desconto disponível. O valor em aberto é {divida}. Para facilitar, segue o Pix copia e cola do valor integral: {pix_copia_e_cola}",
+   "segundos": 1.14,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Bom dia, quanto eu estou devendo?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Bom dia! O valor em aberto é {divida}. Para pagar e já cadastrar seu cartão, acesse: {link_ctn}",
+   "segundos": 0.95,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Consegue fazer um valor melhor?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Consigo sim! O valor com desconto fica em {valor_final}, válido somente pelo link do cartão. Pague e já cadastre seu cartão por aqui: {link_ctn}",
+   "segundos": 1.03,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Me manda o link para eu pagar no cartão.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Claro! Segue o link para pagar e já cadastrar seu cartão: {link_ctn}",
+   "segundos": 0.97,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "OUT_OF_SCOPE"
+   ],
+   "ultima_do_cliente": "Qual o horário de funcionamento da clínica do centro?",
+   "estado": "ENGAJADO",
+   "reescrita": false,
+   "texto": "Esse assunto não é tratado por aqui. Por favor, entre em contato diretamente com a clínica do centro para consultar o horário de funcionamento.",
+   "segundos": 1.03,
+   "rodada": 1
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Tá caro, tem desconto?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo, mas para este pagamento não há desconto disponível. O valor em aberto é {divida}. Segue o Pix copia e cola do valor integral: {pix_copia_e_cola}",
+   "segundos": 1.45,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Tá caro.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo. Consigo oferecer {valor_final} com desconto, válido somente pelo link do cartão. Por ele, você paga e já cadastra o cartão: {link_ctn}",
+   "segundos": 1.38,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Ainda tá caro para mim.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo. Consigo manter o valor com desconto de {valor_final}, válido somente pelo link do cartão. Por ele, você paga e já cadastra o cartão: {link_ctn}",
+   "segundos": 1.44,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Não dá, consegue baixar mais?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Consigo oferecer {valor_final} com desconto, válido somente pelo link do cartão. Por ele, você paga e já cadastra o cartão: {link_ctn}",
+   "segundos": 1.06,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Oi, recebi a mensagem. Quanto está o meu débito?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Olá! Seu débito em aberto é de {divida}. Para pagamento integral, segue o Pix copia e cola:\n\n{pix_copia_e_cola}",
+   "segundos": 1.17,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Não consigo pagar tudo de uma vez.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo. Temos uma opção com desconto de {valor_final}, válida somente pelo link do cartão. Pague por aqui e já cadastre seu cartão: {link_ctn}",
+   "segundos": 1.25,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Quero resolver isso hoje, como eu pago?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Para resolver hoje, o valor em aberto é {divida}. Você pode pagar e já cadastrar o cartão por este link: {link_ctn}",
+   "segundos": 0.99,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Prefiro pagar no Pix, pode mandar?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Claro! Segue o Pix copia e cola para pagamento do valor integral:\n\n{pix_copia_e_cola}",
+   "segundos": 0.94,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "GENERATE_PIX"
+   ],
+   "ultima_do_cliente": "Tá muito caro, não tem um desconto?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Entendo, mas para esta dívida não há desconto disponível. O valor em aberto é {divida}. Para facilitar, segue o Pix copia e cola do valor integral: {pix_copia_e_cola}",
+   "segundos": 1.36,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "INFORM_DEBT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Bom dia, quanto eu estou devendo?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Bom dia! O valor em aberto é {divida}. Para pagar e já cadastrar seu cartão, acesse: {link_ctn}",
+   "segundos": 1.14,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "OFFER_DISCOUNT",
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Consegue fazer um valor melhor?",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Consigo sim! Pelo link do cartão, você paga {valor_final} e já cadastra seu cartão: {link_ctn}",
+   "segundos": 1.24,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "SEND_CTN_LINK"
+   ],
+   "ultima_do_cliente": "Me manda o link para eu pagar no cartão.",
+   "estado": "AGUARDANDO_PAGAMENTO",
+   "reescrita": false,
+   "texto": "Claro! Você pode pagar e já cadastrar o cartão por este link: {link_ctn}",
+   "segundos": 1.55,
+   "rodada": 2
+  },
+  {
+   "acoes": [
+    "OUT_OF_SCOPE"
+   ],
+   "ultima_do_cliente": "Qual o horário de funcionamento da clínica do centro?",
+   "estado": "ENGAJADO",
+   "reescrita": false,
+   "texto": "Esse assunto não é tratado por aqui. Por favor, entre em contato diretamente com a clínica do centro para consultar o horário de funcionamento.",
+   "segundos": 1.08,
+   "rodada": 2
+  }
+ ]
+}
