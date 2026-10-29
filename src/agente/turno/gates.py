@@ -9,7 +9,7 @@ atendimento, janela de 24h do WhatsApp, teto e o toque no botão "Pagar com Pix"
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from agente.abertura.disparar import BOTAO_PAGAR_PIX
@@ -77,13 +77,6 @@ def _so_toque_no_botao_pix(mensagens: list[Mensagem]) -> bool:
     return all(mensagem.texto.strip().casefold() == botao for mensagem in mensagens)
 
 
-def _ja_saiu_fixa(sessao: Session, conversa_id: int) -> bool:
-    consulta = select(
-        exists().where(Mensagem.conversa_id == conversa_id, Mensagem.origem == OrigemMensagem.FIXA)
-    )
-    return bool(sessao.scalar(consulta))
-
-
 def humano_na_conversa(conversa: Conversa) -> bool:
     return conversa.human_owned or conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO
 
@@ -120,8 +113,8 @@ def avaliar_gates(
     if agora - max(mensagem.momento for mensagem in mensagens) > JANELA_WHATSAPP:
         return Retomar()
     if mensagens_no_teto(sessao, conversa.id) >= politica.teto_resolucao:
-        if _ja_saiu_fixa(sessao, conversa.id):
-            return Ignorar("teto_encerrado")
+        # Quem já saiu pelo teto e foi devolvido ao robô também chega aqui: o orquestrador decide
+        # entre a 6ª mensagem e o retorno silencioso ao humano.
         return Fixa(TipoFixa.CANAL_EXTERNO)
     if toque:
         return PagarPix()

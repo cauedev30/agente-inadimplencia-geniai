@@ -188,3 +188,19 @@ def test_o_texto_do_recebedor_sem_o_marcador_e_recusado(tmp_path):
     )
     with pytest.raises(PoliticaInvalida, match="texto_pix_recebedor"):
         carregar_politica(caminho)
+
+
+def test_limiar_do_jev1_faltando_e_recusado(tmp_path):
+    caminho = _arquivo_com(tmp_path, "desconfia_golpe = 0.70", "")
+    with pytest.raises(PoliticaInvalida, match="limiares_jev1.*desconfia_golpe"):
+        carregar_politica(caminho)
+
+
+def test_o_teto_no_whatsapp_e_recusado(tmp_path):
+    caminho = _arquivo_com(
+        tmp_path,
+        'motivos_humano_no_whatsapp = ["DESCONFIANCA"]',
+        'motivos_humano_no_whatsapp = ["DESCONFIANCA", "TETO"]',
+    )
+    with pytest.raises(PoliticaInvalida, match="motivos_humano_no_whatsapp.*TETO"):
+        carregar_politica(caminho)

@@ -340,7 +340,7 @@ def test_anexar_recebedor_poe_a_frase_uma_vez_no_fim(politica):
     numeros = _numeros(Acao.GENERATE_PIX)
     texto = anexar_recebedor("Segue o Pix.", numeros, _com_recebedor(politica))
     assert texto == (
-        "Segue o Pix. Ao colar o código no seu banco, confira que o recebedor é "
+        "Segue o Pix.\n\nAo colar o código no seu banco, confira que o recebedor é "
         "Cartão de Todos Ltda."
     )
     assert texto.count("Cartão de Todos Ltda") == 1

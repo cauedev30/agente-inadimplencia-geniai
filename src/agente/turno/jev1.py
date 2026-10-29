@@ -97,3 +97,9 @@ def gatilho_de_saida(leitura: LeituraJev1, politica: Politica) -> MotivoHumano |
     if leitura.tom in TONS_DE_SAIDA:
         return MotivoHumano.TOM
     return None
+
+
+def desconfia_no_limiar(leitura: LeituraJev1, politica: Politica) -> bool:
+    """O Jev 1 deste turno deu `desconfia_golpe` sim, com a probabilidade no limiar (D44)."""
+    laudo = leitura.laudo("desconfia_golpe")
+    return laudo.valor is True and laudo.probabilidade >= politica.limiares_jev1["desconfia_golpe"]

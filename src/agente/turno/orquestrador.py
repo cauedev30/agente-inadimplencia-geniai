@@ -70,8 +70,8 @@ from agente.turno.gates import (
     avaliar_gates,
     humano_na_conversa,
 )
-from agente.turno.handoff import fazer_handoff
-from agente.turno.jev1 import laudo_do_risco
+from agente.turno.handoff import fazer_handoff, ja_desconfiou, ja_saiu_pelo_teto
+from agente.turno.jev1 import LeituraJev1, desconfia_no_limiar, laudo_do_risco
 from agente.turno.liberacao import modo_da_conversa
 from agente.turno.redacao import Redacao, anexar_recebedor, montar_pedido, redigir_validado
 from agente.turno.transcricao import (
@@ -285,7 +285,18 @@ def _handoff(
     agora: datetime,
     laudos: list[Laudo] | None = None,
     laudo_id: int | None = None,
+    *,
+    leitura: LeituraJev1 | None = None,
+    enviar_mensagem: bool = True,
 ) -> None:
+    """A saída para o humano. A mensagem sai sem link (D44) se o motivo é da lista, se a conversa já
+    saiu por um motivo da lista, ou se o Jev 1 deste turno deu `desconfia_golpe` sim, seja qual
+    for o motivo que venceu: quem desconfia de golpe não recebe link."""
+    sem_link = (
+        motivo in deps.politica.motivos_humano_no_whatsapp
+        or ja_desconfiou(sessao, conversa, deps.politica)
+        or (leitura is not None and desconfia_no_limiar(leitura, deps.politica))
+    )
     fazer_handoff(
         sessao,
         deps.chatwoot,
@@ -297,6 +308,8 @@ def _handoff(
         agora,
         laudo_id=laudo_id,
         webchat=deps.webchat,
+        sem_link=sem_link,
+        enviar_mensagem=enviar_mensagem,
     )
 
 
@@ -478,7 +491,7 @@ def _agir(
         _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
         saida, resultado = "LLM", ResultadoTurno.ENVIADO
     elif redacao.motivo is not None:
-        _handoff(sessao, conversa, redacao.motivo, deps, agora)
+        _handoff(sessao, conversa, redacao.motivo, deps, agora, leitura=avaliacao.leitura)
         saida, resultado = "HANDOFF", ResultadoTurno.HANDOFF
     elif not _ja_saiu_resposta_segura(sessao, conversa.id):
         # Reprovou duas vezes: a resposta segura do catálogo, uma vez por conversa (seção 6).
@@ -488,7 +501,16 @@ def _agir(
     else:
         laudos = [laudo for laudo, _ in reprovados]
         laudo_id = reprovados[0][1] if reprovados else None
-        _handoff(sessao, conversa, MotivoHumano.VALIDACAO, deps, agora, laudos, laudo_id)
+        _handoff(
+            sessao,
+            conversa,
+            MotivoHumano.VALIDACAO,
+            deps,
+            agora,
+            laudos,
+            laudo_id,
+            leitura=avaliacao.leitura,
+        )
         saida, resultado = "HANDOFF", ResultadoTurno.HANDOFF
     if redacao.texto is None:
         # O savepoint desfez a ação: o turno não registra degrau, link nem Pix que não valem.
@@ -526,7 +548,16 @@ def _seguir(
         if avaliacao.causa is not None:
             batch, laudo = avaliacao.causa
             laudos, laudo_id = [laudo], ids[(batch, laudo.pergunta)]
-        _handoff(sessao, conversa, avaliacao.motivo, deps, agora, laudos, laudo_id)
+        _handoff(
+            sessao,
+            conversa,
+            avaliacao.motivo,
+            deps,
+            agora,
+            laudos,
+            laudo_id,
+            leitura=avaliacao.leitura,
+        )
         return _fechar(sessao, turno, ResultadoTurno.HANDOFF, avaliacao, {}, agora)
     if avaliacao.acao is Acao.NONE:
         # Não agir: nada é redigido nem enviado, mas a objeção respondida com NONE também conta.
@@ -958,6 +989,19 @@ def _rodar_turno(
     if deps.modo is Modo.SOMBRA:
         return fechar(ResultadoTurno.SOMBRA)
     if isinstance(gate, Fixa) and gate.tipo is TipoFixa.CANAL_EXTERNO:
+        if ja_saiu_pelo_teto(sessao, conversa):
+            # Já recebeu a 6ª e o atendente devolveu a conversa ao robô: volta ao humano, sem
+            # repetir a mensagem nem o link.
+            _handoff(sessao, conversa, MotivoHumano.TETO, deps, agora, enviar_mensagem=False)
+            fechar_turno(
+                sessao,
+                turno.id,
+                ResultadoTurno.HANDOFF,
+                acao_principal=rotulo_humano(MotivoHumano.TETO),
+                redacao={"saida": "HANDOFF"},
+                momento=agora,
+            )
+            return ResultadoTurno.HANDOFF
         _handoff(sessao, conversa, MotivoHumano.TETO, deps, agora)
         return fechar(ResultadoTurno.FIXA)
     if isinstance(gate, Retomar):

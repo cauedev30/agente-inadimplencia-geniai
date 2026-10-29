@@ -100,13 +100,15 @@ def test_abaixo_do_teto_segue(sessao, conversa, politica):
     assert _avaliar(sessao, conversa, [_cliente(sessao, conversa)], politica) == Seguir()
 
 
-def test_depois_da_6a_fixa_ignora(sessao, conversa, politica):
+def test_no_teto_a_fixa_sai_mesmo_depois_de_outra_fixa(sessao, conversa, politica):
+    # Uma fixa anterior (a de desconfiança, por exemplo) não encerra o teto: quem decide o que
+    # sai na 6ª, ou se nada sai, é o orquestrador.
     _agente(sessao, conversa, politica.teto_resolucao)
     registrar_mensagem(
         sessao, conversa.id, OrigemMensagem.FIXA, "canal externo", None, False, SEGUNDA_10H
     )
     resultado = _avaliar(sessao, conversa, [_cliente(sessao, conversa)], politica)
-    assert resultado == Ignorar("teto_encerrado")
+    assert resultado == Fixa(TipoFixa.CANAL_EXTERNO)
 
 
 def test_ordem_humano_vem_antes_da_janela(sessao, conversa, politica):

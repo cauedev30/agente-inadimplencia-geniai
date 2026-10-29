@@ -178,7 +178,8 @@ def anexar_recebedor(texto: str, numeros: Numeros, politica: Politica) -> str:
     if numeros.br_code is None or not politica.pix_recebedor:
         return texto
     frase = politica.texto_pix_recebedor.replace("{recebedor}", politica.pix_recebedor)
-    return f"{texto} {frase}"
+    # Em linha separada, para não ir junto quando o cliente copia o código Pix.
+    return f"{texto}\n\n{frase}"
 
 
 def montar_pedido(

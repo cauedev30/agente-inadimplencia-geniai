@@ -199,6 +199,24 @@ class Politica(_Imutavel):
 
     _normalizar_equipe = field_validator("telefones_equipe")(_em_e164)
 
+    @field_validator("motivos_humano_no_whatsapp")
+    @classmethod
+    def _sem_o_teto_no_whatsapp(cls, valor: frozenset[MotivoHumano]):
+        if MotivoHumano.TETO in valor:
+            raise ValueError("TETO não pode ficar no WhatsApp: a 6ª mensagem leva o link (D33)")
+        return valor
+
+    @field_validator("limiares_jev1")
+    @classmethod
+    def _um_limiar_por_gatilho(cls, valor: dict[str, Limiar]):
+        # Fora do topo do módulo: o jev1 importa a política.
+        from agente.turno.jev1 import GATILHOS
+
+        faltando = sorted(set(GATILHOS.values()) - set(valor))
+        if faltando:
+            raise ValueError(f"faltam os limiares: {', '.join(faltando)}")
+        return valor
+
     @field_validator("texto_pix_recebedor")
     @classmethod
     def _traz_o_recebedor(cls, valor: str) -> str:

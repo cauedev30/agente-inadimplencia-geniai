@@ -384,7 +384,7 @@ def test_a_resposta_ao_toque_traz_a_frase_do_recebedor(sessao, ligada, cliente, 
     [pix] = deps.pix.cobrancas.values()
     [texto] = deps.chatwoot.enviadas(555)
     frase = f"Ao colar o código no seu banco, confira que o recebedor é {recebedor}."
-    assert pix.br_code in texto and texto.endswith(f" {frase}")
+    assert pix.br_code in texto and texto.endswith(f"\n\n{frase}")
     [mensagem] = sessao.scalars(
         select(Mensagem).where(Mensagem.origem == OrigemMensagem.AGENTE)
     ).all()
