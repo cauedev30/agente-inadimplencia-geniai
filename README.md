@@ -23,7 +23,8 @@ padrão usado até a resposta, em [`docs/duvidas.md`](docs/duvidas.md).
 | [`docs/spec.md`](docs/spec.md) | O produto: o problema, o escopo e as regras da conversa |
 | [`docs/arquitetura.md`](docs/arquitetura.md) | Como um turno funciona: gates, Jev 1, 2 e 3, estados, ações e entrada em fases |
 | [`docs/arquitetura/agente-inadimplente-jev.excalidraw`](docs/arquitetura/agente-inadimplente-jev.excalidraw) | O desenho da arquitetura (abra em [excalidraw.com](https://excalidraw.com)) |
-| ⭐ [`docs/ideia-webchat.md`](docs/ideia-webchat.md) | **Ideia em avaliação, com prioridade alta:** atendimento humano por webchat no lugar de outro WhatsApp |
+| ⭐ [`docs/ideia-webchat.md`](docs/ideia-webchat.md) | **Aprovada (D32):** atendimento humano por webchat no lugar de outro WhatsApp |
+| ⭐ [`docs/ideia-waha.md`](docs/ideia-waha.md) | **Provável, não implementada (C6):** o humano num número WAHA no Chatwoot, sem link, no lugar do webchat |
 | [`docs/decisoes.md`](docs/decisoes.md) | Decisões numeradas (D1, D2, …), com data |
 | [`docs/duvidas.md`](docs/duvidas.md) | Perguntas em aberto, separadas por quem responde |
 | [`docs/comparacao-llm.md`](docs/comparacao-llm.md) | Por que o redator é o `gpt-6-luna`: as duas rodadas de comparação dos LLMs, com os resultados brutos |

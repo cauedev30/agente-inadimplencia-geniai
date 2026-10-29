@@ -383,6 +383,14 @@ de novo. **Padrão sugerido (2026-10-29), que o Cauê vai seguir, mas ainda não
 Muda o Jev 1/2 (uma ação nova ou um estado de pausa), o redator e a régua. Vira decisão (D45) quando o
 Cauê trouxer para o Plan Mode, no Opus.
 
+### C6. O humano num número WAHA, no lugar do webchat
+
+O link do webchat pode não converter: um link na conversa de quem deve gera suspeita. **Direção
+provável (2026-10-29), não implementada:** a 6ª mensagem manda um cartão de contato de um segundo
+número, fora da API oficial, ligado ao Chatwoot pelo WAHA. O backend acha a cobrança pelo telefone e
+deixa a nota com o resumo. Desenho, riscos e a alternativa (o humano no próprio número oficial) em
+[`ideia-waha.md`](ideia-waha.md). Revisa a D32 e a D19 quando virar decisão; até lá vale o webchat.
+
 ### C4. Comportamentos do turno ativo
 
 **Respondida pelo Cauê em 2026-10-22 → D38:** os padrões abaixo ficam valendo.

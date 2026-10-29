@@ -3,6 +3,9 @@
 > **Status: aprovado em 2026-10-21 → D32.** A operação aceitou que o atendimento humano saia do
 > WhatsApp para um canal externo, com rodízio igualitário entre os atendentes. Das perguntas do fim
 > deste documento, a 1 está respondida; as outras três continuam na G7 de [`duvidas.md`](duvidas.md).
+>
+> **2026-10-29:** provável troca por um número WAHA no Chatwoot, sem link
+> ([`ideia-waha.md`](ideia-waha.md), C6). Até virar decisão, vale o webchat.
 
 ## A ideia
 
