@@ -198,9 +198,18 @@ isso.
 
 ## T10 — Jev a partir do Python
 
-**Precisamos de:** como o Python chama o Jev. Pode ser por HTTP direto à Vercel AI Gateway, se ela
-expuser o endpoint de avaliação. Ou pode ser por um serviço mínimo em Node ao lado, com o
-`experimental_evaluate` do AI SDK. A LGPD pede Zero Data Retention e No Training em cada chamada (D12).
+**Como chamar (2026-10-29):** a Vercel AI Gateway expõe o Jev por HTTP, sem serviço em Node:
+
+```bash
+curl https://ai-gateway.vercel.sh/v1/evaluate   -H "Authorization: Bearer $AI_GATEWAY_API_KEY" -H "Content-Type: application/json"   -d '{"model": "typesafe-ai/jev", "state": "...",
+       "questions": {"x": {"type": "boolean", "instructions": "..."}},
+       "providerOptions": {"gateway": {"zeroDataRetention": true, "only": ["typesafe-ai"]}}}'
+```
+
+As perguntas são `boolean` (devolve `probability`), `choice` (devolve `choice` e `probabilities`) e `score`;
+o `state` aceita texto, objeto ou lista. Fonte: <https://vercel.com/docs/ai-gateway/modalities/decision>.
+**Precisamos de:** a `AI_GATEWAY_API_KEY` (conta Vercel que paga a T5) e a confirmação de que o
+`typesafe-ai/jev` está liberado nela. A LGPD pede Zero Data Retention e No Training em cada chamada (D12).
 
 **Implementar** `Jev` (`integracoes/jev.py`):
 - `origem`: o identificador do Jev real. Ele separa os laudos da falsa na calibração;

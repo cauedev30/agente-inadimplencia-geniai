@@ -312,6 +312,15 @@ direto nele.
 
 ### T10. Jev a partir do Python
 
+**Atualização de 2026-10-29:** a Vercel AI Gateway tem **API HTTP** para o Jev (`POST
+https://ai-gateway.vercel.sh/v1/evaluate`, com o modelo `typesafe-ai/jev`), então o Python chama direto,
+sem serviço em Node. A chave é a `AI_GATEWAY_API_KEY` da conta Vercel, e o corpo aceita
+`providerOptions.gateway.zeroDataRetention: true` (D12). Fonte:
+<https://vercel.com/docs/ai-gateway/modalities/decision> (última atualização 2026-10-07). *A confirmar*
+com a chave: a conta tem o modelo liberado (há relato de 403 em conta Hobby) e as respostas encaixam no
+`ContratoJev`. No OpenRouter só há o `typesafe/jev-router`, um roteador de chat, que não é a API de
+decisão que usamos.
+
 O acesso ao Jev é pela Vercel AI Gateway, com o `experimental_evaluate` do AI SDK 7, que é TypeScript
 (arquitetura, seção 9). O serviço é em Python (D7). **Como o Python chama o Jev:** por HTTP direto ao
 gateway, se ele expuser o endpoint de avaliação, ou por um serviço mínimo em Node ao lado? Até
@@ -357,6 +366,22 @@ sair um template. **Padrão até você decidir:** um template de retomada pelo d
 
 Já existe um caso parecido: a resposta do agente que ficou pronta e não saiu antes de fechar a janela de
 24h é descartada hoje, sem template (2026-10-22). Entra na mesma decisão.
+
+### C5. O cliente que adia o pagamento
+
+Quem diz "recebo dia 10, aí eu pago" não está desenhado na spec. Hoje o Jev 2 decide `NONE`, o agente
+fica calado e a régua segue: a próxima cobrança sai no dia normal, o que soa como ser ignorado e cobrado
+de novo. **Padrão sugerido (2026-10-29), que o Cauê vai seguir, mas ainda não implementado:**
+
+1. **Responder uma vez**, curto e sem prometer nada ("Certo, deixo o link aqui para quando você puder"),
+   com o link ou o Pix já pronto. O Jev 3 reprova `promessa_indevida` (prazo extra): o texto reconhece a
+   data **dele** sem confirmar que o prazo vale.
+2. **Pausar as cobranças** até o dia seguinte à data dita; sem data, por um padrão curto (3 dias).
+3. **Retomar a régua** depois da data, se não houver pagamento. Se ele adiar de novo, vai ao humano.
+4. **Em aberto:** a pausa conta no teto de 5 mensagens? É política (Cauê ou gestor).
+
+Muda o Jev 1/2 (uma ação nova ou um estado de pausa), o redator e a régua. Vira decisão (D45) quando o
+Cauê trouxer para o Plan Mode, no Opus.
 
 ### C4. Comportamentos do turno ativo
 
