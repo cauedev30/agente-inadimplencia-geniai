@@ -5,3 +5,5 @@ __pycache__/
 .ruff_cache/
 .env
 *.db
+# Reprodução da pré-sombra: banco e folha com dado de cliente (repositório público)
+pre-sombra/

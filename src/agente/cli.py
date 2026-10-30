@@ -1,11 +1,14 @@
 """Comandos do agente: `agente importar` (a carteira), `agente disparar` (as aberturas),
-`agente simular` (as conversas simuladas) e `agente comparar-redatores` (a escolha do LLM, T6).
+`agente simular` (as conversas simuladas), `agente comparar-redatores` (a escolha do LLM, T6) e
+`agente reproduzir` (a pré-sombra: as conversas reais do Chatwoot, só lidas, pelo turno em sombra).
 """
 
 import argparse
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import httpx
 
 from agente.abertura.disparar import disparar_aberturas
 from agente.carteira.importar import importar_carteira
@@ -15,12 +18,15 @@ from agente.comparacao import (
     formatar_comparacao,
     ler_candidato,
 )
-from agente.config import ConfigPolitica, ConfigRedator, carregar_config
+from agente.config import Config, ConfigPolitica, ConfigRedator, carregar_config
 from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.redator import RedatorOpenAI
 from agente.politica import carregar_politica
+from agente.reproducao.chatwoot_leitura import ChatwootLeitura
+from agente.reproducao.folha import escrever_folha
+from agente.reproducao.reproduzir import formatar_relatorio_reproducao, reproduzir
 from agente.simulacao import (
     DependenciasSimulacao,
     carregar_casos,
@@ -111,6 +117,72 @@ def _comparar(argumentos: argparse.Namespace) -> int:
     return 0
 
 
+def _agora() -> datetime:
+    return datetime.now(UTC)
+
+
+def _abrir_leitura(config: Config) -> ChatwootLeitura:
+    """A leitura do Chatwoot com as variáveis `AGENTE_CHATWOOT_*` (o teste troca o transporte)."""
+    return ChatwootLeitura(config.chatwoot_url, config.chatwoot_conta, config.chatwoot_token)
+
+
+def _reproduzir(argumentos: argparse.Namespace) -> int:
+    saida: Path = argumentos.saida
+    banco, folha = saida / "reproducao.db", saida / "folha.md"
+    # O banco da reprodução é o SQLite da pasta de saída, nunca o AGENTE_DATABASE_URL do serviço.
+    config = Config(database_url=f"sqlite:///{banco.as_posix()}")
+    faltam = [
+        nome
+        for nome, valor in (
+            ("AGENTE_CHATWOOT_URL", config.chatwoot_url),
+            ("AGENTE_CHATWOOT_CONTA", config.chatwoot_conta),
+            ("AGENTE_CHATWOOT_INBOX", config.chatwoot_inbox),
+            ("AGENTE_CHATWOOT_TOKEN", config.chatwoot_token),
+        )
+        if valor is None
+    ]
+    if faltam:
+        print(f"Defina {', '.join(faltam)} para ler o Chatwoot.")
+        return 2
+    if argumentos.dias < 1:
+        print("--dias precisa ser ao menos 1.")
+        return 2
+    if not argumentos.carteira.is_file():
+        print(f"A carteira {argumentos.carteira} não existe.")
+        return 2
+    # Nada é sobrescrito: o banco mistura duas reproduções e a folha guarda os vereditos do Cauê.
+    existentes = [str(caminho) for caminho in (banco, folha) if caminho.exists()]
+    if existentes:
+        print(f"Já existe {', '.join(existentes)}: use outra pasta em --saida ou apague o arquivo.")
+        return 2
+    politica = carregar_politica(config.politica_path)
+    saida.mkdir(parents=True, exist_ok=True)
+    print("Só lê o Chatwoot (GET); nada é enviado nem escrito lá. Jev falso até a T10.")
+    desde = _agora() - timedelta(days=argumentos.dias)
+    try:
+        with _abrir_leitura(config) as leitura:
+            relatorio = reproduzir(leitura, argumentos.carteira, desde, banco, politica, config)
+    except httpx.HTTPStatusError as erro:
+        # Nunca o endereço nem o cabeçalho: só o código.
+        print(
+            f"O Chatwoot respondeu {erro.response.status_code}: confira URL, conta, inbox e token."
+        )
+        print(f"Apague {banco} antes de tentar de novo.")
+        return 1
+    except httpx.HTTPError as erro:
+        print(f"Falha de rede ao ler o Chatwoot ({type(erro).__name__}).")
+        print(f"Apague {banco} antes de tentar de novo.")
+        return 1
+    with criar_sessao(config.database_url)() as sessao:
+        turnos = escrever_folha(
+            sessao, folha, amostra=argumentos.amostra, nomes=relatorio.nomes_dos_contatos
+        )
+    print(formatar_relatorio_reproducao(relatorio))
+    print(f"folha: {folha} ({turnos} turnos; tem dado de cliente mascarado, não vai ao git)")
+    print(f"banco: {banco}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # O console do Windows não usa UTF-8 por padrão e quebra os acentos.
     if hasattr(sys.stdout, "reconfigure"):
@@ -141,6 +213,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     comparar.add_argument("--politica", type=Path, help="padrão: AGENTE_POLITICA_PATH")
     comparar.set_defaults(rodar=_comparar)
+    reproduzir_ = comandos.add_parser(
+        "reproduzir",
+        help="reproduz as conversas do Chatwoot em modo sombra e escreve a folha de revisão",
+    )
+    reproduzir_.add_argument("--carteira", type=Path, required=True, help="CSV da carteira")
+    reproduzir_.add_argument("--dias", type=int, default=3, help="quantos dias para trás (3)")
+    reproduzir_.add_argument(
+        "--saida", type=Path, required=True, help="pasta nova ou vazia, fora do git"
+    )
+    reproduzir_.add_argument("--amostra", type=int, default=50, help="turnos na folha (50)")
+    reproduzir_.set_defaults(rodar=_reproduzir)
     argumentos = parser.parse_args(argv)
     return argumentos.rodar(argumentos)
 

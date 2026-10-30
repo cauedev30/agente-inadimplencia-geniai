@@ -56,6 +56,29 @@ uv run agente simular tests/conversas                     # roda as conversas si
 uv run agente comparar-redatores tests/conversas --modelo gpt-6-luna:0.10:0.50  # compara os LLMs (T6); exige AGENTE_LLM_API_KEY
 ```
 
+## Pré-sombra: reproduzir conversas reais
+
+```bash
+uv run agente reproduzir --carteira pre-sombra/carteira.csv --dias 3 --saida pre-sombra/2026-10-30
+```
+
+O comando lê do Chatwoot as conversas da inbox dos últimos dias (`AGENTE_CHATWOOT_URL`, `_CONTA`,
+`_INBOX` e `_TOKEN`; o token é de um usuário só da inbox) e as passa, em ordem de tempo, pelo mesmo
+caminho do serviço, em modo sombra e com o Jev falso. **Só lê o Chatwoot** (GET): nada é enviado nem
+escrito lá, e o áudio não é transcrito. Ele imprime o relatório agregado (contagens, sem texto nem
+telefone) e grava na pasta de `--saida`:
+
+- `reproducao.db`: o banco SQLite da reprodução (um banco novo a cada execução; o comando recusa o que já
+  existe);
+- `folha.md`: a folha de revisão, com até 50 turnos sorteados (`--amostra`), cada um com a mensagem do
+  cliente, o que o agente teria feito e a resposta seguinte do atendente, para dar o veredito (`ok`,
+  `errado` ou `perigoso`) e uma nota.
+
+Os dois arquivos têm dado de cliente. A folha mascara telefone, CPF e o nome do contato, mas o texto
+continua sendo conversa de cliente, e o banco guarda tudo sem máscara. **Mantenha-os na pasta
+`pre-sombra/`, que fica fora do git (este repositório é público), e não os envie a lugar nenhum.** Durante
+a reprodução, o log também não leva o stack trace nem a mensagem das exceções, só o tipo do erro.
+
 ## Deploy
 
 O serviço roda em modo sombra até o Chatwoot (T3), o Jev real (T10) e o servidor (T2) estarem

@@ -295,3 +295,28 @@ def reproduzir(
         relatorio.mensagens,
     )
     return relatorio
+
+
+def formatar_relatorio_reproducao(relatorio: RelatorioReproducao) -> str:
+    """O relatório agregado para o terminal: contagens e rótulos, sem texto, nome nem telefone."""
+
+    def contagens(valores: dict[str, int]) -> str:
+        return ", ".join(f"{rotulo}: {n}" for rotulo, n in sorted(valores.items())) or "nenhum"
+
+    return "\n".join(
+        [
+            f"carteira: {relatorio.carteira_criadas} importadas, "
+            f"{relatorio.carteira_rejeitadas} rejeitadas",
+            f"conversas: {relatorio.conversas_lidas} lidas, {relatorio.conversas_cruzadas} "
+            f"cruzadas com a carteira, {relatorio.conversas_sem_telefone} sem telefone",
+            f"mensagens: {relatorio.mensagens} ({relatorio.mensagens_ignoradas} ignoradas)",
+            f"eventos: {contagens(relatorio.eventos)}",
+            f"turnos por resultado: {contagens(relatorio.turnos_por_resultado)}",
+            f"turnos por ação: {contagens(relatorio.turnos_por_acao)}",
+            f"turnos por gatilho: {contagens(relatorio.turnos_por_gatilho)}",
+            f"adiados pela janela: {relatorio.adiados}",
+            f"erros por tipo: {contagens(relatorio.erros_por_tipo)}",
+            f"chamadas ao Chatwoot falso: {relatorio.chamadas_ao_chatwoot}; "
+            f"templates enviados: {relatorio.templates_enviados}",
+        ]
+    )
