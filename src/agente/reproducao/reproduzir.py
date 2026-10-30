@@ -12,7 +12,8 @@ de revisão (tarefa 10.4) é do Cauê.
 
 import logging
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,6 +79,39 @@ class RelatorioReproducao:
     # O id da conversa no Chatwoot -> o nome do contato, só para a folha o mascarar. Fica na
     # memória: fora do `repr`, e o relatório impresso (`formatar_relatorio_reproducao`) não o lê.
     nomes_dos_contatos: dict[int, str] = field(default_factory=dict, repr=False, compare=False)
+
+
+@contextmanager
+def _log_sem_detalhe_de_erro() -> Iterator[None]:
+    """Durante a reprodução, o log não leva o traceback nem a mensagem de uma exceção.
+
+    Os dados são conversas reais de clientes, e a mensagem ou o trace de uma exceção de código pode
+    trazer um trecho delas (a máscara do log só cobre telefone e CPF). O registro fica só com o tipo
+    do erro. A fábrica de registros vale para todos os loggers e é restaurada ao sair: o log do
+    serviço em produção não muda.
+    """
+    anterior = logging.getLogRecordFactory()
+
+    def fabrica(*args, **kwargs) -> logging.LogRecord:
+        registro = anterior(*args, **kwargs)
+        erro = registro.exc_info[0] if registro.exc_info else None
+        if erro is not None:
+            if isinstance(registro.args, tuple):
+                registro.args = tuple(
+                    type(arg).__name__ if isinstance(arg, BaseException) else arg
+                    for arg in registro.args
+                )
+            registro.msg = f"{registro.msg} [{erro.__name__}]"
+        registro.exc_info = None
+        registro.exc_text = None
+        registro.stack_info = None
+        return registro
+
+    logging.setLogRecordFactory(fabrica)
+    try:
+        yield
+    finally:
+        logging.setLogRecordFactory(anterior)
 
 
 class _Relogio:
@@ -178,6 +212,7 @@ def _resumir(
     relatorio.erros_por_tipo = dict(erros)
 
 
+@_log_sem_detalhe_de_erro()
 def reproduzir(
     leitura: ChatwootLeitura,
     carteira_csv: Path,

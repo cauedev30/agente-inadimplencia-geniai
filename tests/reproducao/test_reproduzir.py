@@ -1,6 +1,7 @@
 """A reprodução da pré-sombra (tarefa 10.3): as conversas do Chatwoot pelo turno em modo sombra."""
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -226,6 +227,51 @@ def test_o_erro_do_turno_entra_no_relatorio_pelo_tipo(banco, politica, config):
     # Duas tentativas falham com o erro; a 3ª esgota o teto e o turno sai da fila (ERRO_INTERNO).
     assert relatorio.erros_por_tipo == {"RuntimeError": 2, "ERRO_INTERNO": 1}
     assert "segredo" not in repr(relatorio)
+
+
+def test_o_log_da_reproducao_nao_leva_traceback_nem_a_mensagem_da_excecao(
+    banco, politica, config, caplog
+):
+    sensivel = "trecho de conversa do cliente que não pode ir ao log"
+    jev = JevFalso(falha=RuntimeError(sensivel))
+    mensagens = [mensagem(9711, 911, 0, "oi", T)]
+    caplog.set_level(logging.DEBUG)
+
+    _reproduzir(
+        ChatwootSimulado([conversa(911, T + 60)], {911: mensagens}), banco, politica, config, jev
+    )
+
+    # O erro foi registrado (o tipo fica no log), mas sem o stack trace nem a mensagem.
+    erros = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert erros
+    assert all("RuntimeError" in r.getMessage() for r in erros if "falhou" in r.getMessage())
+    assert sensivel not in caplog.text
+    for registro in caplog.records:
+        assert sensivel not in registro.getMessage()
+        assert not registro.exc_info
+        assert not registro.exc_text
+        assert not registro.stack_info
+        assert "Traceback" not in registro.getMessage()
+    assert "Traceback" not in caplog.text
+
+
+def test_depois_da_reproducao_o_log_volta_a_ter_o_traceback(banco, politica, config, caplog):
+    fabrica_antes = logging.getLogRecordFactory()
+    jev = JevFalso(falha=RuntimeError("falha de teste"))
+    mensagens = [mensagem(9712, 912, 0, "oi", T)]
+    _reproduzir(
+        ChatwootSimulado([conversa(912, T + 60)], {912: mensagens}), banco, politica, config, jev
+    )
+
+    # A fábrica de registros é a de antes: em produção o log não muda.
+    assert logging.getLogRecordFactory() is fabrica_antes
+    try:
+        raise ValueError("outra falha")
+    except ValueError:
+        logging.getLogger("teste").exception("com traceback")
+    registro = caplog.records[-1]
+    assert registro.exc_info is not None
+    assert "outra falha" in caplog.text
 
 
 def test_o_audio_sem_transcritor_nao_quebra_a_reproducao(banco, politica, config):
