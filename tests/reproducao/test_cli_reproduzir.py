@@ -10,6 +10,7 @@ import pytest
 import agente.cli
 from agente.cli import main
 from agente.reproducao.chatwoot_leitura import ChatwootLeitura
+from agente.reproducao.folha import AVISO_CARTEIRA_ESTIMADA
 
 from ..conftest import RAIZ
 from .fabrica import CONTA, INBOX, SEGUNDA_10H, TOKEN, ChatwootSimulado
@@ -258,3 +259,21 @@ def test_dias_precisa_ser_positivo(ambiente, monkeypatch, capsys):
 
     assert codigo == 2
     assert "--dias" in capsys.readouterr().out
+
+
+def test_carteira_estimada_poe_o_aviso_no_alto_da_folha(ambiente, monkeypatch):
+    _com_servidor(monkeypatch, _servidor())
+
+    assert main(_comando(ambiente, "--carteira-estimada")) == 0
+
+    folha = (ambiente / "pre-sombra" / "saida" / "folha.md").read_text(encoding="utf-8")
+    assert AVISO_CARTEIRA_ESTIMADA in folha
+
+
+def test_sem_a_opcao_a_folha_nao_leva_o_aviso(ambiente, monkeypatch):
+    _com_servidor(monkeypatch, _servidor())
+
+    assert main(_comando(ambiente)) == 0
+
+    folha = (ambiente / "pre-sombra" / "saida" / "folha.md").read_text(encoding="utf-8")
+    assert AVISO_CARTEIRA_ESTIMADA not in folha

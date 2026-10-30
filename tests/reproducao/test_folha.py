@@ -12,7 +12,7 @@ from agente.config import Config
 from agente.db.sessao import criar_sessao
 from agente.integracoes.jev import JevFalso, responder
 from agente.reproducao.chatwoot_leitura import ChatwootLeitura
-from agente.reproducao.folha import escrever_folha, mascarar_nome
+from agente.reproducao.folha import AVISO_CARTEIRA_ESTIMADA, escrever_folha, mascarar_nome
 from agente.reproducao.reproduzir import RelatorioReproducao, reproduzir
 
 from .amostra import ler_amostra
@@ -279,3 +279,16 @@ def test_a_folha_da_amostra_real_nao_leva_telefone_cpf_nem_nome(tmp_path, politi
             if len(palavra) >= 3 and palavra not in fixas:
                 vazamentos += bool(re.search(rf"(?<!\w){re.escape(palavra)}(?!\w)", bloco.lower()))
     assert vazamentos == 0
+
+
+def test_o_aviso_da_carteira_estimada_fica_no_alto_da_folha(tmp_path, politica, config):
+    servidor = _servidor_com_muitos_turnos(2)
+    _, banco = _rodar(servidor, tmp_path, politica, config)
+
+    sem = _folha(banco, tmp_path / "sem.md")
+    com = _folha(banco, tmp_path / "com.md", aviso=AVISO_CARTEIRA_ESTIMADA)
+
+    assert AVISO_CARTEIRA_ESTIMADA not in sem
+    assert "mensalidades estimadas a partir das conversas, não do sistema do CDT" in com
+    # Antes do primeiro turno, para o Cauê ler antes de dar o veredito.
+    assert com.index(AVISO_CARTEIRA_ESTIMADA) < com.index("## Turno")

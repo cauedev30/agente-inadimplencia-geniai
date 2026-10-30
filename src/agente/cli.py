@@ -25,7 +25,7 @@ from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.redator import RedatorOpenAI
 from agente.politica import carregar_politica
 from agente.reproducao.chatwoot_leitura import ChatwootLeitura
-from agente.reproducao.folha import escrever_folha
+from agente.reproducao.folha import AVISO_CARTEIRA_ESTIMADA, escrever_folha
 from agente.reproducao.reproduzir import formatar_relatorio_reproducao, reproduzir
 from agente.simulacao import (
     DependenciasSimulacao,
@@ -175,7 +175,11 @@ def _reproduzir(argumentos: argparse.Namespace) -> int:
         return 1
     with criar_sessao(config.database_url)() as sessao:
         turnos = escrever_folha(
-            sessao, folha, amostra=argumentos.amostra, nomes=relatorio.nomes_dos_contatos
+            sessao,
+            folha,
+            amostra=argumentos.amostra,
+            nomes=relatorio.nomes_dos_contatos,
+            aviso=AVISO_CARTEIRA_ESTIMADA if argumentos.carteira_estimada else None,
         )
     print(formatar_relatorio_reproducao(relatorio))
     print(f"folha: {folha} ({turnos} turnos; tem dado de cliente mascarado, não vai ao git)")
@@ -223,6 +227,11 @@ def main(argv: list[str] | None = None) -> int:
         "--saida", type=Path, required=True, help="pasta nova ou vazia, fora do git"
     )
     reproduzir_.add_argument("--amostra", type=int, default=50, help="turnos na folha (50)")
+    reproduzir_.add_argument(
+        "--carteira-estimada",
+        action="store_true",
+        help="a carteira veio do estimar-carteira: a folha leva o aviso no alto",
+    )
     reproduzir_.set_defaults(rodar=_reproduzir)
     argumentos = parser.parse_args(argv)
     return argumentos.rodar(argumentos)

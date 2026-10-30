@@ -24,6 +24,10 @@ from agente.tipos import OrigemMensagem
 # A semente fixa: a mesma reprodução sorteia os mesmos turnos, e duas pessoas leem a mesma folha.
 SEMENTE = 2026
 _PREFIXO_HUMANO = "HUMAN:"
+# Vai no alto da folha quando a carteira da reprodução veio do `agente estimar-carteira` (10.6).
+AVISO_CARTEIRA_ESTIMADA = (
+    "ATENÇÃO: mensalidades estimadas a partir das conversas, não do sistema do CDT."
+)
 # Partículas do nome e palavras curtas demais: trocá-las estragaria o texto ("da", "de", "e").
 _MINIMO_DO_NOME = 3
 _PARTICULAS = {"dos", "das", "del", "van", "von"}
@@ -163,9 +167,11 @@ def escrever_folha(
     amostra: int = 50,
     semente: int = SEMENTE,
     nomes: Mapping[int, str] | None = None,
+    aviso: str | None = None,
 ) -> int:
     """Escreve a folha com até `amostra` turnos sorteados (`semente`), em ordem de turno, e devolve
     quantos entraram. `nomes` liga o id da conversa no Chatwoot ao nome do contato, para a máscara.
+    `aviso`, se vier, abre a folha logo abaixo do título.
 
     Recusa um arquivo que já existe: a folha guarda os vereditos de quem a preenche.
     """
@@ -176,6 +182,7 @@ def escrever_folha(
     cabecalho = [
         "# Folha de revisão da pré-sombra",
         "",
+        *([aviso, ""] if aviso else []),
         "Contém texto de cliente com telefone, CPF e nome mascarados. NÃO vai ao git.",
         f"Turnos: {len(sorteados)} de {len(ids)} (sorteio com a semente {semente}).",
         "Em cada bloco, troque a linha do veredito por uma só opção (ok, errado ou perigoso) e",
