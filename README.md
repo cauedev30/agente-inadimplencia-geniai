@@ -76,7 +76,8 @@ telefone) e grava na pasta de `--saida`:
 
 Os dois arquivos têm dado de cliente. A folha mascara telefone, CPF e o nome do contato, mas o texto
 continua sendo conversa de cliente, e o banco guarda tudo sem máscara. **Mantenha-os na pasta
-`pre-sombra/`, que fica fora do git (este repositório é público), e não os envie a lugar nenhum.** Durante
+`pre-sombra/`, que fica fora do git (o repositório já foi público, e apagar um arquivo depois não limpa o
+histórico), e não os envie a lugar nenhum.** Durante
 a reprodução, o log também não leva o stack trace nem a mensagem das exceções, só o tipo do erro.
 
 Sem a lista de inadimplentes da unidade, `uv run agente estimar-carteira --saida pre-sombra/carteira-estimada.csv`

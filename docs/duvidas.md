@@ -89,6 +89,10 @@ sábado das 8h às 12h (D11) continua?
 2. **Quais informações** ela tem? Nome, telefone, valor, vencimento, dias de atraso, número do contrato,
    CPF?
 3. **Com que frequência** ela é atualizada: diária, semanal, a cada campanha?
+4. **A unidade tem uma lista hoje? Respondida em 2026-10-30: não.** O JP Sul não tem lista de
+   inadimplentes. Para a pré-sombra, a carteira é estimada das conversas (`agente estimar-carteira`): o
+   valor que o atendente cobrou, dividido pela mensalidade (D24). Não vale para a sombra ao vivo, que
+   continua pedindo a lista do CTN (T9).
 
 ### G6. Mensagem de abertura
 
@@ -188,6 +192,13 @@ Em qual servidor o serviço roda (D1), e quem é o responsável por ele?
 
 Qual **conta e qual inbox** do Chatwoot o agente atende como Agent Bot? Quem cria o Agent Bot e passa o
 token?
+
+*(2026-10-30, lido com um token de agente, só GET:)* a conta é a 7, "CDT JP Sul", com 6 inboxes `Channel::Api`
+(`cdt_jpsul_dial…`); 3 têm movimento: 198, 222 e 221. **Nenhuma é exclusiva da cobrança**: o mesmo
+atendimento trata vendas, cobrança e dúvidas. Na amostra de 400 conversas por inbox, a cobrança aparece em
+58% da 198, 33% da 222 e 19% da 221. Falta saber por qual inbox o agente deve atender (a 198 é a candidata)
+e se a cobrança ativa sai por outro canal. O token usado é de agente e enxerga as 6 inboxes; o plano pedia
+um usuário restrito à inbox.
 
 ### T4. API do disparador
 
