@@ -1,0 +1,126 @@
+{
+ "conversa": {
+  "id": 901,
+  "inbox_id": 198,
+  "account_id": 7,
+  "status": "open",
+  "labels": [],
+  "messages": [],
+  "meta": {
+   "sender": {
+    "id": 9,
+    "name": "Fulano Inventado",
+    "phone_number": "+5583999990001"
+   },
+   "channel": "Channel::Whatsapp"
+  },
+  "created_at": 1793019000,
+  "last_activity_at": 1793020500,
+  "timestamp": 1793020500
+ },
+ "mensagens": [
+  {
+   "id": 9001,
+   "content": "[template de abertura]",
+   "inbox_id": 198,
+   "conversation_id": 901,
+   "message_type": 3,
+   "content_type": "text",
+   "status": "sent",
+   "content_attributes": {},
+   "created_at": 1793019000,
+   "private": false,
+   "source_id": null,
+   "sender": {
+    "id": 1,
+    "name": "Fulano Inventado",
+    "type": "user"
+   }
+  },
+  {
+   "id": 9002,
+   "content": "Conversa aberta",
+   "inbox_id": 198,
+   "conversation_id": 901,
+   "message_type": 2,
+   "content_type": "text",
+   "status": "sent",
+   "content_attributes": {},
+   "created_at": 1793019001,
+   "private": false,
+   "source_id": null
+  },
+  {
+   "id": 9003,
+   "content": "quanto eu devo?",
+   "inbox_id": 198,
+   "conversation_id": 901,
+   "message_type": 0,
+   "content_type": "text",
+   "status": "sent",
+   "content_attributes": {},
+   "created_at": 1793019600,
+   "private": false,
+   "source_id": null,
+   "sender": {
+    "id": 1,
+    "name": "Fulano Inventado",
+    "type": "contact"
+   }
+  },
+  {
+   "id": 9004,
+   "content": "pode ser pelo pix",
+   "inbox_id": 198,
+   "conversation_id": 901,
+   "message_type": 0,
+   "content_type": "text",
+   "status": "sent",
+   "content_attributes": {},
+   "created_at": 1793019603,
+   "private": false,
+   "source_id": null,
+   "sender": {
+    "id": 1,
+    "name": "Fulano Inventado",
+    "type": "contact"
+   }
+  },
+  {
+   "id": 9005,
+   "content": "Posso ajudar em algo mais?",
+   "inbox_id": 198,
+   "conversation_id": 901,
+   "message_type": 1,
+   "content_type": "text",
+   "status": "sent",
+   "content_attributes": {},
+   "created_at": 1793019900,
+   "private": false,
+   "source_id": null,
+   "sender": {
+    "id": 1,
+    "name": "Fulano Inventado",
+    "type": "user"
+   }
+  },
+  {
+   "id": 9006,
+   "content": "obrigado",
+   "inbox_id": 198,
+   "conversation_id": 901,
+   "message_type": 0,
+   "content_type": "text",
+   "status": "sent",
+   "content_attributes": {},
+   "created_at": 1793020500,
+   "private": false,
+   "source_id": null,
+   "sender": {
+    "id": 1,
+    "name": "Fulano Inventado",
+    "type": "contact"
+   }
+  }
+ ]
+}
