@@ -8,7 +8,7 @@ O formato é o da API real (confirmado em 2026-10-30 com 30 conversas): o telefo
 em `meta.sender.phone_number` da conversa, e a mensagem traz `message_type` numérico.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import httpx
@@ -31,6 +31,9 @@ class ConversaLida:
     telefone: str | None
     criada_em: datetime
     ultima_atividade_em: datetime
+    # O nome do contato (`meta.sender.name`) só serve para a folha de revisão o mascarar. Fora do
+    # `repr`: um erro, um log ou o relatório do pytest nunca o imprimem.
+    nome: str | None = field(default=None, repr=False)
 
 
 def _instante(segundos: int | float) -> datetime:
@@ -48,6 +51,7 @@ def conversa_lida(bruta: dict) -> ConversaLida:
         telefone=contato.get("phone_number") or None,
         criada_em=_instante(bruta["created_at"]),
         ultima_atividade_em=_instante(atividade),
+        nome=contato.get("name") or None,
     )
 
 

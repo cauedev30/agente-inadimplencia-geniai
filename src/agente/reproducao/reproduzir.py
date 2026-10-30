@@ -75,6 +75,9 @@ class RelatorioReproducao:
     # A prova de que nada saiu: as falsas contam o que receberiam.
     chamadas_ao_chatwoot: int = 0
     templates_enviados: int = 0
+    # O id da conversa no Chatwoot -> o nome do contato, só para a folha o mascarar. Fica na
+    # memória: fora do `repr`, e o relatório impresso (`formatar_relatorio_reproducao`) não o lê.
+    nomes_dos_contatos: dict[int, str] = field(default_factory=dict, repr=False, compare=False)
 
 
 class _Relogio:
@@ -207,6 +210,7 @@ def reproduzir(
 
     conversas = leitura.conversas(config.chatwoot_inbox, desde)
     relatorio.conversas_lidas = len(conversas)
+    relatorio.nomes_dos_contatos = {lida.id: lida.nome for lida in conversas if lida.nome}
     relatorio.conversas_sem_telefone = sum(1 for lida in conversas if not lida.telefone)
     relatorio.conversas_cruzadas = sum(
         1 for lida in conversas if normalizar_telefone(lida.telefone or "") in telefones

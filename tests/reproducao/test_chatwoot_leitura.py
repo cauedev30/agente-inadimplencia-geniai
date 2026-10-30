@@ -57,7 +57,10 @@ def test_conversas_devolve_o_telefone_do_meta_e_os_instantes():
         telefone=TELEFONE,
         criada_em=datetime.fromtimestamp(SEGUNDA_10H - 900, UTC),
         ultima_atividade_em=datetime.fromtimestamp(SEGUNDA_10H, UTC),
+        nome="Fulano Inventado",
     )
+    # O nome do contato não aparece no repr (vai a log e a relatório de erro).
+    assert "Fulano" not in repr(lida)
 
 
 def test_conversa_sem_telefone_vem_com_telefone_none():
