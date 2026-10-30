@@ -16,6 +16,10 @@ import httpx
 # Sem este teto, uma API que repete a página para sempre travaria a leitura.
 _MAX_PAGINAS = 1000
 
+# O `message_type` numérico da API para o texto que o webhook `message_created` manda. O 2 é a
+# atividade da conversa (aberta, atribuída, resolvida) e não é mensagem.
+_TIPOS = {0: "incoming", 1: "outgoing", 3: "template"}
+
 
 @dataclass(frozen=True)
 class ConversaLida:
@@ -33,7 +37,8 @@ def _instante(segundos: int | float) -> datetime:
     return datetime.fromtimestamp(segundos, UTC)
 
 
-def _conversa_lida(bruta: dict) -> ConversaLida:
+def conversa_lida(bruta: dict) -> ConversaLida:
+    """A conversa como a listagem do Chatwoot a devolve."""
     contato = (bruta.get("meta") or {}).get("sender") or {}
     atividade = bruta.get("last_activity_at") or bruta.get("timestamp") or bruta["created_at"]
     return ConversaLida(
@@ -99,7 +104,7 @@ class ChatwootLeitura:
             brutas = (corpo.get("data") or {}).get("payload") or []
             if not brutas:
                 break
-            da_pagina = [_conversa_lida(bruta) for bruta in brutas]
+            da_pagina = [conversa_lida(bruta) for bruta in brutas]
             lidas += [c for c in da_pagina if c.ultima_atividade_em >= desde]
             if all(c.ultima_atividade_em < desde for c in da_pagina):
                 break
@@ -121,3 +126,34 @@ class ChatwootLeitura:
             por_id |= novas
             antes = min(por_id)
         return sorted(por_id.values(), key=lambda m: (m["created_at"], m["id"]))
+
+
+def para_evento(mensagem: dict, conversa: ConversaLida) -> dict | None:
+    """A mensagem da API no formato do webhook `message_created`, para reusar `ler_evento` e
+    `receber_evento` sem caminho novo. Devolve None para o que o webhook nunca entregaria como
+    mensagem: a atividade da conversa, a nota privada e o tipo que não se conhece.
+
+    O telefone é o do contato da conversa (`meta.sender`), como o webhook o traz no `sender` da
+    mensagem do cliente. O tipo do remetente é o `sender.type` (`contact`, `user`): o `sender_type`
+    do topo vem vazio na API.
+    """
+    tipo = _TIPOS.get(mensagem.get("message_type"))
+    if tipo is None or mensagem.get("private"):
+        return None
+    remetente = mensagem.get("sender") or {}
+    sender = {"type": remetente.get("type") or ("contact" if tipo == "incoming" else "")}
+    if tipo == "incoming":
+        sender["phone_number"] = conversa.telefone or remetente.get("phone_number")
+    return {
+        "event": "message_created",
+        "id": mensagem["id"],
+        "content": mensagem.get("content"),
+        "message_type": tipo,
+        "private": False,
+        "content_attributes": mensagem.get("content_attributes") or {},
+        "account": {"id": conversa.conta_id},
+        "inbox": {"id": mensagem.get("inbox_id") or conversa.inbox_id},
+        "conversation": {"id": conversa.id},
+        "sender": sender,
+        "attachments": mensagem.get("attachments") or [],
+    }
