@@ -1,6 +1,7 @@
 """Comandos do agente: `agente importar` (a carteira), `agente disparar` (as aberturas),
 `agente simular` (as conversas simuladas), `agente comparar-redatores` (a escolha do LLM, T6) e
-`agente reproduzir` (a pré-sombra: as conversas reais do Chatwoot, só lidas, pelo turno em sombra).
+`agente reproduzir` (a pré-sombra: as conversas reais do Chatwoot, só lidas, pelo turno em sombra) e
+`agente estimar-carteira` (a carteira estimada das conversas, para a reprodução).
 """
 
 import argparse
@@ -24,6 +25,13 @@ from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.redator import RedatorOpenAI
 from agente.politica import carregar_politica
+from agente.reproducao.carteira_estimada import (
+    conversas_da_pasta,
+    conversas_do_chatwoot,
+    estimar_carteira,
+    formatar_resultado_estimativa,
+    gravar_csv,
+)
 from agente.reproducao.chatwoot_leitura import ChatwootLeitura
 from agente.reproducao.folha import AVISO_CARTEIRA_ESTIMADA, escrever_folha
 from agente.reproducao.reproduzir import formatar_relatorio_reproducao, reproduzir
@@ -126,12 +134,8 @@ def _abrir_leitura(config: Config) -> ChatwootLeitura:
     return ChatwootLeitura(config.chatwoot_url, config.chatwoot_conta, config.chatwoot_token)
 
 
-def _reproduzir(argumentos: argparse.Namespace) -> int:
-    saida: Path = argumentos.saida
-    banco, folha = saida / "reproducao.db", saida / "folha.md"
-    # O banco da reprodução é o SQLite da pasta de saída, nunca o AGENTE_DATABASE_URL do serviço.
-    config = Config(database_url=f"sqlite:///{banco.as_posix()}")
-    faltam = [
+def _faltam_do_chatwoot(config: Config) -> list[str]:
+    return [
         nome
         for nome, valor in (
             ("AGENTE_CHATWOOT_URL", config.chatwoot_url),
@@ -141,6 +145,14 @@ def _reproduzir(argumentos: argparse.Namespace) -> int:
         )
         if valor is None
     ]
+
+
+def _reproduzir(argumentos: argparse.Namespace) -> int:
+    saida: Path = argumentos.saida
+    banco, folha = saida / "reproducao.db", saida / "folha.md"
+    # O banco da reprodução é o SQLite da pasta de saída, nunca o AGENTE_DATABASE_URL do serviço.
+    config = Config(database_url=f"sqlite:///{banco.as_posix()}")
+    faltam = _faltam_do_chatwoot(config)
     if faltam:
         print(f"Defina {', '.join(faltam)} para ler o Chatwoot.")
         return 2
@@ -184,6 +196,56 @@ def _reproduzir(argumentos: argparse.Namespace) -> int:
     print(formatar_relatorio_reproducao(relatorio))
     print(f"folha: {folha} ({turnos} turnos; tem dado de cliente mascarado, não vai ao git)")
     print(f"banco: {banco}")
+    return 0
+
+
+def _estimar_carteira(argumentos: argparse.Namespace) -> int:
+    saida: Path = argumentos.saida
+    if saida.exists():
+        print(f"Já existe {saida}: use outro nome em --saida ou apague o arquivo.")
+        return 2
+    politica = carregar_politica(ConfigPolitica().politica_path)
+    if argumentos.da_pasta is not None:
+        if not argumentos.da_pasta.is_dir():
+            print(f"A pasta {argumentos.da_pasta} não existe.")
+            return 2
+        print("Lê só os JSONs da pasta; nenhuma rede.")
+        try:
+            resultado = estimar_carteira(conversas_da_pasta(argumentos.da_pasta), politica)
+        except ValueError as erro:
+            print(erro)
+            return 2
+    else:
+        config = Config(database_url="sqlite://")
+        faltam = _faltam_do_chatwoot(config)
+        if faltam:
+            print(f"Defina {', '.join(faltam)} para ler o Chatwoot.")
+            return 2
+        if argumentos.dias < 1:
+            print("--dias precisa ser ao menos 1.")
+            return 2
+        print("Só lê o Chatwoot (GET); nada é enviado nem escrito lá.")
+        desde = _agora() - timedelta(days=argumentos.dias)
+        try:
+            with _abrir_leitura(config) as leitura:
+                resultado = estimar_carteira(
+                    conversas_do_chatwoot(leitura, config.chatwoot_inbox, desde), politica
+                )
+        except httpx.HTTPStatusError as erro:
+            # Nunca o endereço nem o cabeçalho: só o código.
+            print(
+                f"O Chatwoot respondeu {erro.response.status_code}: "
+                "confira URL, conta, inbox e token."
+            )
+            return 1
+        except httpx.HTTPError as erro:
+            print(f"Falha de rede ao ler o Chatwoot ({type(erro).__name__}).")
+            return 1
+    saida.parent.mkdir(parents=True, exist_ok=True)
+    gravar_csv(resultado, saida, politica)
+    print(formatar_resultado_estimativa(resultado))
+    print(f"carteira: {saida} (tem telefone e nome de cliente, não vai ao git)")
+    print("Mensalidades estimadas das conversas, não do sistema do CDT: use --carteira-estimada.")
     return 0
 
 
@@ -233,6 +295,15 @@ def main(argv: list[str] | None = None) -> int:
         help="a carteira veio do estimar-carteira: a folha leva o aviso no alto",
     )
     reproduzir_.set_defaults(rodar=_reproduzir)
+    estimar = comandos.add_parser(
+        "estimar-carteira",
+        help="estima a carteira (mensalidades em aberto) a partir das conversas de cobrança",
+    )
+    estimar.add_argument("--saida", type=Path, required=True, help="CSV novo, fora do git")
+    fonte = estimar.add_mutually_exclusive_group()
+    fonte.add_argument("--da-pasta", type=Path, help="pasta de JSONs salvos, com subpastas")
+    fonte.add_argument("--dias", type=int, default=30, help="ou lê o Chatwoot, N dias atrás (30)")
+    estimar.set_defaults(rodar=_estimar_carteira)
     argumentos = parser.parse_args(argv)
     return argumentos.rodar(argumentos)
 

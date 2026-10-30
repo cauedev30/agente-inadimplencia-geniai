@@ -79,6 +79,13 @@ continua sendo conversa de cliente, e o banco guarda tudo sem máscara. **Manten
 `pre-sombra/`, que fica fora do git (este repositório é público), e não os envie a lugar nenhum.** Durante
 a reprodução, o log também não leva o stack trace nem a mensagem das exceções, só o tipo do erro.
 
+Sem a lista de inadimplentes da unidade, `uv run agente estimar-carteira --saida pre-sombra/carteira-estimada.csv`
+(com `--da-pasta` para JSONs já baixados, ou `--dias N` para ler o Chatwoot) estima a carteira das próprias
+conversas: a mensagem de cobrança da empresa cita o débito ou o valor do Pix, e o valor dividido pela
+mensalidade da política dá as mensalidades em aberto. O CSV sai no formato do importador e o terminal só
+mostra contagens. É uma estimativa, não vem do sistema do CDT: use o `--carteira-estimada` no
+`reproduzir` para a folha levar o aviso. O CSV tem telefone e nome de cliente e fica em `pre-sombra/`.
+
 ## Deploy
 
 O serviço roda em modo sombra até o Chatwoot (T3), o Jev real (T10) e o servidor (T2) estarem
