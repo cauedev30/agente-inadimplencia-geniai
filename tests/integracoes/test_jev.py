@@ -98,6 +98,20 @@ class TestJevComPrazo(ContratoJev):
     def test_a_origem_e_a_do_jev_envolvido(self):
         assert JevComPrazo(JevFalso(origem="jev-teste"), timeout_ms=1000).origem == "jev-teste"
 
+    def test_fechar_repassa_ao_jev_que_tem_fechar(self):
+        class JevComConexao(JevFalso):
+            fechado = 0
+
+            def fechar(self):
+                self.fechado += 1
+
+        real = JevComConexao()
+        JevComPrazo(real, timeout_ms=1000).fechar()
+        assert real.fechado == 1
+
+    def test_fechar_sem_fechar_no_jev_envolvido_nao_faz_nada(self):
+        JevComPrazo(JevFalso(), timeout_ms=1000).fechar()
+
     def test_tempo_estourado_levanta_jev_indisponivel(self):
         jev = JevComPrazo(JevFalso(demora_s=0.5), timeout_ms=20)
         with pytest.raises(JevIndisponivel, match="20 ms"):

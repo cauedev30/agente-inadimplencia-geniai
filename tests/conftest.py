@@ -10,6 +10,27 @@ from agente.politica import Regua, carregar_politica
 
 RAIZ = Path(__file__).resolve().parents[1]
 
+VARIAVEIS_DO_JEV = (
+    "AGENTE_JEV_API_KEY",
+    "AGENTE_JEV_URL",
+    "AGENTE_JEV_MODELO",
+    "AGENTE_JEV_DADOS_REAIS_LIBERADOS",
+)
+
+
+def limpar_ambiente_do_jev(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tira as variáveis do Jev real do ambiente do processo."""
+    for variavel in VARIAVEIS_DO_JEV:
+        monkeypatch.delenv(variavel, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _sem_jev_real_no_ambiente(monkeypatch):
+    """Exportar a chave para o teste real (AGENTE_JEV_API_KEY) não pode ligar o Jev real nos outros
+    testes: `Config()` lê o ambiente, e o texto dos fixtures iria à rede. Quem precisa das
+    variáveis as define com `monkeypatch.setenv` dentro do teste."""
+    limpar_ambiente_do_jev(monkeypatch)
+
 
 def alembic_config(url: str) -> AlembicConfig:
     config = AlembicConfig(str(RAIZ / "alembic.ini"))

@@ -58,14 +58,15 @@ class ConfigJev(ConfigPolitica):
     @field_validator("jev_api_key", mode="before")
     @classmethod
     def _chave_vazia_e_desligada(cls, valor):
-        return valor if isinstance(valor, str) and valor.strip() else None
+        # Sem a quebra de linha ou o espaço que vem da colagem: no cabeçalho, ela dá 401 sem pista.
+        return valor.strip() if isinstance(valor, str) and valor.strip() else None
 
     @field_validator("jev_url", "jev_modelo", mode="before")
     @classmethod
     def _vazio_volta_ao_padrao(cls, valor, info):
         # O .env copiado do .env.example traz a variável vazia.
         padrao = {"jev_url": URL_TYPESAFE, "jev_modelo": MODELO_PADRAO}[info.field_name]
-        return valor if isinstance(valor, str) and valor.strip() else padrao
+        return valor.strip() if isinstance(valor, str) and valor.strip() else padrao
 
     @field_validator("jev_dados_reais_liberados", mode="before")
     @classmethod

@@ -206,9 +206,18 @@ curl https://api.typesafe.ai/v1/systemone -H "Authorization: Bearer $AGENTE_JEV_
        "questions": {"x": {"type": "noul", "instructions": "..."}}}'
 ```
 
-- Perguntas: `noul` (só `instructions`; devolve uma probabilidade), `choice` (`criteria` = as opções;
-  devolve `choice`, `probabilities` e `confidence`) e `score` (`criteria` = as opções em ordem). Na
-  `Pergunta` do agente: `bool` → `noul`, `escolha` → `choice`, `score` → `score`.
+- Perguntas: `noul` (só `instructions`; devolve uma probabilidade), `choice` (`criteria` = objeto
+  nome da opção → descrição de quando ela se aplica; devolve `choice`, `probabilities` e `confidence`) e
+  `score` (`criteria` = lista ordenada com a descrição de cada nível, do menor para o maior; a posição é o
+  nível). Na `Pergunta` do agente: `bool` → `noul`, `escolha` → `choice`, `score` → `score`; o campo
+  `criterios` traz as descrições na mesma ordem de `opcoes` (sem ele, a descrição de cada opção é o
+  próprio nome dela).
+- **Prazo total da chamada:** o `timeout` do `httpx` vale por fase (conexão, escrita, leitura, pool), e
+  um servidor que manda um pedaço a cada instante o mantém vivo além dele. Por isso o `JevTypeSafe` impõe
+  um prazo TOTAL (75% do `jev_timeout_ms`, o `timeout` do construtor): confere o status antes de ler o
+  corpo e lê por pedaços, conferindo o relógio a cada um; passou do prazo, levanta `JevIndisponivel`
+  ("a TypeSafe passou do prazo") e fecha a resposta. O `timeout` por fase fica igual ao prazo. Nenhuma
+  mensagem de erro leva o `state`, o corpo da resposta nem a chave.
 - `GET /v1/models` lista `jev-latest` (= `jev-1.14.0`) e `jev-preview`. O padrão é o nome fixo `jev-1.14.0`
   (`AGENTE_JEV_MODELO`), que a API aceita (testado em 2026-11-03, mesma resposta do `jev-latest`): assim os
   limiares não mudam com uma troca silenciosa do `latest`. Subir de versão é decisão e pede recalibrar.
@@ -233,8 +242,9 @@ não precisa repetir. A semântica da probabilidade de cada laudo precisa ser co
 `ContratoJev`.
 
 O `JevComPrazo` não espera a chamada atrasada: ela segue numa thread daemon, sem segurar o desligamento
-do processo. Por isso o cliente HTTP do Jev real deve ter um timeout próprio, menor que o
-`jev_timeout_ms`, para a chamada não ficar viva depois do turno.
+do processo. Por isso o Jev real tem um prazo total próprio, menor que o `jev_timeout_ms` (veja
+"Prazo total da chamada", acima), para a chamada não ficar viva depois do turno. No encerramento do
+serviço, o `JevComPrazo.fechar()` fecha o cliente HTTP do Jev real.
 
 **Teste:** herdar `ContratoJev` (`tests/integracoes/test_jev.py`).
 

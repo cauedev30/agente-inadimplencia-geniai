@@ -196,6 +196,19 @@ def test_limiar_do_jev1_faltando_e_recusado(tmp_path):
         carregar_politica(caminho)
 
 
+@pytest.mark.parametrize("valor", ["0.49", "0.0", "0.30"])
+def test_limiar_do_jev1_abaixo_de_0_5_e_recusado_porque_nao_tem_efeito(tmp_path, valor):
+    # O `noul` já vira "não" abaixo de 0,5: um limiar menor nunca muda o resultado.
+    caminho = _arquivo_com(tmp_path, "desconfia_golpe = 0.70", f"desconfia_golpe = {valor}")
+    with pytest.raises(PoliticaInvalida, match="limiares_jev1.*desconfia_golpe.*0,5"):
+        carregar_politica(caminho)
+
+
+def test_limiar_do_jev1_em_0_5_e_aceito(tmp_path):
+    caminho = _arquivo_com(tmp_path, "desconfia_golpe = 0.70", "desconfia_golpe = 0.50")
+    assert carregar_politica(caminho).limiares_jev1["desconfia_golpe"] == 0.5
+
+
 def test_o_teto_no_whatsapp_e_recusado(tmp_path):
     caminho = _arquivo_com(
         tmp_path,

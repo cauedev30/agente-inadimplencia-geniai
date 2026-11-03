@@ -9,7 +9,10 @@ Zero Data Retention e No Training (D12) ainda não estão confirmados pela TypeS
 `AGENTE_JEV_DADOS_REAIS_LIBERADOS` (config.py) trava o uso com conversa real.
 """
 
+import json
 import math
+import threading
+import time
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -89,14 +92,19 @@ def _invalida(pergunta: Pergunta, motivo: str) -> JevIndisponivel:
 
 def _probabilidade(pergunta: Pergunta, valor: object, campo: str) -> float:
     """Um número de 0 a 1 (booleano, texto e nan não valem)."""
-    if (
-        isinstance(valor, bool)
-        or not isinstance(valor, int | float)
-        or math.isnan(valor)
-        or not 0 <= valor <= 1
-    ):
+    try:
+        valida = (
+            not isinstance(valor, bool)
+            and isinstance(valor, int | float)
+            and not math.isnan(valor)
+            and 0 <= valor <= 1
+        )
+    except OverflowError:
+        # Um inteiro grande demais para virar float: o isnan estoura.
+        valida = False
+    if not valida:
         raise _invalida(pergunta, f"{campo} não é uma probabilidade de 0 a 1")
-    return float(valor)
+    return float(valor)  # type: ignore[arg-type]
 
 
 def _nivel_do_score(pergunta: Pergunta, chave: object) -> str:
@@ -148,8 +156,10 @@ def laudo_da_resposta(pergunta: Pergunta, resposta: Mapping) -> Laudo:
 
 
 class JevTypeSafe:
-    """Um POST por batch. O timeout HTTP é do chamador (75% do `jev_timeout_ms`), para a chamada
-    não ficar viva depois do turno.
+    """Um POST por batch. O `timeout` é do chamador (75% do `jev_timeout_ms`) e vale como prazo
+    TOTAL da chamada, conexão e leitura do corpo juntas: o `timeout` do httpx vale por fase, e um
+    servidor que pinga um pedaço a cada instante o manteria vivo para sempre. Assim a chamada não
+    fica viva depois do turno.
 
     O `ultimo_uso` é o total de tokens de entrada da última chamada (a saída é grátis); fica None se
     a chamada falhou antes da resposta ou a resposta não trouxe o uso.
@@ -169,6 +179,9 @@ class JevTypeSafe:
         self.ultimo_uso: int | None = None
         # A soma dos tokens de entrada de todas as chamadas, para o custo de uma simulação.
         self.uso_total = 0
+        # O JevComPrazo chama `avaliar` de uma thread, e a chamada atrasada segue viva.
+        self._trava = threading.Lock()
+        self._prazo = timeout
         self._cliente = httpx.Client(
             base_url=url.rstrip("/"),
             headers={"Authorization": f"Bearer {chave}"},
@@ -201,29 +214,25 @@ class JevTypeSafe:
         self._cliente.close()
 
     def avaliar(self, perguntas: Sequence[Pergunta], estado: EstadoJev) -> list[Laudo]:
-        self.ultimo_uso = None
-        corpo = {
-            "model": self.modelo,
-            "state": estado_para_typesafe(estado),
-            "questions": {p.nome: pergunta_para_typesafe(p) for p in perguntas},
-        }
-        # `from None` em tudo: o corpo do erro e a mensagem do httpx podem ecoar o pedido.
+        with self._trava:
+            self.ultimo_uso = None
+        # Serializa antes de sair: o erro daqui é do pedido (nada foi enviado), não da resposta.
         try:
-            resposta = self._cliente.post(CAMINHO, json=corpo)
-            resposta.raise_for_status()
-            dados = resposta.json()
-        except httpx.HTTPStatusError as erro:
-            raise JevIndisponivel(f"a TypeSafe respondeu {erro.response.status_code}") from None
-        except httpx.TimeoutException:
-            raise JevIndisponivel("a TypeSafe passou do prazo") from None
-        except httpx.HTTPError as erro:
-            raise JevIndisponivel(f"falha de rede com a TypeSafe ({type(erro).__name__})") from None
-        except ValueError:
-            raise JevIndisponivel("a resposta da TypeSafe não é JSON") from None
+            corpo = {
+                "model": self.modelo,
+                "state": estado_para_typesafe(estado),
+                "questions": {p.nome: pergunta_para_typesafe(p) for p in perguntas},
+            }
+            conteudo = json.dumps(corpo, allow_nan=False, ensure_ascii=False).encode()
+        except (TypeError, ValueError, OverflowError):
+            raise JevIndisponivel("não foi possível montar o pedido ao Jev") from None
+        dados = self._chamar(conteudo)
         if not isinstance(dados, Mapping):
             raise JevIndisponivel("a resposta da TypeSafe não é um objeto JSON")
-        self.ultimo_uso = self._uso(dados)
-        self.uso_total += self.ultimo_uso or 0
+        uso = self._uso(dados)
+        with self._trava:
+            self.ultimo_uso = uso
+            self.uso_total += uso or 0
         respostas = dados.get(CAMPO_RESPOSTAS)
         if not isinstance(respostas, Mapping):
             raise JevIndisponivel(f"a resposta da TypeSafe não traz {CAMPO_RESPOSTAS}")
@@ -234,6 +243,32 @@ class JevTypeSafe:
                 raise _invalida(pergunta, "sem resposta")
             laudos.append(laudo_da_resposta(pergunta, resposta_da_pergunta))
         return laudos
+
+    def _chamar(self, conteudo: bytes) -> object:
+        """O POST com o prazo total: o corpo é lido por pedaços, conferindo o relógio a cada um."""
+        limite = time.monotonic() + self._prazo
+        # `from None` em tudo: o corpo do erro e a mensagem do httpx podem ecoar o pedido.
+        try:
+            with self._cliente.stream(
+                "POST", CAMINHO, content=conteudo, headers={"Content-Type": "application/json"}
+            ) as resposta:
+                # O status vem antes do corpo: o erro nunca lê (nem guarda) o que o servidor ecoou.
+                if not resposta.is_success:
+                    raise JevIndisponivel(f"a TypeSafe respondeu {resposta.status_code}") from None
+                pedacos = []
+                for pedaco in resposta.iter_bytes():
+                    pedacos.append(pedaco)
+                    if time.monotonic() > limite:
+                        raise JevIndisponivel("a TypeSafe passou do prazo") from None
+                if time.monotonic() > limite:
+                    raise JevIndisponivel("a TypeSafe passou do prazo") from None
+            return json.loads(b"".join(pedacos))
+        except httpx.TimeoutException:
+            raise JevIndisponivel("a TypeSafe passou do prazo") from None
+        except httpx.HTTPError as erro:
+            raise JevIndisponivel(f"falha de rede com a TypeSafe ({type(erro).__name__})") from None
+        except ValueError:
+            raise JevIndisponivel("a resposta da TypeSafe não é JSON") from None
 
     @staticmethod
     def _uso(dados: Mapping) -> int | None:

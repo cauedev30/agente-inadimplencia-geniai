@@ -112,6 +112,12 @@ class JevComPrazo:
     def origem(self) -> str:
         return self.jev.origem
 
+    def fechar(self) -> None:
+        """Fecha o Jev envolvido, se ele tiver o que fechar (o cliente HTTP do real)."""
+        fechar = getattr(self.jev, "fechar", None)
+        if callable(fechar):
+            fechar()
+
     def avaliar(self, perguntas: Sequence[Pergunta], estado: EstadoJev) -> list[Laudo]:
         futuro: Future[list[Laudo]] = Future()
 

@@ -369,3 +369,47 @@ def test_excecao_inesperada_diz_so_o_tipo_e_a_orientacao(ambiente, monkeypatch, 
     assert "RuntimeError" in tudo
     assert "apague a pasta de saída" in tudo.lower()
     assert "Traceback" not in tudo
+
+
+def _com_jev_real_que_conta_o_fechar(ambiente, monkeypatch) -> list:
+    """Liberado e com a chave; o transporte é falso e o `fechar` do Jev é registrado."""
+    fechados = []
+    original = JevTypeSafe.fechar
+
+    def fechar(self):
+        fechados.append(self)
+        original(self)
+
+    monkeypatch.setenv("AGENTE_JEV_API_KEY", "chave-ficticia")
+    monkeypatch.setenv("AGENTE_JEV_DADOS_REAIS_LIBERADOS", "true")
+    monkeypatch.setattr(JevTypeSafe, "fechar", fechar)
+    monkeypatch.setattr(
+        agente.cli,
+        "_abrir_jev",
+        lambda config, politica: JevTypeSafe.da_config(
+            config, politica.jev_timeout_ms, transporte=httpx.MockTransport(handler_ok)
+        ),
+    )
+    return fechados
+
+
+def test_a_reproducao_fecha_o_jev_real_ao_terminar(ambiente, monkeypatch):
+    _com_servidor(monkeypatch, _servidor())
+    fechados = _com_jev_real_que_conta_o_fechar(ambiente, monkeypatch)
+
+    assert main(_comando(ambiente)) == 0
+
+    assert len(fechados) == 1 and fechados[0]._cliente.is_closed
+
+
+def test_a_reproducao_fecha_o_jev_real_mesmo_com_erro(ambiente, monkeypatch):
+    def falha(*_args, **_kwargs):
+        raise RuntimeError(SENSIVEL)
+
+    monkeypatch.setattr(agente.cli, "reproduzir", falha)
+    _com_servidor(monkeypatch, _servidor())
+    fechados = _com_jev_real_que_conta_o_fechar(ambiente, monkeypatch)
+
+    assert main(_comando(ambiente)) == 1
+
+    assert len(fechados) == 1 and fechados[0]._cliente.is_closed

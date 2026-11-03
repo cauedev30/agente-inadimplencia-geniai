@@ -8,6 +8,8 @@ from pydantic import ValidationError
 from agente.config import carregar_config
 from agente.logs import MascaraDadosPessoais
 
+from .conftest import VARIAVEIS_DO_JEV, limpar_ambiente_do_jev
+
 
 def test_config_le_do_ambiente(monkeypatch):
     monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
@@ -236,3 +238,71 @@ def test_o_env_example_copiado_como_esta_sobe_com_tudo_desligado(monkeypatch):
     assert config.jev_api_key is None and config.jev_dados_reais_liberados is False
     assert config.chatwoot_conta is None and config.chatwoot_inbox is None
     assert config.chatwoot_time_humano is None and config.webchat_inbox is None
+
+
+@pytest.mark.parametrize("valor", ["0", "false", "False", "no", "off", " "])
+def test_liberacao_do_jev_com_valor_de_nao_continua_bloqueada(monkeypatch, valor):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_JEV_API_KEY", "chave-ficticia")
+    monkeypatch.setenv("AGENTE_JEV_DADOS_REAIS_LIBERADOS", valor)
+
+    assert carregar_config(_env_file=None).jev_dados_reais_bloqueados is True
+
+
+@pytest.mark.parametrize("valor", ["true", "1"])
+def test_liberacao_do_jev_com_valor_de_sim_libera(monkeypatch, valor):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_JEV_API_KEY", "chave-ficticia")
+    monkeypatch.setenv("AGENTE_JEV_DADOS_REAIS_LIBERADOS", valor)
+
+    assert carregar_config(_env_file=None).jev_dados_reais_bloqueados is False
+
+
+@pytest.mark.parametrize("valor", ["talvez", " true "])
+def test_liberacao_do_jev_ambigua_falha_fechada(monkeypatch, valor):
+    # Nem bloqueada nem liberada: a configuração nem carrega, e o serviço não sobe.
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_JEV_API_KEY", "chave-ficticia")
+    monkeypatch.setenv("AGENTE_JEV_DADOS_REAIS_LIBERADOS", valor)
+
+    with pytest.raises(ValidationError) as erro:
+        carregar_config(_env_file=None)
+
+    assert "chave-ficticia" not in str(erro.value)
+
+
+@pytest.mark.parametrize(
+    ("chave", "esperada"),
+    [
+        ("chave" + chr(10), "chave"),
+        (" chave ", "chave"),
+        (chr(9) + "chave" + chr(13) + chr(10), "chave"),
+    ],
+)
+def test_chave_do_jev_perde_o_espaco_e_a_quebra_de_linha(monkeypatch, chave, esperada):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_JEV_API_KEY", chave)
+
+    assert carregar_config(_env_file=None).jev_api_key == esperada
+
+
+def test_url_e_modelo_do_jev_perdem_o_espaco(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_JEV_URL", " https://typesafe.invalid" + chr(10))
+    monkeypatch.setenv("AGENTE_JEV_MODELO", " jev-x ")
+
+    config = carregar_config(_env_file=None)
+
+    assert config.jev_url == "https://typesafe.invalid"
+    assert config.jev_modelo == "jev-x"
+
+
+def test_a_suite_roda_sem_as_variaveis_do_jev_no_ambiente(monkeypatch):
+    # O autouse do conftest tira as variáveis antes de cada teste: exportar a chave para o teste
+    # real não muda o resto da suíte.
+    assert not [v for v in VARIAVEIS_DO_JEV if v in os.environ]
+    # E a função que o faz tira mesmo o que estiver exportado.
+    for variavel in VARIAVEIS_DO_JEV:
+        monkeypatch.setenv(variavel, "true")
+    limpar_ambiente_do_jev(monkeypatch)
+    assert not [v for v in VARIAVEIS_DO_JEV if v in os.environ]

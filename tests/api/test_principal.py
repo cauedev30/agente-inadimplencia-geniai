@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+import agente.api.app
 from agente.api.principal import montar_app, montar_dependencias
 from agente.config import Config
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
@@ -160,6 +161,42 @@ def test_modo_ativo_sem_jev_real_e_recusado():
 def test_app_de_producao_responde_a_saude():
     with TestClient(montar_app(_config(), iniciar_trabalhador=False)) as cliente:
         assert cliente.get("/saude").json() == {"status": "ok"}
+
+
+def test_o_encerramento_do_servico_fecha_o_cliente_do_jev_real(monkeypatch):
+    fechados = []
+    monkeypatch.setattr(JevTypeSafe, "fechar", lambda self: fechados.append(self))
+    config = _config(jev_api_key="chave-ficticia", jev_dados_reais_liberados=True)
+
+    with TestClient(montar_app(config, iniciar_trabalhador=False)) as cliente:
+        assert cliente.get("/saude").status_code == 200
+        assert fechados == []
+
+    assert len(fechados) == 1
+
+
+def test_o_encerramento_com_o_jev_falso_segue_sem_erro():
+    with TestClient(montar_app(_config(), iniciar_trabalhador=False)) as cliente:
+        assert cliente.get("/saude").status_code == 200
+
+
+def test_falha_ao_fechar_o_jev_nao_impede_o_encerramento(monkeypatch):
+    def estoura(self):
+        raise RuntimeError("falha ao fechar")
+
+    registros = []
+    monkeypatch.setattr(JevTypeSafe, "fechar", estoura)
+    # Sem capsys nem caplog: o montar_app reconfigura o log e deixaria um manipulador preso à saída
+    # temporária do teste.
+    monkeypatch.setattr(
+        agente.api.app.log, "exception", lambda mensagem: registros.append(mensagem)
+    )
+    config = _config(jev_api_key="chave-ficticia", jev_dados_reais_liberados=True)
+
+    with TestClient(montar_app(config, iniciar_trabalhador=False)):
+        pass
+
+    assert any("fechar o cliente do Jev" in mensagem for mensagem in registros)
 
 
 def test_com_dominio_e_segredo_o_handoff_leva_o_link_do_webchat():

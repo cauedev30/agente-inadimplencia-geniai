@@ -3,6 +3,8 @@ chama a API de verdade, com texto inventado, e é pulado sem a AGENTE_JEV_API_KE
 
 import json
 import os
+import time
+from datetime import date
 
 import httpx
 import pytest
@@ -22,6 +24,10 @@ from agente.turno.jev1 import PERGUNTAS_JEV1
 from agente.turno.jev2 import PERGUNTAS_JEV2
 
 from .test_jev import ESTADO, PERGUNTAS, ContratoJev
+
+# A chave do teste real, lida na importação: a suíte limpa as AGENTE_JEV_* do ambiente (conftest)
+# para que exportar a chave não mande texto dos outros testes à rede.
+CHAVE_REAL = os.environ.get("AGENTE_JEV_API_KEY")
 
 # Texto que não pode sair em nenhuma mensagem de erro.
 SEGREDO = "SEGREDO-DO-CLIENTE-123"
@@ -279,6 +285,17 @@ class TestLaudoDaResposta:
         }
         assert laudo_da_resposta(SCORE, resposta).valor == "neutro"
 
+    def test_score_com_a_chave_igual_ao_nome_da_opcao(self):
+        resposta = {
+            "confidence": 0.7,
+            "probabilities": {"cordial": 0.1, "neutro": 0.2, "irritado": 0.7},
+        }
+        assert laudo_da_resposta(SCORE, resposta) == Laudo("tom", "irritado", 0.7, 0.7)
+
+    def test_noul_enorme_nao_estoura_e_vira_indisponivel(self):
+        with pytest.raises(JevIndisponivel, match="risco_juridico.*probabilidade"):
+            laudo_da_resposta(BOOL, {"type": "noul", "noul": 10**400})
+
 
 class TestErros:
     @pytest.mark.parametrize("status", [400, 401, 422, 429, 500, 503])
@@ -291,6 +308,7 @@ class TestErros:
 
         assert str(status) in str(erro.value)
         assert SEGREDO not in str(erro.value) and ECO not in str(erro.value)
+        assert erro.value.__suppress_context__ and erro.value.__cause__ is None
 
     def test_timeout_vira_indisponivel_com_o_tipo(self):
         def handler(pedido):
@@ -301,6 +319,7 @@ class TestErros:
 
         assert SEGREDO not in str(erro.value)
         assert "prazo" in str(erro.value)
+        assert erro.value.__suppress_context__ and erro.value.__cause__ is None
 
     def test_falha_de_rede_vira_indisponivel_com_o_tipo(self):
         def handler(pedido):
@@ -311,6 +330,7 @@ class TestErros:
 
         assert "ConnectError" in str(erro.value)
         assert SEGREDO not in str(erro.value)
+        assert erro.value.__suppress_context__ and erro.value.__cause__ is None
 
     @pytest.mark.parametrize("conteudo", [f"{ECO} isto não é json", "[1, 2]", '"texto"'])
     def test_resposta_que_nao_e_um_objeto_json_vira_indisponivel(self, conteudo):
@@ -321,6 +341,7 @@ class TestErros:
             jev.avaliar(PERGUNTAS, ESTADO_COM_SEGREDO)
 
         assert ECO not in str(erro.value)
+        assert erro.value.__cause__ is None
 
     def _com_resposta(self, alterar):
         def handler(pedido):
@@ -361,7 +382,20 @@ class TestErros:
 
         assert "acao" in self._falha(self._com_resposta(alterar))
 
-    @pytest.mark.parametrize("valor", ["alto", None, True, [0.3], 1.5, -0.1, float("nan")])
+    @pytest.mark.parametrize(
+        "valor",
+        [
+            "alto",
+            None,
+            True,
+            [0.3],
+            1.5,
+            -0.1,
+            float("nan"),
+            pytest.param(10**400, id="inteiro-enorme"),
+            pytest.param(-(10**400), id="inteiro-enorme-negativo"),
+        ],
+    )
     def test_noul_que_nao_e_probabilidade(self, valor):
         def alterar(respostas):
             respostas["risco_juridico"]["noul"] = valor
@@ -397,6 +431,144 @@ class TestErros:
 
         assert "500" in str(erro.value)
         assert SEGREDO not in str(erro.value) and ECO not in str(erro.value)
+        assert erro.value.__suppress_context__ and erro.value.__cause__ is None
+
+
+class CorpoLento(httpx.SyncByteStream):
+    """Um corpo que entrega um pedaço por vez, com uma pausa antes de cada um."""
+
+    def __init__(self, pedacos: list[bytes], pausa: float):
+        self.pedacos = pedacos
+        self.pausa = pausa
+        self.fechado = False
+
+    def __iter__(self):
+        for pedaco in self.pedacos:
+            time.sleep(self.pausa)
+            yield pedaco
+
+    def close(self) -> None:
+        self.fechado = True
+
+
+def _em_pedacos(conteudo: bytes, quantos: int) -> list[bytes]:
+    tamanho = -(-len(conteudo) // quantos)
+    return [conteudo[i : i + tamanho] for i in range(0, len(conteudo), tamanho)]
+
+
+class TestPrazoTotal:
+    """O `timeout` do httpx vale por fase: o prazo total da chamada é do JevTypeSafe."""
+
+    def test_servidor_que_pinga_aos_poucos_nao_mantem_a_chamada_viva(self):
+        corpos = []
+
+        def handler(pedido):
+            dados = json.dumps(resposta_para(json.loads(pedido.content))).encode()
+            corpo = CorpoLento(_em_pedacos(dados, 6), pausa=0.1)
+            corpos.append(corpo)
+            return httpx.Response(200, stream=corpo)
+
+        jev = JevTypeSafe("chave-ficticia", timeout=0.25, transporte=httpx.MockTransport(handler))
+        with jev:
+            inicio = time.monotonic()
+            with pytest.raises(JevIndisponivel) as erro:
+                jev.avaliar(PERGUNTAS, ESTADO)
+            duracao = time.monotonic() - inicio
+
+        assert "prazo" in str(erro.value)
+        assert erro.value.__suppress_context__ and erro.value.__cause__ is None
+        assert duracao < 0.5
+        assert corpos[0].fechado
+        assert jev.ultimo_uso is None and jev.uso_total == 0
+
+    def test_corpo_normal_e_rapido_em_varios_pedacos_continua_funcionando(self):
+        def handler(pedido):
+            dados = json.dumps(resposta_para(json.loads(pedido.content))).encode()
+            return httpx.Response(200, stream=CorpoLento(_em_pedacos(dados, 6), pausa=0.0))
+
+        with jev_com(handler) as jev:
+            laudos = jev.avaliar(PERGUNTAS, ESTADO)
+            assert [laudo.pergunta for laudo in laudos] == [p.nome for p in PERGUNTAS]
+            assert jev.ultimo_uso == 412 and jev.uso_total == 412
+
+    def test_o_http_de_erro_nao_le_o_corpo(self):
+        class NaoLer(httpx.SyncByteStream):
+            lido = False
+
+            def __iter__(self):
+                NaoLer.lido = True
+                yield f"{ECO} {SEGREDO}".encode()
+
+        def handler(pedido):
+            return httpx.Response(503, stream=NaoLer())
+
+        with jev_com(handler) as jev, pytest.raises(JevIndisponivel) as erro:
+            jev.avaliar(PERGUNTAS, ESTADO_COM_SEGREDO)
+
+        assert "503" in str(erro.value)
+        assert not NaoLer.lido
+
+    def test_o_timeout_por_fase_continua_igual_ao_prazo(self):
+        with jev_com(handler_ok) as jev:
+            assert jev._cliente.timeout == httpx.Timeout(1.0)
+
+
+class TestSerializacaoDoPedido:
+    def _falha(self, estado: EstadoJev) -> JevIndisponivel:
+        pedidos = []
+
+        def handler(pedido):
+            pedidos.append(pedido)
+            return handler_ok(pedido)
+
+        with jev_com(handler) as jev, pytest.raises(JevIndisponivel) as erro:
+            jev.avaliar(PERGUNTAS, estado)
+
+        assert pedidos == []
+        assert "montar o pedido" in str(erro.value)
+        assert "JSON" not in str(erro.value)
+        assert erro.value.__suppress_context__ and erro.value.__cause__ is None
+        return erro.value
+
+    def _estado_com(self, valor) -> EstadoJev:
+        return EstadoJev(
+            historico=(("CLIENTE", f"meu nome é {SEGREDO}"),),
+            regua=Regua.R3,
+            divida_centavos=10020,
+            estado_conversa=EstadoConversa.ENGAJADO,
+            oferta_atual=None,
+            numeros={"x": valor},
+        )
+
+    def test_nan_nos_numeros(self):
+        self._falha(self._estado_com(float("nan")))
+
+    def test_infinito_nos_numeros(self):
+        self._falha(self._estado_com(float("inf")))
+
+    def test_date_nos_numeros(self):
+        erro = self._falha(self._estado_com(date(2026, 11, 3)))
+        assert "2026" not in str(erro)
+
+    def test_o_pedido_sai_como_json_utf8_com_o_cabecalho(self):
+        pedidos = []
+
+        def handler(pedido):
+            pedidos.append(pedido)
+            return handler_ok(pedido)
+
+        estado = EstadoJev(
+            historico=(("CLIENTE", "não tenho dinheiro até sexta"),),
+            regua=Regua.R3,
+            divida_centavos=10020,
+            estado_conversa=EstadoConversa.ENGAJADO,
+            oferta_atual=None,
+        )
+        with jev_com(handler) as jev:
+            jev.avaliar(PERGUNTAS, estado)
+
+        assert pedidos[0].headers["Content-Type"] == "application/json"
+        assert "não tenho dinheiro".encode() in pedidos[0].content
 
 
 class TestDaConfig:
@@ -454,15 +626,13 @@ class TestUso:
             assert jev.ultimo_uso is None
 
 
-@pytest.mark.skipif(
-    not os.environ.get("AGENTE_JEV_API_KEY"), reason="sem a AGENTE_JEV_API_KEY: não chama a API"
-)
+@pytest.mark.skipif(not CHAVE_REAL, reason="sem a AGENTE_JEV_API_KEY: não chama a API")
 class TestTypesafeDeVerdade(ContratoJev):
     """A API real, com o texto inventado de PERGUNTAS e ESTADO. Custa tokens de entrada."""
 
     @pytest.fixture
     def jev(self):
-        with JevTypeSafe(os.environ["AGENTE_JEV_API_KEY"], timeout=10.0) as jev:
+        with JevTypeSafe(CHAVE_REAL, timeout=10.0) as jev:
             yield jev
 
     def test_o_cliente_que_cita_o_procon_levanta_o_risco_juridico(self, jev):

@@ -215,6 +215,13 @@ class Politica(_Imutavel):
         faltando = sorted(set(GATILHOS.values()) - set(valor))
         if faltando:
             raise ValueError(f"faltam os limiares: {', '.join(faltando)}")
+        # O `noul` já vira "não" abaixo de 0,5 (jev_typesafe.py): um limiar menor não tem efeito.
+        sem_efeito = sorted(nome for nome, limiar in valor.items() if limiar < 0.5)
+        if sem_efeito:
+            raise ValueError(
+                f"{', '.join(sem_efeito)}: limiar abaixo de 0,5 não tem efeito "
+                "(o Jev 1 já responde não abaixo disso); use 0,5 ou mais"
+            )
         return valor
 
     @field_validator("texto_pix_recebedor")
