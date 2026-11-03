@@ -5,7 +5,10 @@ Data: 2026-11-03. Modelo: `typesafe:jev-1.14.0`. Dados: as 16 conversas de `test
 Comando: `agente simular tests/conversas --jev-real`. Os limiares estão em `politica.toml`
 (`[limiares_jev1]`, `[limiares_jev2]`, `confianca_minima = 0.60`) e **ainda são os palpites iniciais**.
 
-## Resumo
+> **Atualização (rodada 2, abaixo):** com a descrição por opção, as divergências caíram de 8–9 para 2 em duas
+> execuções iguais, e a `acao` passou a ter probabilidade de 0,93 a 1,0. Os limiares **não foram mexidos**.
+
+## Resumo da rodada 1
 
 - **Rodada 1 (CLI):** 8 divergências em 18 turnos. **Rodada 2 (com os laudos gravados):** 9. O Jev **não é
   determinístico**: a diferença é um turno que ficou em 0,77 contra o limiar de 0,80. Qualquer ajuste precisa
@@ -86,7 +89,65 @@ manda apresentar o débito antes). `INFORM_DEBT` e `SEND_CTN_LINK` ficam altos (
 - **Custo:** 32.678 tokens de entrada na rodada 1 e 30.990 na 2, para 18 turnos: ~1.800 por turno, ~800 por
   chamada (a saída é grátis). **Preço por token: a confirmar** (não está na documentação que usamos).
 
-## Hipótese e próximo passo (não aplicados)
+## Rodada 2: descrição por opção (2026-11-03)
+
+**O que mudou** (commit `ebc78ab`, uma vez só, como manda o plano): cada opção do `choice` (`acao`) e cada nível
+do `score` (`tom`, `intencao_pagar`) passou a ir com a sua descrição em `criteria` (antes, só o código); a
+`descricao` da `acao` ficou curta; a de `contesta_divida` ganhou "recusar pagar ou reclamar da clínica não é
+contestar"; os gabaritos de `tom` do R1 (`cordial` → `neutro`) e do atrito (`impaciente` → `irritado`) foram
+trocados com o Cauê. Os textos estão em `turno/jev2.py` (`CRITERIOS_DA_ACAO`) e `turno/jev1.py`. Limiares,
+`politica.toml` e o código de decisão **não mudaram**. Duas execuções, laudos gravados.
+
+| | Rodada 1 | Rodada 2 (a) | Rodada 2 (b) |
+|---|---|---|---|
+| Turnos que rodaram | 18 | 20 | 20 |
+| Divergências | 8 (e 9) | **2** | **2** (as mesmas) |
+| `acao` | 10/12 (83%) | **13/14 (93%)** | 13/14 |
+| `intencao_pagar` | 5/6 | **7/7** | 7/7 |
+| `tom` | 2/5 | **4/5** | 4/5 |
+| `objecao_valor` | 6/6 | 7/7 | 7/7 |
+| `OFFER_DISCOUNT` | 0/3 | **4/4** | 4/4 |
+| Gatilhos de saída | todos | todos | todos |
+| Tokens de entrada | 32.678 / 30.990 | 48.203 | 48.223 |
+
+- **A `acao` do Jev 2 contra o limiar:** `OFFER_DISCOUNT` 0,93 a 1,00 (limiar 0,80; antes 0,47 a 0,81), `INFORM_DEBT`
+  0,98 a 1,00 (0,70), `GENERATE_PIX` 1,00 (0,90), `SEND_CTN_LINK` 1,00 (0,85), `OUT_OF_SCOPE` 1,00 (0,70), `NONE`
+  0,98 a 0,99 (0,70). A menor folga é +0,13. As confianças vão de 0,92 a 1,00. **Nenhum limiar precisa mudar.**
+- O R1 no 1º turno ("Quero resolver isso hoje, como eu pago?") agora recebe `INFORM_DEBT`, e o Pix só vem no 2º.
+  A Prévia ("Não consigo pagar tudo de uma vez.") recebe `OFFER_DISCOUNT` (0,93).
+- O atrito com a clínica sai como `ATRITO`: o `contesta_divida` deixou de marcar nele.
+- As duas execuções deram as mesmas decisões, com probabilidades a ±0,05. Na rodada 1 havia um turno que mudava
+  de lado entre execuções; aqui não.
+- **Custo:** ~850 tokens de entrada por chamada (antes ~775, +9%), porque a descrição vai em cada pedido. Por
+  turno o gasto subiu mais (~2.400 contra ~1.700) porque os casos agora andam mais: 20 turnos em vez de 18.
+
+**As 2 divergências que sobraram** (iguais nas duas execuções, as duas vão ao humano):
+1. *"Sem desconto eu não pago." (NR, 2º turno):* esperado `HUMAN:OBJECAO_SEM_DESCONTO`, saiu `HUMAN:TOM`. O Jev leu
+   `tom = irritado` com 0,62 (e `repete_sem_avancar` 0,62), e o código manda ao humano por tom `irritado` ou
+   `hostil` **sem olhar a probabilidade** (`jev1.py:129`). Muda só o motivo gravado para o atendente. Pode ser a
+   descrição de `irritado` ("recusa de forma ríspida") puxando a frase. Decisão do Cauê: aceitar o motivo `TOM`
+   aí, ou exigir um limiar de probabilidade para o tom de saída.
+2. *R3, "objeção 3 vezes":* a conversa foi ao humano depois do 2º turno (esperado seguir até o 3º). O Jev leu
+   `impaciente` (0,54 a 0,57) e `repete_sem_avancar = true` (0,89) em "Ainda tá caro para mim.". A regra "EM_RISCO
+   tem um turno para recuperar" (`turno/avaliacao.py:104`) é de projeto. O caminho exato até o humano *a confirmar*.
+   O gabarito supôs que o cliente que repete a objeção segue recebendo degraus; o Jev real disse que ele está em
+   loop. Pode ser o comportamento certo.
+
+**`tom`: o erro que sobrou** é o R1, 1º turno: o gabarito (agora `neutro`) contra a leitura `impaciente` (0,82 a
+0,83) nas duas execuções. Não deixa a conversa em risco porque a ação foi `INFORM_DEBT`, mas põe `EM_RISCO` no
+estado. É o "hoje" que pesa? Decisão do Cauê (gabarito ou descrição de `impaciente`).
+
+**O que esta rodada NÃO prova**
+- Foram **4 mudanças juntas** (descrição por opção, `descricao` da `acao`, `contesta_divida`, gabaritos). Não sei
+  qual pesou mais; só que o conjunto resolveu. A causa original (opções só com o código) segue como a explicação
+  mais provável, apoiada na documentação, mas não foi testada isolada.
+- São **20 turnos inventados**, 1 a 7 por pergunta, escritos por quem conhece as descrições. Texto real do
+  WhatsApp (gírias, áudio transcrito, mensagens longas, vários assuntos) não foi visto; para isso é a 11.4.
+- Os gabaritos mudaram na mesma rodada que as descrições: 2 dos 5 de `tom` foram ajustados depois de ver a
+  leitura. Com os gabaritos antigos o `tom` seria 3/5.
+- Latência não foi medida nesta rodada (rodada 1: ~0,27 s por chamada).
+
+## Hipótese da rodada 1 (aplicada na rodada 2)
 
 O cliente manda ao Jev 2 as opções do `choice` como `criteria = {opção: opção}`, isto é, **só os códigos**
 (`INFORM_DEBT`, `OFFER_DISCOUNT`...), e a explicação de cada ação está na `descricao` da pergunta, em prosa e
@@ -103,4 +164,4 @@ testada.** Propostas a decidir com o Cauê (nenhuma aplicada):
    precisa de mais conversas simuladas, escritas com frases mais naturais.
 4. Revisar os gabaritos de `tom` com o Cauê (cordial, neutro e impaciente em frases curtas).
 
-Conforme o plano (11.3), roda-se **uma vez** de novo depois da `descricao` aprovada.
+Os itens 1, 2 e 4 foram aplicados na rodada 2; o 3 (limiares) **não foi necessário**.
