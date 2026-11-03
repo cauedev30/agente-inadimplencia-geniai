@@ -12,7 +12,12 @@ from agente.config import Config
 from agente.db.sessao import criar_sessao
 from agente.integracoes.jev import JevFalso, responder
 from agente.reproducao.chatwoot_leitura import ChatwootLeitura
-from agente.reproducao.folha import AVISO_CARTEIRA_ESTIMADA, escrever_folha, mascarar_nome
+from agente.reproducao.folha import (
+    AVISO_CARTEIRA_ESTIMADA,
+    escrever_folha,
+    mascarar_nome,
+    mascarar_numeros,
+)
 from agente.reproducao.reproduzir import RelatorioReproducao, reproduzir
 
 from .amostra import ler_amostra
@@ -141,6 +146,82 @@ def test_mascara_telefone_e_cpf_do_cliente_e_do_atendente(tmp_path, politica, co
     assert "***.***.***-**" in texto
     # O telefone mantém o +55 e os 4 últimos dígitos, como no log.
     assert "+55*******0001" in texto
+
+
+# Telefone e CPF escritos à mão, como o cliente digita (dados inventados).
+ESCRITOS_A_MAO = [
+    "(83) 98765-4321",
+    "83 98765-4321",
+    "8398765432",
+    "5583987654321",
+    "+55 83 98765-4321",
+    "123456789-01",
+    "123 456 789 01",
+    "123.456.789.01",
+    "123.456.789-01",
+    "+55 (83) 98765 4321",
+]
+
+
+@pytest.mark.parametrize("escrito", ESCRITOS_A_MAO)
+def test_mascara_telefone_e_cpf_escritos_a_mao(escrito):
+    limpo = mascarar_numeros(f"meu número é {escrito}, pode ligar")
+
+    # Sem dado: só a contagem de dígitos que sobrou.
+    sobra = sum(c.isdigit() for c in limpo)
+    assert sobra == 0, "sobrou dígito de telefone ou CPF escrito à mão"
+    assert limpo.startswith("meu número é ") and limpo.endswith(", pode ligar")
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "paguei R$ 1.234,56 ontem",
+        "o valor é R$ 100,20",
+        "dia 10/11/2026 eu pago",
+        "dia 10-11-2026 eu pago",
+        "dia 10.11.2026 eu pago",
+        "devo 2 mensalidades",
+        "são 3 mensalidades de R$ 33,40",
+        "pago até as 18h30 do dia 5",
+    ],
+)
+def test_valores_em_reais_datas_e_contagens_sobrevivem(texto):
+    assert mascarar_numeros(texto) == texto
+
+
+def test_a_folha_mascara_os_formatos_escritos_a_mao(tmp_path, politica, config):
+    mensagens = [
+        mensagem(8901, 960, 0, "meu zap é (83) 98765-4321 ou 83 98765-4321, cpf 123 456 789 01", T),
+        mensagem(8902, 960, 1, "anotei 8398765432 e 123.456.789.01; são R$ 1.234,56", T + 60),
+    ]
+    servidor = ChatwootSimulado([conversa(960, T + 60)], {960: mensagens})
+    _, banco = _rodar(servidor, tmp_path, politica, config)
+
+    texto = _folha(banco, tmp_path / "folha.md")
+
+    corpo = "\n".join(linha for linha in texto.splitlines() if linha.startswith("> "))
+    assert not re.search(r"\d{8}", corpo.replace(" ", "")), "sobrou número longo na folha"
+    assert "R$ 1.234,56" in corpo
+
+
+def test_a_folha_mascara_o_nome_do_cliente_da_carteira(tmp_path, politica, config):
+    # O contato do Chatwoot tem outro nome; o da carteira ("Cliente Inventado Um") também sai.
+    bruta = conversa(961, T + 60)
+    bruta["meta"]["sender"]["name"] = "Apelido"
+    mensagens = [
+        mensagem(8903, 961, 0, "oi, sou o Inventado e a Apelido", T),
+        mensagem(8904, 961, 1, "Bom dia, Inventado", T + 60),
+    ]
+    _, banco = _rodar(ChatwootSimulado([bruta], {961: mensagens}), tmp_path, politica, config)
+    with criar_sessao(f"sqlite:///{banco.as_posix()}")() as sessao:
+        escrever_folha(sessao, tmp_path / "folha.md", nomes={961: "Apelido"})
+    texto = (tmp_path / "folha.md").read_text(encoding="utf-8")
+
+    assert "> oi, sou o [nome] e a [nome]" in texto
+    assert "> Bom dia, [nome]" in texto
+    assert "inventado" not in texto.lower()
+    assert "apelido" not in texto.lower()
 
 
 def test_mascara_o_nome_do_contato_nas_duas_mensagens(tmp_path, politica, config):

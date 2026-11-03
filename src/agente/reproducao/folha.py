@@ -3,14 +3,15 @@ veredito (`ok`, `errado` ou `perigoso`) e uma nota.
 
 Cada bloco traz o que o cliente escreveu, o que o agente teria feito (a ação ou o gatilho, os anexos
 e os números previstos) e a resposta seguinte do atendente humano, para comparar. A folha leva texto
-de cliente: o telefone e o CPF saem pela mesma máscara do log (`logs.mascarar`), e o nome do contato
-é trocado por `[nome]`. Mesmo assim ela não vai ao git; fica na pasta `pre-sombra/`.
+de cliente: o telefone e o CPF saem pela máscara do log (`logs.mascarar`) e por `mascarar_numeros`,
+que cobre o que o cliente digita à mão; o nome do contato e o da carteira viram `[nome]`. Mesmo
+assim ela não vai ao git; fica na pasta `pre-sombra/`.
 """
 
 import random
 import re
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from sqlalchemy import select
@@ -74,19 +75,45 @@ def mascarar_nome(texto: str, nome: str | None) -> str:
     return texto
 
 
-def _limpar(texto: str, nome: str | None) -> str:
-    return mascarar_nome(mascarar(texto), nome)
+# 8 dígitos ou mais, com no máximo dois separadores (espaço, ponto, hífen, parêntese) entre eles:
+# "(83) 98765-4321", "123 456 789 01", "5583987654321". Valor em reais ("1.234,56": a vírgula
+# quebra a sequência), data com barra e contagem têm menos dígitos seguidos e passam.
+_NUMERO_LONGO = re.compile(r"(?<!\d)\d(?:[ .()\-]{0,2}\d){7,}(?!\d)")
+# Data com ponto, hífen ou espaço ("10-11-2026") também soma 8 dígitos, mas não é dado pessoal.
+_DATA = re.compile(r"\d{1,2}[ .\-]\d{1,2}[ .\-]\d{4}")
+
+
+def _trocar_digitos(achado: re.Match[str]) -> str:
+    texto = achado.group()
+    if _DATA.fullmatch(texto):
+        return texto
+    return re.sub(r"\d", "*", texto)
+
+
+def mascarar_numeros(texto: str) -> str:
+    """Troca por `*` os dígitos de qualquer sequência de 8 ou mais, com espaço, ponto, hífen ou
+    parêntese entre eles. A `logs.mascarar` só pega o `+55...`, o CPF com pontuação e 11 dígitos
+    colados; o cliente escreve de outros jeitos. Valores em reais e datas sobrevivem.
+    """
+    return _NUMERO_LONGO.sub(_trocar_digitos, texto)
+
+
+def _limpar(texto: str, nomes: Sequence[str | None]) -> str:
+    texto = mascarar_numeros(mascarar(texto))
+    for nome in nomes:
+        texto = mascarar_nome(texto, nome)
+    return texto
 
 
 def _citar(texto: str) -> str:
     return "\n".join(f"> {linha}".rstrip() for linha in texto.splitlines() or [""])
 
 
-def _do_cliente(mensagem: Mensagem, nome: str | None) -> str:
+def _do_cliente(mensagem: Mensagem, nomes: Sequence[str | None]) -> str:
     """O texto da mensagem; o áudio e a imagem sem texto aparecem pelo tipo do anexo."""
     partes = []
     if mensagem.texto:
-        partes.append(_limpar(mensagem.texto, nome))
+        partes.append(_limpar(mensagem.texto, nomes))
     anexos = [a.get("tipo", "anexo") for a in mensagem.anexos if isinstance(a, dict)]
     if anexos:
         partes.append(f"[anexo: {', '.join(anexos)}]")
@@ -119,7 +146,7 @@ def _decisao(turno: Turno) -> list[str]:
 
 
 def _resposta_do_atendente(
-    turno: Turno, ultima: Mensagem | None, sessao: Session, nome: str | None
+    turno: Turno, ultima: Mensagem | None, sessao: Session, nomes: Sequence[str | None]
 ) -> list[str]:
     """A primeira mensagem do atendente depois da última que o turno consumiu."""
     if ultima is None:
@@ -139,7 +166,7 @@ def _resposta_do_atendente(
     minutos = max(0, round((resposta.momento - ultima.momento).total_seconds() / 60))
     return [
         f"Atendente respondeu (depois de {minutos} min):",
-        _citar(_limpar(resposta.texto, nome)),
+        _citar(_limpar(resposta.texto, nomes)),
         "",
     ]
 
@@ -147,16 +174,20 @@ def _resposta_do_atendente(
 def _bloco(turno: Turno, sessao: Session, nomes: Mapping[int, str]) -> str:
     conversa = sessao.get_one(Conversa, turno.conversa_id)
     chatwoot_id = conversa.chatwoot_conversa_id
-    nome = nomes.get(chatwoot_id) if chatwoot_id is not None else None
+    # O nome do contato no Chatwoot e o do cliente na carteira: o texto pode citar qualquer um.
+    nome_no_chatwoot = nomes.get(chatwoot_id) if chatwoot_id is not None else None
+    para_mascarar = (nome_no_chatwoot, conversa.cobranca.cliente.nome)
     consumidas = list(
         sessao.scalars(
             select(Mensagem).where(Mensagem.id.in_(turno.mensagens_ids)).order_by(Mensagem.id)
         )
     )
     linhas = [f"## Turno {turno.id} (conversa {chatwoot_id})", "", "Cliente:"]
-    linhas += [_citar(_do_cliente(m, nome)) for m in consumidas] or ["> [sem mensagem]"]
+    linhas += [_citar(_do_cliente(m, para_mascarar)) for m in consumidas] or ["> [sem mensagem]"]
     linhas += ["", "Decisão do agente:", *_decisao(turno), ""]
-    linhas += _resposta_do_atendente(turno, consumidas[-1] if consumidas else None, sessao, nome)
+    linhas += _resposta_do_atendente(
+        turno, consumidas[-1] if consumidas else None, sessao, para_mascarar
+    )
     linhas += ["Veredito: ok | errado | perigoso", "Nota:", "", "---", ""]
     return "\n".join(linhas)
 
