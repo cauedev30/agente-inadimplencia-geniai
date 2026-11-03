@@ -342,12 +342,23 @@ def test_a_folha_da_amostra_real_nao_leva_telefone_cpf_nem_nome(tmp_path, politi
 
     texto = _folha(banco, tmp_path / "folha.md", nomes=relatorio.nomes_dos_contatos)
 
-    assert _turnos_da_folha(texto)
-    for telefone in telefones:
-        assert telefone not in texto
-        assert telefone.removeprefix("+") not in texto
-    assert not re.search(r"\b\d{11}\b", texto)
-    assert not re.search(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b", texto)
+    # As asserções afirmam um booleano ou uma contagem com mensagem fixa: o pytest imprime os
+    # valores comparados quando uma falha, e aqui eles são texto e telefone de cliente.
+    tem_turnos = bool(_turnos_da_folha(texto))
+    assert tem_turnos, "a folha da amostra saiu sem turnos"
+    telefones_na_folha = sum(
+        (telefone in texto) + (telefone.removeprefix("+") in texto) for telefone in telefones
+    )
+    assert telefones_na_folha == 0, "sobrou telefone da amostra na folha"
+    onze_digitos = len(re.findall(r"\b\d{11}\b", texto))
+    assert onze_digitos == 0, "sobrou sequência de 11 dígitos na folha"
+    cpfs = len(re.findall(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b", texto))
+    assert cpfs == 0, "sobrou CPF formatado na folha"
+    # Os formatos escritos à mão também: 8 dígitos ou mais, com separadores entre eles, no que o
+    # cliente e o atendente escreveram (as linhas de citação).
+    citacoes = "\n".join(linha for linha in texto.splitlines() if linha.startswith("> "))
+    longos = len(re.findall(r"(?<!\d)\d(?:[ .()\-]{0,2}\d){7,}(?!\d)", citacoes))
+    assert longos == 0, "sobrou número longo na folha"
     # Por conversa: o atendente de uma conversa pode ter, por acaso, o nome do contato de outra.
     # As palavras fixas da folha não contam (um contato poderia se chamar "Nota"). As asserções
     # contam em vez de comparar texto, para que uma falha não imprima dado de cliente.
@@ -359,7 +370,7 @@ def test_a_folha_da_amostra_real_nao_leva_telefone_cpf_nem_nome(tmp_path, politi
         for palavra in re.findall(r"\w+", nome_da_conversa[id_da_conversa].lower()):
             if len(palavra) >= 3 and palavra not in fixas:
                 vazamentos += bool(re.search(rf"(?<!\w){re.escape(palavra)}(?!\w)", bloco.lower()))
-    assert vazamentos == 0
+    assert vazamentos == 0, "sobrou nome de contato na folha"
 
 
 def test_o_aviso_da_carteira_estimada_fica_no_alto_da_folha(tmp_path, politica, config):

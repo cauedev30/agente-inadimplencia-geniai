@@ -372,5 +372,7 @@ def test_a_amostra_real_passa_pela_reproducao_sem_erro(tmp_path, banco, politica
     assert relatorio.erros_por_tipo == {}
     assert relatorio.mensagens + relatorio.mensagens_ignoradas == sum(map(len, mensagens.values()))
     assert sum(relatorio.eventos.values()) == relatorio.mensagens
-    assert sum(relatorio.turnos_por_resultado.values()) == len(_turnos(banco)) > 0
+    # Conta antes de afirmar: o pytest imprime o que se compara, e os turnos trazem a conversa.
+    gravados = len(_turnos(banco))
+    assert sum(relatorio.turnos_por_resultado.values()) == gravados > 0
     assert (relatorio.chamadas_ao_chatwoot, relatorio.templates_enviados) == (0, 0)

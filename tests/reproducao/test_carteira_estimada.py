@@ -374,5 +374,7 @@ def test_amostra_real_so_confere_contagens(tmp_path, politica, sessao):
         caminho = tmp_path / "estimada.csv"
         gravar_csv(resultado, caminho, politica)
         relatorio = importar_carteira(caminho, sessao, politica, CTNFalso(), campanha="teste")
-        assert relatorio.rejeitadas == []
+        # Conta em vez de comparar: a linha rejeitada traz o erro, que pode ter dado de cliente.
+        rejeitadas = len(relatorio.rejeitadas)
+        assert rejeitadas == 0, "o importador rejeitou linhas da carteira estimada"
         assert relatorio.criadas == resultado.telefones_unicos
