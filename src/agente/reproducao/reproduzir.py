@@ -233,7 +233,8 @@ def reproduzir(
         raise FileExistsError(f"{banco} já existe: a reprodução grava num banco novo")
     url = f"sqlite:///{banco.as_posix()}"
     migrar(url)
-    fabrica = criar_sessao(url)
+    # Um erro de banco não pode levar o texto das conversas na mensagem (`[parameters: ...]`).
+    fabrica = criar_sessao(url, ocultar_parametros=True)
     relatorio = RelatorioReproducao()
     erros: Counter = Counter()
 

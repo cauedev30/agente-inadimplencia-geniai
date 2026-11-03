@@ -166,3 +166,25 @@ def test_token_recusado_diz_o_codigo_e_nunca_o_token(ambiente, monkeypatch, caps
     assert "401" in saida
     assert "token-errado" not in saida
     assert not (ambiente / "c.csv").exists()
+
+
+def test_excecao_inesperada_diz_so_o_tipo(ambiente, monkeypatch, capsys):
+    sensivel = "texto inventado do cliente que não pode ir ao terminal"
+    _pasta_salva(ambiente / "varredura", {1: "+5583999990001"})
+
+    def falha(*_args, **_kwargs):
+        raise KeyError(sensivel)
+
+    monkeypatch.setattr(agente.cli, "estimar_carteira", falha)
+    saida = ambiente / "pre-sombra" / "carteira-estimada.csv"
+
+    codigo = main(
+        ["estimar-carteira", "--da-pasta", str(ambiente / "varredura"), "--saida", str(saida)]
+    )
+
+    impresso = capsys.readouterr()
+    tudo = impresso.out + impresso.err
+    assert codigo == 1
+    assert sensivel not in tudo
+    assert "KeyError" in tudo
+    assert "Traceback" not in tudo

@@ -6,8 +6,10 @@ from pathlib import Path
 
 import httpx
 import pytest
+from sqlalchemy import text
 
 import agente.cli
+import agente.reproducao.reproduzir
 from agente.cli import main
 from agente.reproducao.chatwoot_leitura import ChatwootLeitura
 from agente.reproducao.folha import AVISO_CARTEIRA_ESTIMADA
@@ -277,3 +279,47 @@ def test_sem_a_opcao_a_folha_nao_leva_o_aviso(ambiente, monkeypatch):
 
     folha = (ambiente / "pre-sombra" / "saida" / "folha.md").read_text(encoding="utf-8")
     assert AVISO_CARTEIRA_ESTIMADA not in folha
+
+
+SENSIVEL = "texto inventado do cliente que não pode ir ao terminal"
+
+
+def test_erro_de_banco_na_reproducao_nao_imprime_os_parametros_do_sql(
+    ambiente, monkeypatch, capsys
+):
+    # Um erro real do SQLAlchemy: sem `hide_parameters`, a mensagem traz `[parameters: (...)]`.
+    def falha(sessao, *_resto):
+        sessao.execute(
+            text("INSERT INTO tabela_que_nao_existe (texto) VALUES (:t)"), {"t": SENSIVEL}
+        )
+
+    monkeypatch.setattr(agente.reproducao.reproduzir, "receber_evento", falha)
+    _com_servidor(monkeypatch, _servidor())
+
+    codigo = main(_comando(ambiente))
+
+    saida = capsys.readouterr()
+    tudo = saida.out + saida.err
+    assert codigo == 1
+    assert SENSIVEL not in tudo
+    assert "OperationalError" in tudo
+    assert "apague a pasta de saída" in tudo.lower()
+    assert "Traceback" not in tudo
+
+
+def test_excecao_inesperada_diz_so_o_tipo_e_a_orientacao(ambiente, monkeypatch, capsys):
+    def falha(*_args, **_kwargs):
+        raise RuntimeError(SENSIVEL)
+
+    monkeypatch.setattr(agente.cli, "reproduzir", falha)
+    _com_servidor(monkeypatch, _servidor())
+
+    codigo = main(_comando(ambiente))
+
+    saida = capsys.readouterr()
+    tudo = saida.out + saida.err
+    assert codigo == 1
+    assert SENSIVEL not in tudo
+    assert "RuntimeError" in tudo
+    assert "apague a pasta de saída" in tudo.lower()
+    assert "Traceback" not in tudo

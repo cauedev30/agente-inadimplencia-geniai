@@ -5,7 +5,9 @@
 """
 
 import argparse
+import functools
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -41,6 +43,8 @@ from agente.simulacao import (
     formatar_relatorio,
     rodar_simulacao,
 )
+
+Comando = Callable[[argparse.Namespace], int]
 
 
 def _importar(argumentos: argparse.Namespace) -> int:
@@ -147,6 +151,26 @@ def _faltam_do_chatwoot(config: Config) -> list[str]:
     ]
 
 
+def _sem_detalhe_de_erro(orientacao: str) -> Callable[[Comando], Comando]:
+    """Os comandos da pré-sombra lidam com conversas de clientes: uma exceção que ninguém previu
+    não sai com traceback nem com a mensagem (o SQLAlchemy põe os parâmetros do SQL nela). Sai só o
+    tipo do erro e o que fazer."""
+
+    def decorar(comando: Comando) -> Comando:
+        @functools.wraps(comando)
+        def rodar(argumentos: argparse.Namespace) -> int:
+            try:
+                return comando(argumentos)
+            except Exception as erro:
+                print(f"Erro inesperado ({type(erro).__name__}). {orientacao}")
+                return 1
+
+        return rodar
+
+    return decorar
+
+
+@_sem_detalhe_de_erro("Apague a pasta de saída antes de tentar de novo.")
 def _reproduzir(argumentos: argparse.Namespace) -> int:
     saida: Path = argumentos.saida
     banco, folha = saida / "reproducao.db", saida / "folha.md"
@@ -185,7 +209,7 @@ def _reproduzir(argumentos: argparse.Namespace) -> int:
         print(f"Falha de rede ao ler o Chatwoot ({type(erro).__name__}).")
         print(f"Apague {banco} antes de tentar de novo.")
         return 1
-    with criar_sessao(config.database_url)() as sessao:
+    with criar_sessao(config.database_url, ocultar_parametros=True)() as sessao:
         turnos = escrever_folha(
             sessao,
             folha,
@@ -199,6 +223,7 @@ def _reproduzir(argumentos: argparse.Namespace) -> int:
     return 0
 
 
+@_sem_detalhe_de_erro("Apague o CSV de saída, se ele foi criado, antes de tentar de novo.")
 def _estimar_carteira(argumentos: argparse.Namespace) -> int:
     saida: Path = argumentos.saida
     if saida.exists():
