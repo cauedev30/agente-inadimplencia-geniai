@@ -16,12 +16,38 @@ TONS_DE_SAIDA = frozenset({"irritado", "hostil"})
 TONS_DE_RISCO = frozenset({"impaciente"})
 INTENCOES = ("nenhuma", "hesitante", "disposto", "pronto")
 
+# Quando cada nível se aplica. Um dict por opção, para a ordem nunca desalinhar de TONS e INTENCOES.
+CRITERIOS_DO_TOM = {
+    "cordial": "gentileza explícita: cumprimenta com bom dia ou boa tarde, agradece, diz por favor",
+    "neutro": "direto e sem emoção: pergunta ou responde o necessário (um oi sozinho é neutro)",
+    "impaciente": "pressa ou incômodo leve: insiste, cobra resposta, reclama da demora",
+    "irritado": "raiva ou aspereza: reclama com raiva, recusa de forma ríspida",
+    "hostil": "agressivo: xinga, ofende ou ameaça",
+}
+CRITERIOS_DA_INTENCAO = {
+    "nenhuma": "recusa pagar ou não fala de pagamento",
+    "hesitante": "considera pagar, mas põe obstáculo ou só pergunta o valor sem se comprometer",
+    "disposto": "quer pagar e pergunta por uma forma possível",
+    "pronto": "pede o meio de pagar agora (como pago, link, Pix)",
+}
+
 PERGUNTAS_JEV1 = (
-    Pergunta("tom", "score", "o tom do cliente", TONS),
+    Pergunta(
+        "tom",
+        "score",
+        "o tom do cliente",
+        TONS,
+        tuple(CRITERIOS_DO_TOM[tom] for tom in TONS),
+    ),
     Pergunta("quer_retencao", "bool", "quer cancelar, encerrar a relação ou ameaça sair"),
     Pergunta("risco_juridico", "bool", "cita Procon, advogado, processo, ação"),
     Pergunta("alega_pagamento", "bool", "afirma que já pagou"),
-    Pergunta("contesta_divida", "bool", "nega dever ou diz não ser a pessoa"),
+    Pergunta(
+        "contesta_divida",
+        "bool",
+        "afirma que não deve essa dívida ou que não é a pessoa cobrada; recusar pagar ou "
+        "reclamar da clínica não é contestar",
+    ),
     Pergunta(
         "desconfia_golpe",
         "bool",
@@ -35,7 +61,13 @@ PERGUNTAS_JEV1 = (
     ),
     Pergunta("atrito_clinica", "bool", "reclama da clínica ou do atendimento da rede"),
     Pergunta("quer_conta_energia", "bool", "quer pagar na conta de energia (Energisa)"),
-    Pergunta("intencao_pagar", "score", "a intenção de pagar", INTENCOES),
+    Pergunta(
+        "intencao_pagar",
+        "score",
+        "a intenção de pagar",
+        INTENCOES,
+        tuple(CRITERIOS_DA_INTENCAO[intencao] for intencao in INTENCOES),
+    ),
     Pergunta("entendeu_proposta", "bool", "entendeu o que foi oferecido"),
     Pergunta("repete_sem_avancar", "bool", "está em loop, repetindo o mesmo ponto"),
 )

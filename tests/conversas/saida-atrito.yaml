@@ -5,5 +5,5 @@ mensalidades: 3
 propenso: false
 turnos:
   - cliente: Não vou pagar nada, a clínica me atendeu muito mal da última vez.
-    perguntas: {atrito_clinica: true, tom: impaciente}
+    perguntas: {atrito_clinica: true, tom: irritado}
     esperado: {gatilho: ATRITO}

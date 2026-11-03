@@ -36,15 +36,18 @@ CAMPO_PROBABILIDADES = "probabilities"
 
 
 def pergunta_para_typesafe(pergunta: Pergunta) -> dict:
-    """bool vira noul; escolha vira choice (critérios = as opções); score vira score (as opções,
-    em ordem, do menor para o maior nível)."""
+    """bool vira noul; escolha vira choice, com `criteria` = {opção: quando ela se aplica}; score
+    vira score, com `criteria` = a descrição de cada nível, em ordem (a posição é o nível, do menor
+    para o maior). Sem `criterios` na pergunta, a descrição de cada opção é o próprio nome dela, e a
+    TypeSafe a interpreta só pelo nome."""
     base: dict[str, Any] = {"instructions": pergunta.descricao}
     opcoes = pergunta.opcoes or ()
+    descricoes = pergunta.criterios if pergunta.criterios is not None else opcoes
     if pergunta.tipo == "bool":
         return {"type": "noul", **base}
     if pergunta.tipo == "escolha":
-        return {"type": "choice", **base, "criteria": {opcao: opcao for opcao in opcoes}}
-    return {"type": "score", **base, "criteria": list(opcoes)}
+        return {"type": "choice", **base, "criteria": dict(zip(opcoes, descricoes, strict=True))}
+    return {"type": "score", **base, "criteria": list(descricoes)}
 
 
 def _reais(centavos: int) -> float:

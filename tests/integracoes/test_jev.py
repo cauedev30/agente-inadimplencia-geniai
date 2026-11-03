@@ -183,3 +183,18 @@ def test_a_pergunta_aceita_so_o_valor_do_seu_tipo():
 def test_pergunta_de_escolha_exige_opcoes():
     with pytest.raises(ValueError, match="opções"):
         Pergunta("acao", "escolha", "a ação principal")
+
+
+def test_criterios_na_mesma_ordem_das_opcoes_sao_aceitos():
+    pergunta = Pergunta("tom", "score", "o tom", ("a", "b"), ("quando a", "quando b"))
+    assert pergunta.criterios == ("quando a", "quando b")
+
+
+def test_criterios_com_tamanho_diferente_das_opcoes_sao_recusados():
+    with pytest.raises(ValueError, match="tom"):
+        Pergunta("tom", "score", "o tom", ("a", "b"), ("só um",))
+
+
+def test_pergunta_sim_ou_nao_nao_leva_criterios():
+    with pytest.raises(ValueError, match="risco_juridico"):
+        Pergunta("risco_juridico", "bool", "cita Procon", criterios=("x",))

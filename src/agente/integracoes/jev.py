@@ -22,18 +22,30 @@ TipoPergunta = Literal["bool", "score", "escolha"]
 
 @dataclass(frozen=True)
 class Pergunta:
-    """Uma pergunta tipada. A nota (score) e a escolha respondem com uma das opções."""
+    """Uma pergunta tipada. A nota (score) e a escolha respondem com uma das opções.
+
+    `criterios` (opcional) descreve quando cada opção se aplica, na mesma ordem de `opcoes`.
+    """
 
     nome: str
     tipo: TipoPergunta
     descricao: str
     opcoes: tuple[str, ...] | None = None
+    criterios: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.tipo == "bool" and self.opcoes is not None:
             raise ValueError(f"a pergunta {self.nome} é sim/não e não leva opções")
         if self.tipo != "bool" and not self.opcoes:
             raise ValueError(f"a pergunta {self.nome} ({self.tipo}) precisa das opções")
+        if self.criterios is not None:
+            if self.tipo == "bool":
+                raise ValueError(f"a pergunta {self.nome} é sim/não e não leva critérios")
+            if len(self.criterios) != len(self.opcoes or ()):
+                raise ValueError(
+                    f"a pergunta {self.nome} precisa de um critério por opção "
+                    f"({len(self.opcoes or ())} opções, {len(self.criterios)} critérios)"
+                )
 
     def aceita(self, valor) -> bool:
         """O valor tem o tipo da pergunta: sim/não de verdade, ou uma das opções."""

@@ -18,6 +18,8 @@ from agente.integracoes.jev_typesafe import (
 )
 from agente.politica import Regua
 from agente.tipos import EstadoConversa, Laudo
+from agente.turno.jev1 import PERGUNTAS_JEV1
+from agente.turno.jev2 import PERGUNTAS_JEV2
 
 from .test_jev import ESTADO, PERGUNTAS, ContratoJev
 
@@ -155,6 +157,44 @@ class TestPerguntaParaTypesafe:
             "instructions": "o tom do cliente",
             "criteria": ["cordial", "neutro", "irritado"],
         }
+
+    def test_escolha_com_criterios_leva_a_descricao_de_cada_opcao(self):
+        pergunta = Pergunta(
+            "acao", "escolha", "a ação", ("INFORM_DEBT", "NONE"), ("quer saber o valor", "só leu")
+        )
+        assert pergunta_para_typesafe(pergunta)["criteria"] == {
+            "INFORM_DEBT": "quer saber o valor",
+            "NONE": "só leu",
+        }
+
+    def test_score_com_criterios_leva_a_descricao_de_cada_nivel_em_ordem(self):
+        pergunta = Pergunta(
+            "tom", "score", "o tom", ("cordial", "neutro", "irritado"), ("gentil", "seco", "bravo")
+        )
+        assert pergunta_para_typesafe(pergunta)["criteria"] == ["gentil", "seco", "bravo"]
+
+    def test_o_corpo_do_pedido_leva_as_descricoes_so_onde_ha_criterios(self):
+        corpo = {}
+
+        def handler(pedido):
+            corpo.update(json.loads(pedido.content))
+            return handler_ok(pedido)
+
+        com_criterios = Pergunta("acao", "escolha", "a ação", ("A", "B"), ("quando A", "quando B"))
+        with jev_com(handler) as jev:
+            jev.avaliar((com_criterios, SCORE), ESTADO)
+
+        assert corpo["questions"]["acao"]["criteria"] == {"A": "quando A", "B": "quando B"}
+        assert corpo["questions"]["tom"]["criteria"] == ["cordial", "neutro", "irritado"]
+
+
+class TestPerguntasDoSistemaTemCriterios:
+    @pytest.mark.parametrize("nome", ["acao", "tom", "intencao_pagar"])
+    def test_escolha_e_score_levam_criterios(self, nome):
+        todas = {p.nome: p for p in (*PERGUNTAS_JEV1, *PERGUNTAS_JEV2)}
+        pergunta = todas[nome]
+        assert pergunta.criterios is not None
+        assert len(pergunta.criterios) == len(pergunta.opcoes)
 
 
 class TestEstadoParaTypesafe:
