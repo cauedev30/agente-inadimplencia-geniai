@@ -323,19 +323,19 @@ direto nele.
 
 ### T10. Jev a partir do Python
 
-**Atualização de 2026-10-29:** a Vercel AI Gateway tem **API HTTP** para o Jev (`POST
-https://ai-gateway.vercel.sh/v1/evaluate`, com o modelo `typesafe-ai/jev`), então o Python chama direto,
-sem serviço em Node. A chave é a `AI_GATEWAY_API_KEY` da conta Vercel, e o corpo aceita
-`providerOptions.gateway.zeroDataRetention: true` (D12). Fonte:
-<https://vercel.com/docs/ai-gateway/modalities/decision> (última atualização 2026-10-07). *A confirmar*
-com a chave: a conta tem o modelo liberado (há relato de 403 em conta Hobby) e as respostas encaixam no
-`ContratoJev`. No OpenRouter só há o `typesafe/jev-router`, um roteador de chat, que não é a API de
-decisão que usamos.
+**Atualização de 2026-11-03:** o Jev vem da **API direta da TypeSafe** (`POST
+https://api.typesafe.ai/v1/systemone`), com a conta da empresa e recarga; a Vercel AI Gateway (relato de
+2026-10-29) foi trocada. Testada só com texto inventado; o mapeamento para o `ContratoJev` está em
+`specs/2026-11-03-etapa-11-jev-typesafe.md`.
 
-O acesso ao Jev é pela Vercel AI Gateway, com o `experimental_evaluate` do AI SDK 7, que é TypeScript
-(arquitetura, seção 9). O serviço é em Python (D7). **Como o Python chama o Jev:** por HTTP direto ao
-gateway, se ele expuser o endpoint de avaliação, ou por um serviço mínimo em Node ao lado? Até
-responder, o Jev entra como interface falsa (arquitetura, seção 10).
+**Em aberto — ZDR e No Training da TypeSafe (com o Cauê ou o gestor):** a D12 (LGPD) exige Zero Data
+Retention e No Training em cada chamada, e a documentação direta (`docs.typesafe.ai/api`) **não fala de
+nenhum dos dois**. **Pergunta à TypeSafe:** os dados enviados em `state` e `questions` são retidos ou
+usados para treino? Existe como desligar (cabeçalho, plano ou contrato)? **Padrão até lá:** só texto
+inventado (`tests/conversas`) vai ao Jev real; `AGENTE_JEV_DADOS_REAIS_LIBERADOS=false` trava o
+`agente reproduzir` e o serviço. A pré-sombra com conversa real (11.4) espera a confirmação por escrito.
+
+*Respondida (2026-11-03):* como o Python chama o Jev, por HTTP direto à TypeSafe, sem serviço em Node.
 
 ### T11. Transcrição de áudio
 

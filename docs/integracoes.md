@@ -198,21 +198,32 @@ isso.
 
 ## T10 — Jev a partir do Python
 
-**Como chamar (2026-10-29):** a Vercel AI Gateway expõe o Jev por HTTP, sem serviço em Node:
+**Como chamar (2026-11-03):** a empresa tem **conta direta na TypeSafe, com recarga** (antes o plano usava a
+Vercel AI Gateway). O Python chama a API por HTTP, sem serviço em Node:
 
 ```bash
-curl https://ai-gateway.vercel.sh/v1/evaluate   -H "Authorization: Bearer $AI_GATEWAY_API_KEY" -H "Content-Type: application/json"   -d '{"model": "typesafe-ai/jev", "state": "...",
-       "questions": {"x": {"type": "boolean", "instructions": "..."}},
-       "providerOptions": {"gateway": {"zeroDataRetention": true, "only": ["typesafe-ai"]}}}'
+curl https://api.typesafe.ai/v1/systemone -H "Authorization: Bearer $AGENTE_JEV_API_KEY"   -H "Content-Type: application/json"   -d '{"model": "jev-latest", "state": {...},
+       "questions": {"x": {"type": "noul", "instructions": "..."}}}'
 ```
 
-As perguntas são `boolean` (devolve `probability`), `choice` (devolve `choice` e `probabilities`) e `score`;
-o `state` aceita texto, objeto ou lista. Fonte: <https://vercel.com/docs/ai-gateway/modalities/decision>.
-**Precisamos de:** a `AI_GATEWAY_API_KEY` (conta Vercel que paga a T5) e a confirmação de que o
-`typesafe-ai/jev` está liberado nela. A LGPD pede Zero Data Retention e No Training em cada chamada (D12).
+- Perguntas: `noul` (só `instructions`; devolve uma probabilidade), `choice` (`criteria` = as opções;
+  devolve `choice`, `probabilities` e `confidence`) e `score` (`criteria` = as opções em ordem). Na
+  `Pergunta` do agente: `bool` → `noul`, `escolha` → `choice`, `score` → `score`.
+- `GET /v1/models` lista `jev-latest` (= `jev-1.14.0`) e `jev-preview`. O padrão é `jev-latest`
+  (`AGENTE_JEV_MODELO`); passa ao nome fixo se a API o aceitar (11.1), para os limiares não mudarem com
+  uma troca silenciosa.
+- Testado em 2026-11-03 só com texto inventado: ~300 ms, ~400 tokens de entrada para 3 perguntas, saída
+  grátis. Fonte: <https://docs.typesafe.ai/api>.
+- A chave fica em `secrets/typesafe.local.json` e entra pela `AGENTE_JEV_API_KEY` (passou pelo chat em
+  2026-11-03: **rotacionar** depois da etapa 11).
+- **ZDR e No Training pendentes (D12):** a documentação direta não fala deles. Até a TypeSafe confirmar
+  por escrito, **só texto inventado** vai ao Jev real; a trava é `AGENTE_JEV_DADOS_REAIS_LIBERADOS`
+  (padrão `false`): com a chave e sem a liberação o serviço não sobe e o `agente reproduzir` sai com
+  código 2; o `agente simular` não precisa dela. Dúvida T10 em `duvidas.md`.
+- Desenho completo e o mapeamento do retorno para o `Laudo`: `specs/2026-11-03-etapa-11-jev-typesafe.md`.
 
-**Implementar** `Jev` (`integracoes/jev.py`):
-- `origem`: o identificador do Jev real. Ele separa os laudos da falsa na calibração;
+**Implementar** `JevTypeSafe` (`integracoes/jev_typesafe.py`, contrato do `Jev`):
+- `origem`: `typesafe:<modelo>`. Ele separa os laudos da falsa na calibração;
 - `avaliar(perguntas, estado) -> list[Laudo]`: um laudo por pergunta, na ordem, com o valor dentro das
   opções;
 - a falha levanta `JevIndisponivel`.
@@ -227,8 +238,9 @@ do processo. Por isso o cliente HTTP do Jev real deve ter um timeout próprio, m
 
 **Teste:** herdar `ContratoJev` (`tests/integracoes/test_jev.py`).
 
-**Ligar:** em `montar_dependencias`, trocar o `JevFalso()` e tirar a recusa do modo ativo. Hoje o modo
-ativo é recusado em produção enquanto o Jev for o falso.
+**Ligar:** em `montar_dependencias`, com a chave e a liberação, usar `JevComPrazo(JevTypeSafe(...))`; sem
+a chave, o `JevFalso()`. A recusa do modo ativo fica até a calibração: hoje ele é recusado em produção
+enquanto o Jev for o falso.
 
 **Pronto quando:** o Jev real passa no contrato, e as conversas simuladas (`agente simular
 tests/conversas`) rodam com ele.
