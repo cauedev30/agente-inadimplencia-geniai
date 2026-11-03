@@ -7,6 +7,7 @@ import os
 import httpx
 import pytest
 
+from agente.config import ConfigJev
 from agente.dominio.desconto import Oferta
 from agente.integracoes.jev import EstadoJev, JevComPrazo, JevIndisponivel, Pergunta
 from agente.integracoes.jev_typesafe import (
@@ -358,6 +359,22 @@ class TestErros:
         assert SEGREDO not in str(erro.value) and ECO not in str(erro.value)
 
 
+class TestDaConfig:
+    def test_usa_a_chave_a_url_o_modelo_e_75_por_cento_do_prazo(self):
+        config = ConfigJev(
+            jev_api_key="chave-ficticia", jev_url="https://typesafe.invalid", jev_modelo="jev-x"
+        )
+        with JevTypeSafe.da_config(config, 2000) as jev:
+            assert jev.origem == "typesafe:jev-x"
+            assert jev._cliente.timeout.read == 1.5
+            assert str(jev._cliente.base_url) == "https://typesafe.invalid"
+            assert jev._cliente.headers["Authorization"] == "Bearer chave-ficticia"
+
+    def test_sem_a_chave_e_um_erro_de_programacao(self):
+        with pytest.raises(ValueError, match="AGENTE_JEV_API_KEY"):
+            JevTypeSafe.da_config(ConfigJev(jev_api_key=None), 2000)
+
+
 class TestUso:
     def test_guarda_os_tokens_de_entrada_da_ultima_chamada(self):
         with jev_com(handler_ok) as jev:
@@ -374,6 +391,13 @@ class TestUso:
         with jev_com(handler) as jev:
             jev.avaliar(PERGUNTAS, ESTADO)
             assert jev.ultimo_uso is None
+
+    def test_soma_o_uso_de_todas_as_chamadas(self):
+        with jev_com(handler_ok) as jev:
+            assert jev.uso_total == 0
+            jev.avaliar(PERGUNTAS, ESTADO)
+            jev.avaliar(PERGUNTAS, ESTADO)
+            assert jev.uso_total == 824
 
     def test_a_chamada_que_falha_nao_deixa_o_uso_da_anterior(self):
         respostas = iter([200, 500])

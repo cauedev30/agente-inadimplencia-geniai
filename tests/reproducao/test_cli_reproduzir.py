@@ -11,10 +11,12 @@ from sqlalchemy import text
 import agente.cli
 import agente.reproducao.reproduzir
 from agente.cli import main
+from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.reproducao.chatwoot_leitura import ChatwootLeitura
 from agente.reproducao.folha import AVISO_CARTEIRA_ESTIMADA
 
 from ..conftest import RAIZ
+from ..integracoes.test_jev_typesafe import handler_ok
 from .fabrica import CONTA, INBOX, SEGUNDA_10H, TOKEN, ChatwootSimulado
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -279,6 +281,50 @@ def test_sem_a_opcao_a_folha_nao_leva_o_aviso(ambiente, monkeypatch):
 
     folha = (ambiente / "pre-sombra" / "saida" / "folha.md").read_text(encoding="utf-8")
     assert AVISO_CARTEIRA_ESTIMADA not in folha
+
+
+def test_com_a_chave_do_jev_e_sem_a_liberacao_sai_com_2_antes_de_ler_o_chatwoot(
+    ambiente, monkeypatch, capsys
+):
+    servidor = _servidor()
+    _com_servidor(monkeypatch, servidor)
+    monkeypatch.setenv("AGENTE_JEV_API_KEY", "chave-ficticia")
+
+    codigo = main(_comando(ambiente))
+
+    saida = capsys.readouterr().out
+    assert codigo == 2
+    assert "AGENTE_JEV_DADOS_REAIS_LIBERADOS" in saida
+    assert "chave-ficticia" not in saida
+    assert servidor.pedidos == []
+    assert not (ambiente / "pre-sombra" / "saida").exists()
+
+
+def test_com_a_chave_e_a_liberacao_a_reproducao_usa_o_jev_real(ambiente, monkeypatch, capsys):
+    chamadas = []
+
+    def handler(pedido):
+        chamadas.append(pedido)
+        return handler_ok(pedido)
+
+    _com_servidor(monkeypatch, _servidor())
+    monkeypatch.setenv("AGENTE_JEV_API_KEY", "chave-ficticia")
+    monkeypatch.setenv("AGENTE_JEV_DADOS_REAIS_LIBERADOS", "true")
+    monkeypatch.setattr(
+        agente.cli,
+        "_abrir_jev",
+        lambda config, politica: JevTypeSafe.da_config(
+            config, politica.jev_timeout_ms, transporte=httpx.MockTransport(handler)
+        ),
+    )
+
+    codigo = main(_comando(ambiente))
+
+    saida = capsys.readouterr().out
+    assert codigo == 0
+    assert chamadas
+    assert {c.url.host for c in chamadas} == {"api.typesafe.ai"}
+    assert "Jev falso" not in saida and "typesafe:jev-latest" in saida
 
 
 SENSIVEL = "texto inventado do cliente que não pode ir ao terminal"

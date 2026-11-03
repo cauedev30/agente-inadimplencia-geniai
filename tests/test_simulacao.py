@@ -1,9 +1,12 @@
 """Conversas simuladas (tarefa 4.6). Com a falsa, todos os casos passam: testa o encanamento."""
 
+import httpx
 import pytest
 
+import agente.cli
 from agente.cli import main
 from agente.integracoes.jev import JevFalso, responder
+from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.integracoes.redator import RedatorFalso
 from agente.politica import Regua
 from agente.simulacao import (
@@ -16,6 +19,7 @@ from agente.simulacao import (
 from agente.tipos import MotivoHumano
 
 from .conftest import RAIZ
+from .integracoes.test_jev_typesafe import handler_ok
 
 CONVERSAS = RAIZ / "tests" / "conversas"
 
@@ -162,6 +166,51 @@ def test_comando_simular_le_a_politica_como_o_config(tmp_path, monkeypatch, caps
     monkeypatch.chdir(tmp_path)
     assert main(["simular", str(CONVERSAS)]) == 0
     assert "16 casos" in capsys.readouterr().out
+
+
+def test_simular_jev_real_sem_a_chave_sai_com_2(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("AGENTE_JEV_API_KEY", raising=False)
+    caminho = _yaml(tmp_path, CASO_R3)
+
+    codigo = main(
+        ["simular", str(caminho), "--politica", str(RAIZ / "politica.toml"), "--jev-real"]
+    )
+
+    assert codigo == 2
+    assert "AGENTE_JEV_API_KEY" in capsys.readouterr().out
+
+
+def test_simular_jev_real_nao_exige_a_liberacao_e_imprime_os_tokens(tmp_path, monkeypatch, capsys):
+    chamadas = []
+
+    def handler(pedido):
+        chamadas.append(pedido)
+        return handler_ok(pedido)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENTE_JEV_API_KEY", "chave-ficticia")
+    monkeypatch.delenv("AGENTE_JEV_DADOS_REAIS_LIBERADOS", raising=False)
+    monkeypatch.setattr(
+        agente.cli,
+        "_abrir_jev",
+        lambda config, politica: JevTypeSafe.da_config(
+            config, politica.jev_timeout_ms, transporte=httpx.MockTransport(handler)
+        ),
+    )
+    caminho = _yaml(tmp_path, CASO_R3)
+
+    # O Jev do mock responde sempre o neutro: o relatório tem divergências (código 1), e o que
+    # importa aqui é que o Jev real foi chamado e os tokens foram somados.
+    codigo = main(
+        ["simular", str(caminho), "--politica", str(RAIZ / "politica.toml"), "--jev-real"]
+    )
+
+    saida = capsys.readouterr().out
+    assert codigo == 1
+    assert chamadas
+    assert f"Tokens de entrada do Jev: {412 * len(chamadas)}" in saida
+    assert "Jev falso" not in saida and "typesafe:jev-latest" in saida
 
 
 def test_erro_de_codigo_no_turno_vira_divergencia_e_nao_um_erro_de_banco(tmp_path, politica):

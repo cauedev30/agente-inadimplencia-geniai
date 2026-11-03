@@ -77,6 +77,53 @@ def test_config_le_a_chave_e_o_modelo_do_llm(monkeypatch):
     assert config.llm_corpo_extra == {"reasoning_effort": "none"}
 
 
+def test_sem_variavel_do_jev_ele_fica_desligado_e_a_liberacao_fechada(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    for variavel in list(os.environ):
+        if variavel.startswith("AGENTE_JEV"):
+            monkeypatch.delenv(variavel)
+
+    config = carregar_config(_env_file=None)
+
+    assert config.jev_api_key is None
+    assert config.jev_url == "https://api.typesafe.ai"
+    assert config.jev_modelo == "jev-latest"
+    assert config.jev_dados_reais_liberados is False
+    assert config.jev_dados_reais_bloqueados is False
+
+
+def test_config_le_as_variaveis_do_jev(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_JEV_API_KEY", "chave-ficticia")
+    monkeypatch.setenv("AGENTE_JEV_URL", "https://typesafe.invalid")
+    monkeypatch.setenv("AGENTE_JEV_MODELO", "jev-1.14.0")
+
+    config = carregar_config(_env_file=None)
+
+    assert config.jev_api_key == "chave-ficticia"
+    assert config.jev_url == "https://typesafe.invalid"
+    assert config.jev_modelo == "jev-1.14.0"
+    # Com a chave e sem a liberação, o uso com conversa real fica bloqueado.
+    assert config.jev_dados_reais_bloqueados is True
+
+    monkeypatch.setenv("AGENTE_JEV_DADOS_REAIS_LIBERADOS", "true")
+    assert carregar_config(_env_file=None).jev_dados_reais_bloqueados is False
+
+
+@pytest.mark.parametrize("vazio", ["", "  "])
+def test_variaveis_do_jev_vazias_valem_como_ausentes(monkeypatch, vazio):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    for variavel in ("API_KEY", "URL", "MODELO", "DADOS_REAIS_LIBERADOS"):
+        monkeypatch.setenv(f"AGENTE_JEV_{variavel}", vazio)
+
+    config = carregar_config(_env_file=None)
+
+    assert config.jev_api_key is None
+    assert config.jev_url == "https://api.typesafe.ai"
+    assert config.jev_modelo == "jev-latest"
+    assert config.jev_dados_reais_liberados is False
+
+
 def test_config_le_o_corpo_extra_do_llm_como_json(monkeypatch):
     monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
     monkeypatch.setenv("AGENTE_LLM_CORPO_EXTRA", '{"reasoning_effort": "low"}')
@@ -186,5 +233,6 @@ def test_o_env_example_copiado_como_esta_sobe_com_tudo_desligado(monkeypatch):
     config = carregar_config(_env_file=Path(__file__).parents[1] / ".env.example")
 
     assert not config.transcricao_ligada and not config.webchat_ligado
+    assert config.jev_api_key is None and config.jev_dados_reais_liberados is False
     assert config.chatwoot_conta is None and config.chatwoot_inbox is None
     assert config.chatwoot_time_humano is None and config.webchat_inbox is None

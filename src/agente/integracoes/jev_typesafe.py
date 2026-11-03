@@ -11,12 +11,15 @@ Zero Data Retention e No Training (D12) ainda não estão confirmados pela TypeS
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from agente.integracoes.jev import EstadoJev, JevIndisponivel, Pergunta
 from agente.tipos import Laudo
+
+if TYPE_CHECKING:
+    from agente.config import ConfigJev
 
 URL_TYPESAFE = "https://api.typesafe.ai"
 MODELO_PADRAO = "jev-latest"
@@ -161,11 +164,28 @@ class JevTypeSafe:
         self.modelo = modelo
         self.origem = f"typesafe:{modelo}"
         self.ultimo_uso: int | None = None
+        # A soma dos tokens de entrada de todas as chamadas, para o custo de uma simulação.
+        self.uso_total = 0
         self._cliente = httpx.Client(
             base_url=url.rstrip("/"),
             headers={"Authorization": f"Bearer {chave}"},
             timeout=timeout,
             transport=transporte,
+        )
+
+    @classmethod
+    def da_config(
+        cls, config: "ConfigJev", timeout_ms: int, transporte: httpx.BaseTransport | None = None
+    ) -> "JevTypeSafe":
+        """O timeout HTTP é 75% do `jev_timeout_ms` da política: a chamada não passa do turno."""
+        if not config.jev_api_key:
+            raise ValueError("o Jev real precisa da AGENTE_JEV_API_KEY")
+        return cls(
+            config.jev_api_key,
+            url=config.jev_url,
+            modelo=config.jev_modelo,
+            timeout=0.75 * timeout_ms / 1000,
+            transporte=transporte,
         )
 
     def __enter__(self) -> "JevTypeSafe":
@@ -200,6 +220,7 @@ class JevTypeSafe:
         if not isinstance(dados, Mapping):
             raise JevIndisponivel("a resposta da TypeSafe não é um objeto JSON")
         self.ultimo_uso = self._uso(dados)
+        self.uso_total += self.ultimo_uso or 0
         respostas = dados.get(CAMPO_RESPOSTAS)
         if not isinstance(respostas, Mapping):
             raise JevIndisponivel(f"a resposta da TypeSafe não traz {CAMPO_RESPOSTAS}")

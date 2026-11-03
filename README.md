@@ -52,7 +52,8 @@ Comandos do agente (com `AGENTE_DATABASE_URL` definido e o banco migrado por `uv
 ```bash
 uv run agente importar carteira.csv --campanha outubro   # importa a carteira
 uv run agente disparar --campanha outubro                 # dispara as aberturas (disparador falso até a T4)
-uv run agente simular tests/conversas                     # roda as conversas simuladas (Jev falso até a T10)
+uv run agente simular tests/conversas                     # roda as conversas simuladas (Jev falso)
+uv run agente simular tests/conversas --jev-real          # o mesmo com o Jev da TypeSafe (AGENTE_JEV_API_KEY); só texto inventado
 uv run agente comparar-redatores tests/conversas --modelo gpt-6-luna:0.10:0.50  # compara os LLMs (T6); exige AGENTE_LLM_API_KEY
 ```
 
@@ -121,6 +122,10 @@ sem leitura (cai no pedido de texto). Para ligar:
 - `AGENTE_LLM_API_KEY` liga o redator. `AGENTE_LLM_URL`, `AGENTE_LLM_MODELO` e `AGENTE_LLM_CORPO_EXTRA`
   já vêm com os padrões do Luna. O Luna recusa a temperatura sem o `reasoning_effort: "none"`, que o
   corpo extra padrão manda;
+- `AGENTE_JEV_API_KEY` liga o Jev da TypeSafe (T10); `AGENTE_JEV_URL` e `AGENTE_JEV_MODELO` (padrão
+  `jev-latest`) trocam o endereço e o modelo. Com a chave, o serviço e o `agente reproduzir` só rodam com
+  `AGENTE_JEV_DADOS_REAIS_LIBERADOS=true` (padrão `false`), que espera a TypeSafe confirmar ZDR e No
+  Training por escrito (D12); o `agente simular --jev-real` não precisa dela, pois usa texto inventado;
 - `AGENTE_TRANSCRICAO_URL` e `AGENTE_TRANSCRICAO_API_KEY` ligam a transcrição, e
   `AGENTE_TRANSCRICAO_MODELO` troca o modelo. Com só uma das duas, o serviço não sobe e diz qual falta;
 - os limites do áudio e os textos do pedido de texto estão no `politica.toml`.

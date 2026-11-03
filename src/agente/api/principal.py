@@ -1,8 +1,9 @@
 """Monta o serviço de produção a partir das variáveis de ambiente.
 
 Rodar: `uvicorn agente.api.principal:montar_app --factory`. Sem o Chatwoot configurado (T3), o
-serviço só roda em modo sombra, com a interface falsa. Até a T10, o Jev também é o falso. Sem o
-AGENTE_LLM_API_KEY, o redator é o falso; sem o AGENTE_TRANSCRICAO_*, o áudio não é transcrito.
+serviço só roda em modo sombra, com a interface falsa. Sem o AGENTE_JEV_API_KEY, o Jev é o falso;
+com ela, o serviço só sobe com o AGENTE_JEV_DADOS_REAIS_LIBERADOS=true (a ZDR da TypeSafe, D12).
+Sem o AGENTE_LLM_API_KEY, o redator é o falso; sem o AGENTE_TRANSCRICAO_*, o áudio não é transcrito.
 """
 
 import logging
@@ -10,11 +11,12 @@ import logging
 from fastapi import FastAPI
 
 from agente.api.app import criar_app
-from agente.config import Config, carregar_config
+from agente.config import MENSAGEM_JEV_SEM_LIBERACAO, Config, carregar_config
 from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevComPrazo, JevFalso
+from agente.integracoes.jev import Jev, JevComPrazo, JevFalso
+from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.integracoes.redator import Redator, RedatorFalso, RedatorOpenAI
 from agente.integracoes.transcritor import Transcritor, TranscritorOpenAI
 from agente.logs import configurar_logging
@@ -36,6 +38,17 @@ def _redator(config: Config) -> Redator:
         )
     log.warning("AGENTE_LLM_API_KEY não configurada: usando o redator falso (T6)")
     return RedatorFalso()
+
+
+def _jev(config: Config, politica: Politica) -> Jev:
+    if config.jev_api_key:
+        if not config.jev_dados_reais_liberados:
+            raise ValueError(MENSAGEM_JEV_SEM_LIBERACAO)
+        return JevComPrazo(
+            JevTypeSafe.da_config(config, politica.jev_timeout_ms), politica.jev_timeout_ms
+        )
+    log.warning("AGENTE_JEV_API_KEY não configurada: usando o Jev falso (T10)")
+    return JevComPrazo(JevFalso(), politica.jev_timeout_ms)
 
 
 def _transcritor(config: Config, politica: Politica) -> Transcritor | None:
@@ -80,8 +93,12 @@ def montar_dependencias(config: Config) -> Dependencias:
         chatwoot.fechar()
         raise ValueError("o modo ativo exige o Jev real (T10)")
     politica = carregar_politica(config.politica_path)
-    # Até a T10, não há Jev real: os laudos gravados são os da falsa, sem valor de calibração.
-    log.warning("Jev real ainda não ligado (T10): usando a interface falsa")
+    try:
+        jev = _jev(config, politica)
+    except ValueError:
+        if isinstance(chatwoot, ChatwootHttp):
+            chatwoot.fechar()
+        raise
     return Dependencias(
         politica=politica,
         chatwoot=chatwoot,
@@ -89,7 +106,7 @@ def montar_dependencias(config: Config) -> Dependencias:
         disparador=DisparadorFalso(),
         time_humano=config.chatwoot_time_humano,
         modo=modo,
-        jev=JevComPrazo(JevFalso(), politica.jev_timeout_ms),
+        jev=jev,
         redator=_redator(config),
         transcritor=_transcritor(config, politica),
         webchat=_webchat(config),

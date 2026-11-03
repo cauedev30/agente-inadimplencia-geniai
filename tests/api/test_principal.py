@@ -5,6 +5,7 @@ from agente.api.principal import montar_app, montar_dependencias
 from agente.config import Config
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.jev import JevComPrazo, JevFalso
+from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.integracoes.redator import RedatorFalso, RedatorOpenAI
 from agente.integracoes.transcritor import TranscritorOpenAI
 from agente.tipos import Modo
@@ -55,6 +56,45 @@ def test_ate_a_t10_o_jev_e_o_falso_com_o_prazo_da_politica(caplog):
     assert deps.jev.timeout_ms == deps.politica.jev_timeout_ms
     assert deps.jev.jev.registrar is False
     assert "Jev" in caplog.text and "T10" in caplog.text
+
+
+def test_sem_a_chave_do_jev_o_falso_serve_com_ou_sem_a_liberacao():
+    for liberada in (False, True):
+        deps = montar_dependencias(_config(jev_dados_reais_liberados=liberada))
+        assert isinstance(deps.jev.jev, JevFalso)
+
+
+def test_com_a_chave_e_sem_a_liberacao_o_servico_nao_sobe():
+    # A TypeSafe ainda não confirmou ZDR e No Training (D12): conversa real não vai ao Jev real.
+    with pytest.raises(ValueError, match="AGENTE_JEV_DADOS_REAIS_LIBERADOS"):
+        montar_dependencias(_config(jev_api_key="chave-ficticia"))
+
+
+def test_com_a_chave_e_a_liberacao_o_jev_e_o_da_typesafe_com_75_por_cento_do_prazo():
+    config = _config(
+        jev_api_key="chave-ficticia", jev_dados_reais_liberados=True, jev_modelo="jev-1.14.0"
+    )
+    deps = montar_dependencias(config)
+    assert isinstance(deps.jev, JevComPrazo)
+    assert isinstance(deps.jev.jev, JevTypeSafe)
+    assert deps.jev.origem == "typesafe:jev-1.14.0"
+    assert deps.jev.timeout_ms == deps.politica.jev_timeout_ms
+    assert deps.jev.jev._cliente.timeout.read == deps.politica.jev_timeout_ms * 0.75 / 1000
+    deps.jev.jev.fechar()
+
+
+def test_o_chatwoot_real_e_fechado_se_o_jev_for_recusado(monkeypatch):
+    fechados = []
+    monkeypatch.setattr(ChatwootHttp, "fechar", lambda self: fechados.append(self))
+    config = _config(
+        chatwoot_url="https://chatwoot.invalid",
+        chatwoot_conta=7,
+        chatwoot_token="t",
+        jev_api_key="chave-ficticia",
+    )
+    with pytest.raises(ValueError, match="AGENTE_JEV"):
+        montar_dependencias(config)
+    assert len(fechados) == 1
 
 
 def test_sem_a_chave_do_llm_o_redator_e_o_falso(caplog):

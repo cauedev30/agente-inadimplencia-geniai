@@ -21,10 +21,19 @@ from agente.comparacao import (
     formatar_comparacao,
     ler_candidato,
 )
-from agente.config import Config, ConfigPolitica, ConfigRedator, carregar_config
+from agente.config import (
+    MENSAGEM_JEV_SEM_LIBERACAO,
+    Config,
+    ConfigJev,
+    ConfigPolitica,
+    ConfigRedator,
+    carregar_config,
+)
 from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
+from agente.integracoes.jev import JevComPrazo
+from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.integracoes.redator import RedatorOpenAI
 from agente.politica import carregar_politica
 from agente.reproducao.carteira_estimada import (
@@ -84,13 +93,33 @@ def _disparar(argumentos: argparse.Namespace) -> int:
     return 0
 
 
+def _abrir_jev(config: ConfigJev, politica) -> JevTypeSafe:
+    """O Jev real com as variáveis `AGENTE_JEV_*` (o teste troca o transporte)."""
+    return JevTypeSafe.da_config(config, politica.jev_timeout_ms)
+
+
 def _simular(argumentos: argparse.Namespace) -> int:
     politica = carregar_politica(argumentos.politica or ConfigPolitica().politica_path)
-    # Até a T10, não há Jev real: a falsa responde o gabarito de cada turno.
-    print("Jev falso: o relatório testa o encanamento, não calibra os limiares (T10).")
     casos = carregar_casos(argumentos.caminho)
-    relatorio = rodar_simulacao(casos, DependenciasSimulacao(politica))
-    print(formatar_relatorio(relatorio))
+    if not argumentos.jev_real:
+        # Sem o Jev real, a falsa responde o gabarito de cada turno.
+        print("Jev falso: o relatório testa o encanamento, não calibra os limiares (T10).")
+        relatorio = rodar_simulacao(casos, DependenciasSimulacao(politica))
+        print(formatar_relatorio(relatorio))
+        return 1 if relatorio.divergencias else 0
+    config = ConfigJev()
+    if not config.jev_api_key:
+        print("Defina o AGENTE_JEV_API_KEY para usar o Jev real (T10).")
+        return 2
+    # As conversas de tests/conversas são texto inventado: não exige a liberação dos dados reais.
+    with _abrir_jev(config, politica) as jev:
+        print(
+            f"Jev real ({jev.origem}): só texto inventado vai à TypeSafe; gasta tokens de entrada."
+        )
+        deps = DependenciasSimulacao(politica, jev=JevComPrazo(jev, politica.jev_timeout_ms))
+        relatorio = rodar_simulacao(casos, deps)
+        print(formatar_relatorio(relatorio))
+        print(f"Tokens de entrada do Jev: {jev.uso_total}")
     return 1 if relatorio.divergencias else 0
 
 
@@ -176,6 +205,10 @@ def _reproduzir(argumentos: argparse.Namespace) -> int:
     banco, folha = saida / "reproducao.db", saida / "folha.md"
     # O banco da reprodução é o SQLite da pasta de saída, nunca o AGENTE_DATABASE_URL do serviço.
     config = Config(database_url=f"sqlite:///{banco.as_posix()}")
+    # Antes de qualquer leitura: a reprodução lê conversa real, e o Jev real ainda não pode (D12).
+    if config.jev_dados_reais_bloqueados:
+        print(MENSAGEM_JEV_SEM_LIBERACAO)
+        return 2
     faltam = _faltam_do_chatwoot(config)
     if faltam:
         print(f"Defina {', '.join(faltam)} para ler o Chatwoot.")
@@ -193,11 +226,16 @@ def _reproduzir(argumentos: argparse.Namespace) -> int:
         return 2
     politica = carregar_politica(config.politica_path)
     saida.mkdir(parents=True, exist_ok=True)
-    print("Só lê o Chatwoot (GET); nada é enviado nem escrito lá. Jev falso até a T10.")
+    real = _abrir_jev(config, politica) if config.jev_api_key else None
+    jev = JevComPrazo(real, politica.jev_timeout_ms) if real else None
+    qual = f"Jev real ({real.origem})" if real else "Jev falso até a T10"
+    print(f"Só lê o Chatwoot (GET); nada é enviado nem escrito lá. {qual}.")
     desde = _agora() - timedelta(days=argumentos.dias)
     try:
         with _abrir_leitura(config) as leitura:
-            relatorio = reproduzir(leitura, argumentos.carteira, desde, banco, politica, config)
+            relatorio = reproduzir(
+                leitura, argumentos.carteira, desde, banco, politica, config, jev
+            )
     except httpx.HTTPStatusError as erro:
         # Nunca o endereço nem o cabeçalho: só o código.
         print(
@@ -209,6 +247,9 @@ def _reproduzir(argumentos: argparse.Namespace) -> int:
         print(f"Falha de rede ao ler o Chatwoot ({type(erro).__name__}).")
         print(f"Apague {banco} antes de tentar de novo.")
         return 1
+    finally:
+        if real:
+            real.fechar()
     with criar_sessao(config.database_url, ocultar_parametros=True)() as sessao:
         turnos = escrever_folha(
             sessao,
@@ -290,6 +331,11 @@ def main(argv: list[str] | None = None) -> int:
     simular = comandos.add_parser("simular", help="roda as conversas simuladas de uma pasta")
     simular.add_argument("caminho", type=Path)
     simular.add_argument("--politica", type=Path, help="padrão: AGENTE_POLITICA_PATH")
+    simular.add_argument(
+        "--jev-real",
+        action="store_true",
+        help="usa o Jev da TypeSafe (AGENTE_JEV_API_KEY) em vez da falsa; só texto inventado",
+    )
     simular.set_defaults(rodar=_simular)
     comparar = comandos.add_parser(
         "comparar-redatores", help="compara os LLMs candidatos nas conversas simuladas (T6)"
