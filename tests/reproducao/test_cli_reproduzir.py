@@ -324,7 +324,7 @@ def test_com_a_chave_e_a_liberacao_a_reproducao_usa_o_jev_real(ambiente, monkeyp
     assert codigo == 0
     assert chamadas
     assert {c.url.host for c in chamadas} == {"api.typesafe.ai"}
-    assert "Jev falso" not in saida and "typesafe:jev-latest" in saida
+    assert "Jev falso" not in saida and "typesafe:jev-1.14.0" in saida
 
 
 SENSIVEL = "texto inventado do cliente que não pode ir ao terminal"

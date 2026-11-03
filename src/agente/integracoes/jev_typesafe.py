@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from agente.config import ConfigJev
 
 URL_TYPESAFE = "https://api.typesafe.ai"
-MODELO_PADRAO = "jev-latest"
+MODELO_PADRAO = "jev-1.14.0"
 CAMINHO = "/v1/systemone"
 
 # Os nomes dos campos da resposta, num lugar só: o parsing inteiro fica em `laudo_da_resposta`.

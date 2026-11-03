@@ -123,7 +123,7 @@ sem leitura (cai no pedido de texto). Para ligar:
   já vêm com os padrões do Luna. O Luna recusa a temperatura sem o `reasoning_effort: "none"`, que o
   corpo extra padrão manda;
 - `AGENTE_JEV_API_KEY` liga o Jev da TypeSafe (T10); `AGENTE_JEV_URL` e `AGENTE_JEV_MODELO` (padrão
-  `jev-latest`) trocam o endereço e o modelo. Com a chave, o serviço e o `agente reproduzir` só rodam com
+  `jev-1.14.0`) trocam o endereço e o modelo. Com a chave, o serviço e o `agente reproduzir` só rodam com
   `AGENTE_JEV_DADOS_REAIS_LIBERADOS=true` (padrão `false`), que espera a TypeSafe confirmar ZDR e No
   Training por escrito (D12); o `agente simular --jev-real` não precisa dela, pois usa texto inventado;
 - `AGENTE_TRANSCRICAO_URL` e `AGENTE_TRANSCRICAO_API_KEY` ligam a transcrição, e

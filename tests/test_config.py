@@ -87,7 +87,7 @@ def test_sem_variavel_do_jev_ele_fica_desligado_e_a_liberacao_fechada(monkeypatc
 
     assert config.jev_api_key is None
     assert config.jev_url == "https://api.typesafe.ai"
-    assert config.jev_modelo == "jev-latest"
+    assert config.jev_modelo == "jev-1.14.0"
     assert config.jev_dados_reais_liberados is False
     assert config.jev_dados_reais_bloqueados is False
 
@@ -120,7 +120,7 @@ def test_variaveis_do_jev_vazias_valem_como_ausentes(monkeypatch, vazio):
 
     assert config.jev_api_key is None
     assert config.jev_url == "https://api.typesafe.ai"
-    assert config.jev_modelo == "jev-latest"
+    assert config.jev_modelo == "jev-1.14.0"
     assert config.jev_dados_reais_liberados is False
 
 

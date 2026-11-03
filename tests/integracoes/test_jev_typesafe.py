@@ -96,7 +96,7 @@ class TestPedido:
         assert str(pedido.url) == "https://api.typesafe.ai/v1/systemone"
         assert pedido.headers["Authorization"] == "Bearer chave-ficticia"
         corpo = json.loads(pedido.content)
-        assert corpo["model"] == "jev-latest"
+        assert corpo["model"] == "jev-1.14.0"
         assert list(corpo["questions"]) == ["risco_juridico", "tom", "acao"]
         assert [q["type"] for q in corpo["questions"].values()] == ["noul", "score", "choice"]
         assert corpo["state"] == estado_para_typesafe(ESTADO)
@@ -130,7 +130,7 @@ class TestPedido:
 
     def test_origem_padrao(self):
         with jev_com(handler_ok) as jev:
-            assert jev.origem == "typesafe:jev-latest"
+            assert jev.origem == "typesafe:jev-1.14.0"
 
     def test_o_gerenciador_de_contexto_fecha_o_cliente(self):
         with jev_com(handler_ok) as jev:
@@ -304,7 +304,7 @@ class TestErros:
 
     def test_sem_o_campo_answers(self):
         def handler(pedido):
-            return httpx.Response(200, json={"model": "jev-latest", "usage": {}})
+            return httpx.Response(200, json={"model": "jev-1.14.0", "usage": {}})
 
         assert "answers" in self._falha(handler)
 

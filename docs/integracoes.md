@@ -209,9 +209,9 @@ curl https://api.typesafe.ai/v1/systemone -H "Authorization: Bearer $AGENTE_JEV_
 - Perguntas: `noul` (só `instructions`; devolve uma probabilidade), `choice` (`criteria` = as opções;
   devolve `choice`, `probabilities` e `confidence`) e `score` (`criteria` = as opções em ordem). Na
   `Pergunta` do agente: `bool` → `noul`, `escolha` → `choice`, `score` → `score`.
-- `GET /v1/models` lista `jev-latest` (= `jev-1.14.0`) e `jev-preview`. O padrão é `jev-latest`
-  (`AGENTE_JEV_MODELO`); passa ao nome fixo se a API o aceitar (11.1), para os limiares não mudarem com
-  uma troca silenciosa.
+- `GET /v1/models` lista `jev-latest` (= `jev-1.14.0`) e `jev-preview`. O padrão é o nome fixo `jev-1.14.0`
+  (`AGENTE_JEV_MODELO`), que a API aceita (testado em 2026-11-03, mesma resposta do `jev-latest`): assim os
+  limiares não mudam com uma troca silenciosa do `latest`. Subir de versão é decisão e pede recalibrar.
 - Testado em 2026-11-03 só com texto inventado: ~300 ms, ~400 tokens de entrada para 3 perguntas, saída
   grátis. Fonte: <https://docs.typesafe.ai/api>.
 - A chave fica em `secrets/typesafe.local.json` e entra pela `AGENTE_JEV_API_KEY` (passou pelo chat em

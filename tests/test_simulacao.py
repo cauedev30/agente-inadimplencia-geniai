@@ -210,7 +210,7 @@ def test_simular_jev_real_nao_exige_a_liberacao_e_imprime_os_tokens(tmp_path, mo
     assert codigo == 1
     assert chamadas
     assert f"Tokens de entrada do Jev: {412 * len(chamadas)}" in saida
-    assert "Jev falso" not in saida and "typesafe:jev-latest" in saida
+    assert "Jev falso" not in saida and "typesafe:jev-1.14.0" in saida
 
 
 def test_erro_de_codigo_no_turno_vira_divergencia_e_nao_um_erro_de_banco(tmp_path, politica):
