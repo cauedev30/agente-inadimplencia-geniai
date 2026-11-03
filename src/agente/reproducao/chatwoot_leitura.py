@@ -137,9 +137,10 @@ def para_evento(mensagem: dict, conversa: ConversaLida) -> dict | None:
     `receber_evento` sem caminho novo. Devolve None para o que o webhook nunca entregaria como
     mensagem: a atividade da conversa, a nota privada e o tipo que não se conhece.
 
-    O telefone é o do contato da conversa (`meta.sender`), como o webhook o traz no `sender` da
-    mensagem do cliente. O tipo do remetente é o `sender.type` (`contact`, `user`): o `sender_type`
-    do topo vem vazio na API.
+    O telefone é o do contato da conversa (`meta.sender`). O webhook o traz no `sender` da
+    mensagem do cliente e, na do atendente, em `conversation.meta.sender`: o adaptador manda nos
+    dois lugares. O tipo do remetente é o `sender.type` (`contact`, `user`): o `sender_type` do
+    topo vem vazio na API.
     """
     tipo = _TIPOS.get(mensagem.get("message_type"))
     if tipo is None or mensagem.get("private"):
@@ -157,7 +158,10 @@ def para_evento(mensagem: dict, conversa: ConversaLida) -> dict | None:
         "content_attributes": mensagem.get("content_attributes") or {},
         "account": {"id": conversa.conta_id},
         "inbox": {"id": mensagem.get("inbox_id") or conversa.inbox_id},
-        "conversation": {"id": conversa.id},
+        "conversation": {
+            "id": conversa.id,
+            "meta": {"sender": {"phone_number": conversa.telefone}},
+        },
         "sender": sender,
         "attachments": mensagem.get("attachments") or [],
     }

@@ -55,10 +55,11 @@ def test_sem_telefone_na_conversa_usa_o_da_mensagem():
     assert ler_evento(para_evento(bruta, sem_telefone)).telefone == "+5583999990099"
 
 
-def test_outgoing_do_atendente_vira_mensagem_de_user_sem_telefone():
+def test_outgoing_do_atendente_vira_mensagem_de_user_com_o_telefone_do_contato():
+    # O webhook traz o contato em `conversation.meta.sender`; o `sender` é o atendente.
     evento = ler_evento(para_evento(mensagem(11, 555, 1, "Bom dia", SEGUNDA_10H), LIDA))
 
-    assert (evento.tipo, evento.remetente, evento.telefone) == ("outgoing", "user", None)
+    assert (evento.tipo, evento.remetente, evento.telefone) == ("outgoing", "user", TELEFONE)
     assert evento.texto == "Bom dia"
 
 

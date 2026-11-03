@@ -203,6 +203,83 @@ def test_mensagem_do_atendente_marca_humano_na_conversa(cliente_http, fabrica):
         assert origens == [OrigemMensagem.CLIENTE, OrigemMensagem.HUMANO]
 
 
+def _do_atendente(telefone=TELEFONE, mensagem_id=200, texto="Seu débito é de R$ 100,20", **extra):
+    """O `outgoing` do atendente como o webhook o traz: o contato vai em `conversation.meta`."""
+    contato = {"phone_number": telefone} if telefone else {}
+    return _evento(
+        mensagem_id=mensagem_id,
+        texto=texto,
+        message_type="outgoing",
+        sender={"type": "user", "name": "Atendente Inventada"},
+        conversation={"id": 555, "meta": {"sender": contato}},
+        **extra,
+    )
+
+
+def test_atendente_antes_do_cliente_grava_a_mensagem_e_nao_agenda_turno(cliente_http, fabrica):
+    assert _postar(cliente_http, _do_atendente()).json() == {"resultado": "humano"}
+
+    with fabrica() as sessao:
+        conversa = sessao.scalars(select(Conversa)).one()
+        assert conversa.chatwoot_conversa_id == 555
+        assert conversa.human_owned is True
+        # Só o cliente agenda o turno.
+        assert conversa.turno_em is None
+        mensagem = sessao.scalars(select(Mensagem)).one()
+        assert (mensagem.origem, mensagem.texto) == (
+            OrigemMensagem.HUMANO,
+            "Seu débito é de R$ 100,20",
+        )
+
+
+def test_a_resposta_do_cliente_depois_do_atendente_entra_na_mesma_conversa(cliente_http, fabrica):
+    _postar(cliente_http, _do_atendente())
+
+    assert _postar(cliente_http, _evento(mensagem_id=101, texto="já paguei")).json() == {
+        "resultado": "agendado"
+    }
+    with fabrica() as sessao:
+        assert len(sessao.scalars(select(Conversa)).all()) == 1
+        origens = [m.origem for m in sessao.scalars(select(Mensagem).order_by(Mensagem.id))]
+        assert origens == [OrigemMensagem.HUMANO, OrigemMensagem.CLIENTE]
+
+
+def test_atendente_de_telefone_fora_da_carteira_e_sem_cobranca(cliente_http, fabrica):
+    evento = _do_atendente(telefone="+5583900000000")
+
+    assert _postar(cliente_http, evento).json() == {"resultado": "sem_cobranca"}
+    with fabrica() as sessao:
+        assert sessao.scalars(select(Mensagem)).all() == []
+        assert sessao.scalars(select(Conversa)).one().chatwoot_conversa_id is None
+
+
+def test_atendente_sem_telefone_no_evento_e_sem_cobranca(cliente_http, fabrica):
+    assert _postar(cliente_http, _do_atendente(telefone=None)).json() == {
+        "resultado": "sem_cobranca"
+    }
+
+
+def test_a_mesma_mensagem_do_atendente_duas_vezes_grava_uma_so(cliente_http, fabrica):
+    _postar(cliente_http, _do_atendente())
+    _postar(cliente_http, _do_atendente())
+
+    with fabrica() as sessao:
+        assert len(sessao.scalars(select(Mensagem)).all()) == 1
+        assert len(sessao.scalars(select(Conversa)).all()) == 1
+
+
+def test_robo_e_nota_privada_antes_do_cliente_continuam_ignorados(cliente_http, fabrica):
+    do_robo = _do_atendente(mensagem_id=210)
+    do_robo["sender"] = {"type": "agent_bot"}
+    nota = _do_atendente(mensagem_id=211, private=True)
+
+    assert _postar(cliente_http, do_robo).json() == {"resultado": "ignorado"}
+    assert _postar(cliente_http, nota).json() == {"resultado": "ignorado"}
+    with fabrica() as sessao:
+        assert sessao.scalars(select(Mensagem)).all() == []
+        assert sessao.scalars(select(Conversa)).one().human_owned is False
+
+
 def test_mensagem_do_proprio_robo_e_nota_privada_sao_ignoradas(cliente_http):
     do_robo = _evento(mensagem_id=300, message_type="outgoing", sender={"type": "agent_bot"})
     nota = _evento(mensagem_id=301, message_type="outgoing", private=True, sender={"type": "user"})

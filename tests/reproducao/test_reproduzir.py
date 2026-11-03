@@ -168,6 +168,38 @@ def test_o_atendente_na_conversa_fica_registrado_no_turno_seguinte(banco, politi
     assert [t.humano_na_conversa for t in _turnos(banco)] == [False, True]
 
 
+def test_o_atendente_que_abre_a_cobranca_entra_no_historico_antes_do_cliente(
+    banco, politica, config
+):
+    # Na JP Sul quem abre a cobrança é o atendente: a mensagem dele vem antes da 1ª do cliente.
+    bruta = conversa(913, T + 200)
+    mensagens = [
+        mensagem(9801, 913, 1, "Seu débito é de R$ 100,20", T),
+        mensagem(9802, 913, 0, "já paguei", T + 60),
+    ]
+
+    relatorio = _reproduzir(ChatwootSimulado([bruta], {913: mensagens}), banco, politica, config)
+
+    assert relatorio.eventos == {"humano": 1, "agendado": 1}
+    with criar_sessao(f"sqlite:///{banco.as_posix()}")() as sessao:
+        origens = [m.origem for m in sessao.scalars(select(Mensagem).order_by(Mensagem.id))]
+        assert len(sessao.scalars(select(Conversa).where(Conversa.chatwoot_conversa_id)).all()) == 1
+    assert origens == [OrigemMensagem.HUMANO, OrigemMensagem.CLIENTE]
+    [turno] = _turnos(banco)
+    assert turno.humano_na_conversa is True
+    assert len(turno.mensagens_ids) == 1
+
+
+def test_o_atendente_de_telefone_fora_da_carteira_conta_como_sem_cobranca(banco, politica, config):
+    bruta = conversa(914, T + 60, telefone=FORA_DA_CARTEIRA)
+    mensagens = [mensagem(9803, 914, 1, "Bom dia", T)]
+
+    relatorio = _reproduzir(ChatwootSimulado([bruta], {914: mensagens}), banco, politica, config)
+
+    assert relatorio.eventos == {"sem_cobranca": 1}
+    assert _turnos(banco) == []
+
+
 def test_mensagem_fora_da_janela_e_adiada_e_roda_na_abertura(banco, politica, config):
     bruta = conversa(905, DOMINGO_22H + 60)
     mensagens = [mensagem(9401, 905, 0, "quanto eu devo?", DOMINGO_22H)]

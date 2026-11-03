@@ -50,6 +50,13 @@ def ler_evento(dados: dict) -> EventoMensagem | None:
     if dados.get("event") != "message_created":
         return None
     remetente = dados.get("sender") or {}
+    # No `outgoing` o `sender` é o atendente: o telefone do cliente só vem no contato da conversa
+    # (`conversation.meta.sender`). Na mensagem do cliente, o próprio `sender` vale mais.
+    contato = ((dados["conversation"].get("meta") or {}).get("sender")) or {}
+    if dados.get("message_type") == "outgoing":
+        telefone = contato.get("phone_number")
+    else:
+        telefone = remetente.get("phone_number") or contato.get("phone_number")
     texto = dados.get("content") or ""
     # O toque num botão de resposta do template chega com o texto do botão; se o Chatwoot
     # entregar o payload, ele vale mais (a confirmar na T3, com o Chatwoot real).
@@ -64,7 +71,7 @@ def ler_evento(dados: dict) -> EventoMensagem | None:
         tipo=dados.get("message_type", ""),
         privada=bool(dados.get("private")),
         remetente=remetente.get("type", ""),
-        telefone=remetente.get("phone_number"),
+        telefone=telefone,
         texto=texto,
         anexos=[_anexo(a) for a in dados.get("attachments") or []],
     )
@@ -77,7 +84,8 @@ def _de_outro_lugar(evento: EventoMensagem, config: Config) -> bool:
 
 
 def _conversa_do_cliente(sessao: Session, evento: EventoMensagem) -> Conversa | None:
-    """A conversa já ligada ao Chatwoot ou, na 1ª resposta, a da cobrança ativa do telefone."""
+    """A conversa já ligada ao Chatwoot ou, na 1ª mensagem (a do cliente ou a do atendente que abriu
+    a cobrança), a da cobrança ativa do telefone."""
     conversa = sessao.scalar(
         select(Conversa).where(Conversa.chatwoot_conversa_id == evento.conversa_chatwoot_id)
     )
@@ -118,7 +126,10 @@ def _status_mudou(sessao: Session, dados: dict, agora: datetime) -> str:
 def receber_evento(
     sessao: Session, dados: dict, politica: Politica, config: Config, agora: datetime
 ) -> str:
-    """Trata o evento. Devolve: agendado, repetida, humano, devolvida, sem_cobranca ou ignorado."""
+    """Trata o evento. Devolve: agendado, repetida, humano, devolvida, sem_cobranca ou ignorado.
+
+    A mensagem do atendente só grava e marca o humano na conversa; quem agenda o turno é o cliente.
+    """
     if dados.get("event") == "conversation_status_changed":
         return _status_mudou(sessao, dados, agora)
     evento = ler_evento(dados)
@@ -129,11 +140,12 @@ def receber_evento(
         # Só a mensagem do atendente interessa: a do próprio robô já foi gravada no envio.
         if evento.remetente != "user":
             return "ignorado"
-        conversa = sessao.scalar(
-            select(Conversa).where(Conversa.chatwoot_conversa_id == evento.conversa_chatwoot_id)
-        )
+        # Na JP Sul quem abre a cobrança é o atendente, antes de o cliente responder: a conversa
+        # nasce aqui, para o Jev ler o turno sabendo que a dívida já foi informada.
+        conversa = _conversa_do_cliente(sessao, evento)
         if conversa is None:
-            return "ignorado"
+            sessao.commit()
+            return "sem_cobranca"
         conversa.human_owned = True
         registrar_mensagem(
             sessao,
