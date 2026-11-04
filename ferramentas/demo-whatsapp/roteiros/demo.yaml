@@ -71,7 +71,8 @@
 - nome: ja-paguei
   passos:
     - cliente: "Já paguei isso semana passada"
-      a_decidir: true # CONCILIACAO?
+      espera:
+        acao: "HUMAN:CONCILIACAO"
 
 - nome: fora-da-politica
   passos:
@@ -89,7 +90,9 @@
 - nome: fora-do-assunto
   passos:
     - cliente: "O cartão cobre dentista?"
-      a_decidir: true # OUT_OF_SCOPE?
+      espera:
+        acao: OUT_OF_SCOPE
+        resultado: ENVIADO
 
 # Documenta o A2: o cliente que só cumprimenta fica sem resposta.
 - nome: cumprimento-solto
@@ -99,8 +102,9 @@
         acao: "NONE"
         resultado: SEM_ENVIO
 
-# Falha hoje de propósito: o /reset engole a mensagem que vem logo depois dele. Quando a E2
-# corrigir, o 3º passo passa a dar INFORM_DEBT.
+# O /reset e a mensagem que vem 3 s depois caem na mesma rajada. O 2º passo não espera o turno (o 3º
+# tem `intervalo`), então a confirmação do reinício é conferida no 3º, que enxerga as mensagens
+# enviadas desde o /reset; o 3º passo é respondido na conversa nova.
 - nome: reset
   equipe: true
   passos:
@@ -112,3 +116,4 @@
       intervalo: 3
       espera:
         acao: INFORM_DEBT
+        mensagem_tem: ["Conversa reiniciada"]

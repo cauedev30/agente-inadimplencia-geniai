@@ -113,6 +113,9 @@ class Espera(_Imutavel):
     resultado: ResultadoTurno | None = None
     texto_tem: list[str] = []
     texto_nao_tem: list[str] = []
+    # Trechos que alguma mensagem ao Chatwoot da janela do passo deve ter (a confirmação do /reset
+    # sai fora do turno que o ensaio espera, então o `texto_tem` não a vê).
+    mensagem_tem: list[str] = []
     etiqueta: str | None = None
 
     @field_validator("acao")
@@ -423,6 +426,12 @@ def divergencias(espera: Espera | None, obtido: Obtido) -> list[str]:
     for trecho in espera.texto_nao_tem:
         if trecho.casefold() in texto:
             achadas.append(f"o texto tem «{trecho}», que não devia ter")
+    enviadas = [
+        str(r.conteudo).casefold() for r in obtido.registros_chatwoot if r.tipo == "mensagem"
+    ]
+    for trecho in espera.mensagem_tem:
+        if not any(trecho.casefold() in enviada for enviada in enviadas):
+            achadas.append(f"nenhuma mensagem enviada tem «{trecho}»")
     if espera.etiqueta is not None:
         etiquetas = {
             e.casefold()
@@ -630,6 +639,8 @@ def _esperado(passo: Passo) -> str:
         partes.append("texto com " + ", ".join(f"«{t}»" for t in espera.texto_tem))
     if espera.texto_nao_tem:
         partes.append("texto sem " + ", ".join(f"«{t}»" for t in espera.texto_nao_tem))
+    if espera.mensagem_tem:
+        partes.append("mensagem enviada com " + ", ".join(f"«{t}»" for t in espera.mensagem_tem))
     if espera.etiqueta:
         partes.append(f"etiqueta {espera.etiqueta}")
     return "; ".join(partes) or "sem expectativa"

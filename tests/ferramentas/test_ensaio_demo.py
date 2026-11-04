@@ -420,6 +420,23 @@ def test_conferir_a_etiqueta_vem_dos_registros_do_chatwoot_falso():
     assert ensaiar.conferir(espera, False, sem) == Veredito.DIVERGIU
 
 
+def test_conferir_a_mensagem_enviada_vem_dos_registros_do_chatwoot_falso():
+    espera = ensaiar.Espera(mensagem_tem=["reiniciada"])
+    com = _obtido(registros_chatwoot=[_registro("mensagem", "Conversa Reiniciada.")])
+    sem = _obtido(
+        registros_chatwoot=[
+            _registro("nota", "Conversa reiniciada."),
+        ]
+    )
+    assert ensaiar.conferir(espera, False, com) == Veredito.OK
+    assert ensaiar.conferir(espera, False, sem) == Veredito.DIVERGIU
+
+
+def test_os_roteiros_da_demo_carregam():
+    roteiros = ensaiar.carregar_roteiros(_PASTA / "roteiros" / "demo.yaml")
+    assert len(roteiros) == 12
+
+
 def test_conferir_sem_turno_quando_nao_ha_obtido():
     assert ensaiar.conferir(ESPERA_DIVIDA, False, None) == Veredito.SEM_TURNO
     assert ensaiar.conferir(None, True, None) == Veredito.SEM_TURNO
