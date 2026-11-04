@@ -3,6 +3,7 @@ chama a API de verdade, com texto inventado, e é pulado sem a AGENTE_JEV_API_KE
 
 import json
 import os
+import threading
 import time
 from datetime import date
 
@@ -511,6 +512,136 @@ class TestPrazoTotal:
     def test_o_timeout_por_fase_continua_igual_ao_prazo(self):
         with jev_com(handler_ok) as jev:
             assert jev._cliente.timeout == httpx.Timeout(1.0)
+
+
+class CorpoMudo(httpx.SyncByteStream):
+    """Entrega 1 pedaço e some: espera até o `close` (como um socket parado até ser fechado).
+    Depois da espera, termina limpo ou levanta o erro dado, como o socket fechado faria."""
+
+    def __init__(self, erro: Exception | None = None):
+        self.erro = erro
+        self.acordar = threading.Event()
+        self.fechado = False
+
+    def __iter__(self):
+        yield b"{"
+        self.acordar.wait(10)
+        if self.erro is not None:
+            raise self.erro
+
+    def close(self) -> None:
+        self.fechado = True
+        self.acordar.set()
+
+
+def _threads_timer() -> list[threading.Thread]:
+    return [t for t in threading.enumerate() if isinstance(t, threading.Timer)]
+
+
+class TestVigiaDoPrazo:
+    """O servidor que manda os cabeçalhos e 1 pedaço e depois fica mudo: ninguém confere o relógio
+    entre pedaços, então um vigia fecha a resposta no prazo."""
+
+    @pytest.mark.parametrize(
+        "erro",
+        [
+            None,
+            httpx.ReadError(f"fechado {SEGREDO}"),
+            httpx.ReadTimeout(f"demorou {SEGREDO}"),
+            httpx.StreamClosed(),
+            RuntimeError(f"fechada {SEGREDO}"),
+        ],
+        ids=["termina-limpo", "ReadError", "ReadTimeout", "StreamClosed", "RuntimeError"],
+    )
+    def test_servidor_mudo_depois_de_um_pedaco_estoura_no_prazo(self, erro):
+        corpos = []
+
+        def handler(pedido):
+            corpo = CorpoMudo(erro)
+            corpos.append(corpo)
+            return httpx.Response(200, stream=corpo)
+
+        jev = JevTypeSafe("chave-ficticia", timeout=0.3, transporte=httpx.MockTransport(handler))
+        with jev:
+            inicio = time.monotonic()
+            with pytest.raises(JevIndisponivel) as falha:
+                jev.avaliar(PERGUNTAS, ESTADO_COM_SEGREDO)
+            duracao = time.monotonic() - inicio
+
+        assert str(falha.value) == "a TypeSafe passou do prazo"
+        assert SEGREDO not in str(falha.value)
+        assert falha.value.__context__ is None and falha.value.__cause__ is None
+        assert duracao < 0.9
+        assert corpos[0].fechado
+        assert jev.ultimo_uso is None and jev.uso_total == 0
+
+    def test_o_vigia_nao_fecha_o_cliente_e_a_chamada_seguinte_funciona(self):
+        chamadas = []
+
+        def handler(pedido):
+            chamadas.append(pedido)
+            if len(chamadas) == 1:
+                return httpx.Response(200, stream=CorpoMudo())
+            return handler_ok(pedido)
+
+        jev = JevTypeSafe("chave-ficticia", timeout=0.2, transporte=httpx.MockTransport(handler))
+        with jev:
+            with pytest.raises(JevIndisponivel):
+                jev.avaliar(PERGUNTAS, ESTADO)
+            laudos = jev.avaliar(PERGUNTAS, ESTADO)
+
+        assert [laudo.pergunta for laudo in laudos] == [p.nome for p in PERGUNTAS]
+
+    def test_corpo_em_varios_pedacos_dentro_do_prazo_continua_passando(self):
+        def handler(pedido):
+            dados = json.dumps(resposta_para(json.loads(pedido.content))).encode()
+            return httpx.Response(200, stream=CorpoLento(_em_pedacos(dados, 4), pausa=0.02))
+
+        with jev_com(handler) as jev:
+            laudos = jev.avaliar(PERGUNTAS, ESTADO)
+
+        assert [laudo.pergunta for laudo in laudos] == [p.nome for p in PERGUNTAS]
+
+    def test_o_vigia_e_cancelado_no_caminho_feliz(self):
+        antes = len(_threads_timer())
+        with jev_com(handler_ok) as jev:
+            jev.avaliar(PERGUNTAS, ESTADO)
+            # O Timer cancelado acorda e sai; o join dá um instante para a thread terminar.
+            for timer in _threads_timer():
+                timer.join(timeout=1.0)
+
+        assert len(_threads_timer()) == antes
+
+    def test_o_vigia_e_cancelado_quando_o_corpo_falha(self):
+        def handler(pedido):
+            return httpx.Response(200, content=f"{ECO} {SEGREDO}")
+
+        antes = len(_threads_timer())
+        with jev_com(handler) as jev, pytest.raises(JevIndisponivel):
+            jev.avaliar(PERGUNTAS, ESTADO)
+        for timer in _threads_timer():
+            timer.join(timeout=1.0)
+
+        assert len(_threads_timer()) == antes
+
+    def test_json_invalido_nao_carrega_o_corpo_nem_como_contexto(self):
+        def handler(pedido):
+            return httpx.Response(200, content=f"{ECO} {SEGREDO} isto não é json")
+
+        with jev_com(handler) as jev, pytest.raises(JevIndisponivel) as erro:
+            jev.avaliar(PERGUNTAS, ESTADO_COM_SEGREDO)
+
+        assert SEGREDO not in str(erro.value) and ECO not in str(erro.value)
+        assert erro.value.__context__ is None and erro.value.__cause__ is None
+
+    def test_falha_de_rede_nao_carrega_o_erro_como_contexto(self):
+        def handler(pedido):
+            raise httpx.ConnectError(f"sem rota {SEGREDO}", request=pedido)
+
+        with jev_com(handler) as jev, pytest.raises(JevIndisponivel) as erro:
+            jev.avaliar(PERGUNTAS, ESTADO_COM_SEGREDO)
+
+        assert erro.value.__context__ is None and erro.value.__cause__ is None
 
 
 class TestSerializacaoDoPedido:

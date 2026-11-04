@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 URL_TYPESAFE = "https://api.typesafe.ai"
 MODELO_PADRAO = "jev-1.14.0"
 CAMINHO = "/v1/systemone"
+MOTIVO_PRAZO = "a TypeSafe passou do prazo"
 
 # Os nomes dos campos da resposta, num lugar só: o parsing inteiro fica em `laudo_da_resposta`.
 CAMPO_RESPOSTAS = "answers"
@@ -245,9 +246,22 @@ class JevTypeSafe:
         return laudos
 
     def _chamar(self, conteudo: bytes) -> object:
-        """O POST com o prazo total: o corpo é lido por pedaços, conferindo o relógio a cada um."""
+        """O POST com o prazo total.
+
+        Até os cabeçalhos, quem limita é o `timeout` por fase do httpx (conexão, escrita, leitura
+        dos cabeçalhos), cada uma com o prazo inteiro: o pior caso é uma fase, não duas somadas.
+        Depois dos cabeçalhos, um vigia (`threading.Timer`) fecha só a resposta (não o `Client`,
+        que derrubaria o pool das próximas chamadas) quando o prazo acaba. Sem ele, um servidor que
+        manda 1 pedaço e fica mudo só seria cortado pelo timeout de leitura, que recomeça a cada
+        pedaço, e a chamada passaria do prazo (~2x).
+
+        O erro nunca carrega o erro de origem: o `JevIndisponivel` sai de fora dos `except`, com
+        `__context__` e `__cause__` nulos, porque o `JSONDecodeError` guarda o corpo do servidor e a
+        mensagem do httpx pode ecoar o pedido.
+        """
         limite = time.monotonic() + self._prazo
-        # `from None` em tudo: o corpo do erro e a mensagem do httpx podem ecoar o pedido.
+        expirou = threading.Event()
+        motivo = ""
         try:
             with self._cliente.stream(
                 "POST", CAMINHO, content=conteudo, headers={"Content-Type": "application/json"}
@@ -255,20 +269,53 @@ class JevTypeSafe:
                 # O status vem antes do corpo: o erro nunca lê (nem guarda) o que o servidor ecoou.
                 if not resposta.is_success:
                     raise JevIndisponivel(f"a TypeSafe respondeu {resposta.status_code}") from None
-                pedacos = []
-                for pedaco in resposta.iter_bytes():
-                    pedacos.append(pedaco)
-                    if time.monotonic() > limite:
-                        raise JevIndisponivel("a TypeSafe passou do prazo") from None
-                if time.monotonic() > limite:
-                    raise JevIndisponivel("a TypeSafe passou do prazo") from None
-            return json.loads(b"".join(pedacos))
+                vigia = threading.Timer(
+                    max(0.0, limite - time.monotonic()), self._estourou, (expirou, resposta)
+                )
+                vigia.daemon = True
+                vigia.start()
+                try:
+                    pedacos = []
+                    for pedaco in resposta.iter_bytes():
+                        pedacos.append(pedaco)
+                        # O relógio também a cada pedaço, para o corpo que ignora o fechamento.
+                        if time.monotonic() > limite:
+                            raise JevIndisponivel(MOTIVO_PRAZO) from None
+                finally:
+                    vigia.cancel()
+            if expirou.is_set() or time.monotonic() > limite:
+                motivo = MOTIVO_PRAZO
+            else:
+                return json.loads(b"".join(pedacos))
+        except JevIndisponivel:
+            raise
         except httpx.TimeoutException:
-            raise JevIndisponivel("a TypeSafe passou do prazo") from None
+            motivo = MOTIVO_PRAZO
         except httpx.HTTPError as erro:
-            raise JevIndisponivel(f"falha de rede com a TypeSafe ({type(erro).__name__})") from None
+            # Fechada pelo vigia, a leitura levanta ReadError e afins: é o prazo, não a rede.
+            motivo = (
+                MOTIVO_PRAZO
+                if expirou.is_set()
+                else f"falha de rede com a TypeSafe ({type(erro).__name__})"
+            )
+        except RuntimeError:
+            # `httpx.StreamClosed` (e o RuntimeError da leitura de uma resposta fechada) não são
+            # HTTPError; só valem como prazo se foi o vigia que fechou.
+            if not expirou.is_set():
+                raise
+            motivo = MOTIVO_PRAZO
         except ValueError:
-            raise JevIndisponivel("a resposta da TypeSafe não é JSON") from None
+            motivo = "a resposta da TypeSafe não é JSON"
+        raise JevIndisponivel(motivo) from None
+
+    @staticmethod
+    def _estourou(expirou: threading.Event, resposta: httpx.Response) -> None:
+        """O que o vigia faz no prazo: marca e fecha a resposta (a leitura parada levanta)."""
+        expirou.set()
+        try:
+            resposta.close()
+        except Exception:  # noqa: BLE001 - o vigia não pode levantar numa thread solta
+            pass
 
     @staticmethod
     def _uso(dados: Mapping) -> int | None:
