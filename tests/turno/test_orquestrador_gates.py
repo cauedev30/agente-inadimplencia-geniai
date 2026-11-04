@@ -146,3 +146,22 @@ def test_reinicio_abre_uma_conversa_nova(sessao, ligada, deps):
     assert nova.estado is EstadoConversa.INICIADO
     # O histórico da conversa antiga continua gravado.
     assert len(sessao.scalars(select(Mensagem).where(Mensagem.conversa_id == ligada.id)).all()) == 4
+
+
+def test_reinicio_depois_do_handoff_abre_uma_conversa_nova_com_o_robo(sessao, ligada, deps):
+    telefone = ligada.cobranca.cliente.telefone
+    deps.politica = deps.politica.model_copy(update={"telefones_equipe": frozenset({telefone})})
+    ligada.human_owned = True
+    ligada.estado = EstadoConversa.ATENDIMENTO_HUMANO
+    _cliente(sessao, ligada, texto=deps.politica.comando_reinicio)
+
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.IGNORADO
+
+    antiga, nova = sessao.scalars(select(Conversa).order_by(Conversa.id)).all()
+    assert antiga.estado is EstadoConversa.ATENDIMENTO_HUMANO
+    assert antiga.chatwoot_conversa_id is None
+    assert nova.chatwoot_conversa_id == 555
+    assert nova.estado is EstadoConversa.INICIADO
+    assert nova.human_owned is False
+    # Nada vai ao cliente: o reinício só troca a conversa.
+    assert deps.chatwoot.enviadas(555) == []

@@ -16,6 +16,7 @@ from agente.api.app import criar_app
 from agente.config import MENSAGEM_JEV_SEM_LIBERACAO, Config, carregar_config
 from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
+from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import Jev, JevComPrazo, JevFalso
 from agente.integracoes.jev_typesafe import JevTypeSafe
@@ -125,6 +126,9 @@ def montar_dependencias(config: Config) -> Dependencias:
         redator=_redator(config),
         transcritor=_transcritor(config, politica),
         webchat=_webchat(config),
+        # Até a T9, o CTN é o falso e não tem a carteira: no ativo (só no piloto, acima) ele aceita
+        # a matrícula, senão todo turno com link do CTN falha com ClienteNaoEncontrado.
+        ctn=CTNFalso(aceita_qualquer_matricula=modo is Modo.ATIVO),
     )
 
 

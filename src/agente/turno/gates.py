@@ -95,14 +95,15 @@ def avaliar_gates(
         return Ignorar("sem_mensagem")
     if conversa.cobranca.status is not StatusCobranca.ATIVA:
         return Ignorar("sem_cobranca_ativa")
-    if barrar_humano and humano_na_conversa(conversa):
-        return Ignorar("humano_na_conversa")
-    textos = [mensagem.texto.strip() for mensagem in mensagens]
-    if (
-        politica.comando_reinicio in textos
-        and conversa.cobranca.cliente.telefone in politica.telefones_equipe
+    # O reinício vem antes do humano: o telefone da equipe recomeça a conversa de teste mesmo
+    # depois de um handoff, sem precisar devolvê-la ao robô no Chatwoot.
+    comando = politica.comando_reinicio.casefold()
+    if conversa.cobranca.cliente.telefone in politica.telefones_equipe and any(
+        mensagem.texto.strip().casefold() == comando for mensagem in mensagens
     ):
         return Reiniciar()
+    if barrar_humano and humano_na_conversa(conversa):
+        return Ignorar("humano_na_conversa")
     if _so_anexo_nao_aceito(mensagens, politica):
         return Ignorar("anexo_nao_aceito")
     toque = _so_toque_no_botao_pix(mensagens)

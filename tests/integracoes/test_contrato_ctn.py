@@ -111,3 +111,18 @@ class TestCTNFalso(ContratoCTN):
         ctn, matricula = ctn_e_matricula
         datas = [p.data for p in ctn.historico_pagamentos(matricula, meses=3)]
         assert datas == [date(2026, 8, 11), date(2026, 9, 10)]
+
+
+def test_a_falsa_aberta_aceita_qualquer_matricula_e_gera_o_link():
+    # A demo do WhatsApp (modo ativo, piloto) usa o CTN falso sem a carteira carregada nele.
+    ctn = CTNFalso(aceita_qualquer_matricula=True)
+    cliente = ctn.consultar_cliente("DEMO-0001")
+    assert cliente.matricula == "DEMO-0001"
+    assert cliente.cpf is None
+    link = ctn.gerar_link_pagamento("DEMO-0001", valor_centavos=4020, cobranca_id=1)
+    assert link.url.startswith("https://ctn.invalid/")
+
+
+def test_a_falsa_comum_continua_recusando_a_matricula_desconhecida():
+    with pytest.raises(ClienteNaoEncontrado):
+        CTNFalso().consultar_cliente("DEMO-0001")

@@ -481,7 +481,9 @@ def test_o_pix_sai_com_a_frase_do_recebedor_e_o_jev3_viu_o_texto_sem_ela(
     # O Jev 3 aprovou o texto do LLM, antes da frase.
     candidatos = [e.texto_candidato for _, e in deps.jev.chamadas if e.texto_candidato]
     assert candidatos and all(RECEBEDOR not in c for c in candidatos)
-    assert texto.removesuffix(f"\n\n{FRASE}") == candidatos[-1]
+    # O Jev 3 também não viu o código Pix (A6): o texto dele traz o marcador no lugar.
+    assert pix.br_code not in candidatos[-1] and "[código Pix]" in candidatos[-1]
+    assert texto.removesuffix(f"\n\n{FRASE}") == candidatos[-1].replace("[código Pix]", pix.br_code)
 
 
 def test_com_o_recebedor_vazio_o_pix_sai_sem_a_frase(sessao, ligada, cliente, politica):

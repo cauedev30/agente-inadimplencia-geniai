@@ -72,7 +72,11 @@ class CTNFalso:
         clientes: Iterable[ClienteCTN] = (),
         historicos: dict[str, list[PagamentoHistorico]] | None = None,
         hoje: date | None = None,
+        aceita_qualquer_matricula: bool = False,
     ):
+        # Até a T9 o serviço no ar usa o CTN falso sem a carteira carregada nele: com isto ligado,
+        # a matrícula desconhecida vira um cliente sem CPF, e o link falso (ctn.invalid) sai.
+        self.aceita_qualquer_matricula = aceita_qualquer_matricula
         self.clientes = {cliente.matricula: cliente for cliente in clientes}
         self.historicos = historicos or {}
         self.hoje = hoje or date.today()
@@ -90,6 +94,8 @@ class CTNFalso:
         try:
             return self.clientes[matricula]
         except KeyError:
+            if self.aceita_qualquer_matricula:
+                return ClienteCTN(matricula, "Cliente", "+550000000000", None)
             raise ClienteNaoEncontrado(matricula) from None
 
     def historico_pagamentos(self, matricula: str, meses: int) -> list[PagamentoHistorico]:

@@ -68,6 +68,21 @@ def test_reinicio_so_para_telefone_da_equipe(sessao, conversa, politica):
     assert _avaliar(sessao, conversa, [mensagem], da_equipe) == Reiniciar()
 
 
+@pytest.mark.parametrize("como", ["human_owned", "estado"])
+def test_reinicio_da_equipe_vale_com_o_humano_na_conversa(sessao, conversa, politica, como):
+    if como == "human_owned":
+        conversa.human_owned = True
+    else:
+        conversa.estado = EstadoConversa.ATENDIMENTO_HUMANO
+    mensagem = _cliente(sessao, conversa, texto=f"  {politica.comando_reinicio.upper()} ")
+    assert _avaliar(sessao, conversa, [mensagem], politica) == Ignorar("humano_na_conversa")
+
+    da_equipe = politica.model_copy(
+        update={"telefones_equipe": frozenset({conversa.cobranca.cliente.telefone})}
+    )
+    assert _avaliar(sessao, conversa, [mensagem], da_equipe) == Reiniciar()
+
+
 def test_rajada_so_com_anexo_nao_aceito_e_ignorada(sessao, conversa, politica):
     mensagem = _cliente(sessao, conversa, texto="", anexos=[{"tipo": "video"}])
     assert _avaliar(sessao, conversa, [mensagem], politica) == Ignorar("anexo_nao_aceito")

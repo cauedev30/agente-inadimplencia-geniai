@@ -90,6 +90,33 @@ def test_o_jev3_le_o_texto_as_acoes_e_os_numeros():
     assert estado.historico == ESTADO.historico
 
 
+BR_CODE = "00020126580014br.gov.bcb.pix0136a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6520400005303986"
+
+
+def test_o_jev3_nao_ve_o_codigo_pix_nem_no_texto_nem_nos_numeros():
+    # A sequência longa de letras e números faz o Jev 3 reprovar o "português" (A6, 2026-11-04).
+    texto = f"Você tem R$ 100,20 em aberto. Para pagar via Pix, use este código: {BR_CODE}"
+    numeros = {"divida_centavos": 10020, "br_code": BR_CODE}
+    jev = JevFalso(_aprovadas(), registrar=True)
+
+    validar(jev, texto, ACOES, numeros, ESTADO)
+
+    _, estado = jev.chamadas[-1]
+    assert BR_CODE not in estado.texto_candidato
+    assert estado.texto_candidato.endswith("use este código: [código Pix]")
+    assert estado.numeros == {"divida_centavos": 10020, "br_code": "[código Pix]"}
+    # O dicionário do turno não é alterado: o cliente recebe o código verdadeiro.
+    assert numeros["br_code"] == BR_CODE
+
+
+def test_o_texto_sem_pix_segue_igual_para_o_jev3():
+    jev = JevFalso(_aprovadas(), registrar=True)
+    validar(jev, TEXTO, ACOES, {"divida_centavos": 10020}, ESTADO)
+    _, estado = jev.chamadas[-1]
+    assert estado.texto_candidato == TEXTO
+    assert estado.numeros == {"divida_centavos": 10020}
+
+
 def test_o_texto_que_afirma_fato_sem_fonte_e_reprovado():
     texto = "Sim, o cartão vale para dentista! O valor em aberto é R$ 100,20."
     jev = JevFalso([responder("afirma_fato_sem_fonte", True), *_aprovadas()])

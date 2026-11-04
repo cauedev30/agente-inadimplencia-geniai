@@ -5,6 +5,7 @@ import agente.api.app
 from agente.api.principal import montar_app, montar_dependencias
 from agente.config import Config
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
+from agente.integracoes.ctn import ClienteNaoEncontrado
 from agente.integracoes.jev import JevComPrazo, JevFalso
 from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.integracoes.redator import RedatorFalso, RedatorOpenAI
@@ -196,9 +197,17 @@ def test_modo_ativo_com_o_jev_real_e_o_piloto_sobe(tmp_path):
         assert isinstance(deps.chatwoot, ChatwootHttp)
         assert isinstance(deps.jev, JevComPrazo)
         assert isinstance(deps.jev.jev, JevTypeSafe)
+        # Até a T9 o CTN é o falso; no ativo (piloto) ele aceita a matrícula da carteira.
+        assert deps.ctn.consultar_cliente("DEMO-0001").matricula == "DEMO-0001"
     finally:
         deps.chatwoot.fechar()
         deps.jev.jev.fechar()
+
+
+def test_modo_sombra_segue_com_o_ctn_falso_sem_clientes():
+    deps = montar_dependencias(_config())
+    with pytest.raises(ClienteNaoEncontrado):
+        deps.ctn.consultar_cliente("DEMO-0001")
 
 
 @pytest.mark.parametrize("liberacao", [PERCENTUAL, '"sombra"'])

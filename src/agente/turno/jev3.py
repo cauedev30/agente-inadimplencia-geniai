@@ -59,12 +59,29 @@ class Validacao:
     laudos: tuple[Laudo, ...]
 
 
+MARCADOR_PIX = "[código Pix]"
+
+
+def _sem_o_codigo_pix(texto: str, numeros: dict) -> tuple[str, dict]:
+    """O texto e os números com o código Pix trocado por um marcador, só para o Jev 3 ler.
+
+    O código é uma sequência longa de letras e números que o backend gera, não o LLM: não há o que
+    validar nele, e o Jev 3 a lia como "texto de robô" e reprovava todo texto com Pix (A6,
+    2026-11-04). O cliente recebe o código verdadeiro, porque `numeros` do turno não é alterado.
+    """
+    codigo = numeros.get("br_code")
+    if not codigo:
+        return texto, dict(numeros)
+    return texto.replace(codigo, MARCADOR_PIX), {**numeros, "br_code": MARCADOR_PIX}
+
+
 def validar(jev: Jev, texto: str, acoes: list[Acao], numeros: dict, estado: EstadoJev) -> Validacao:
+    texto_lido, numeros_lidos = _sem_o_codigo_pix(texto, numeros)
     alvo = replace(
         estado,
-        texto_candidato=texto,
+        texto_candidato=texto_lido,
         acoes_do_turno=tuple(acao.value for acao in acoes),
-        numeros=dict(numeros),
+        numeros=numeros_lidos,
     )
     laudos = tuple(jev.avaliar(PERGUNTAS_JEV3, alvo))
     reprovadas = [laudo.pergunta for laudo in laudos if laudo.valor is not _APROVA[laudo.pergunta]]
