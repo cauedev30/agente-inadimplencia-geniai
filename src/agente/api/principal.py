@@ -1,9 +1,11 @@
 """Monta o serviço de produção a partir das variáveis de ambiente.
 
 Rodar: `uvicorn agente.api.principal:montar_app --factory`. Sem o Chatwoot configurado (T3), o
-serviço só roda em modo sombra, com a interface falsa. Sem o AGENTE_JEV_API_KEY, o Jev é o falso;
-com ela, o serviço só sobe com o AGENTE_JEV_DADOS_REAIS_LIBERADOS=true (a ZDR da TypeSafe, D12).
-Sem o AGENTE_LLM_API_KEY, o redator é o falso; sem o AGENTE_TRANSCRICAO_*, o áudio não é transcrito.
+serviço só roda em modo sombra, com a interface falsa. O modo ativo exige o Chatwoot real, o Jev
+real e, enquanto o Pix e o CTN forem os falsos, a liberação em piloto. Sem o AGENTE_JEV_API_KEY, o
+Jev é o falso; com ela, o serviço só sobe com o AGENTE_JEV_DADOS_REAIS_LIBERADOS=true (a ZDR da
+TypeSafe, D12). Sem o AGENTE_LLM_API_KEY, o redator é o falso; sem o AGENTE_TRANSCRICAO_*, o áudio
+não é transcrito.
 """
 
 import logging
@@ -20,7 +22,7 @@ from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.integracoes.redator import Redator, RedatorFalso, RedatorOpenAI
 from agente.integracoes.transcritor import Transcritor, TranscritorOpenAI
 from agente.logs import configurar_logging
-from agente.politica import Politica, carregar_politica
+from agente.politica import LiberacaoPiloto, Politica, carregar_politica
 from agente.tipos import Modo
 from agente.turno.orquestrador import Dependencias, criar_processador
 from agente.webchat.link import ConfigWebchat
@@ -79,6 +81,22 @@ def _webchat(config: Config) -> ConfigWebchat | None:
     return ConfigWebchat(config.webchat_url_base, config.webchat_segredo)
 
 
+def _exigir_o_modo_ativo_seguro(config: Config, politica: Politica, modo: Modo) -> None:
+    """O modo ativo só sobe com o Jev real e, enquanto o Pix e o CTN forem os falsos, no piloto."""
+    if modo is not Modo.ATIVO:
+        return
+    # O robô nunca age sem avaliação (arquitetura, seção 9).
+    if not config.jev_api_key:
+        raise ValueError("o modo ativo exige o Jev real (AGENTE_JEV_API_KEY, T10)")
+    # Um Pix falso nunca pode chegar a um cliente de verdade: só os telefones da lista saem.
+    if not isinstance(politica.liberacao, LiberacaoPiloto):
+        raise ValueError(
+            "enquanto o Pix e o CTN forem os falsos (T1, T9), o modo ativo só roda com a "
+            'liberação em piloto (liberacao = { modo = "piloto", telefones = [...] } no '
+            "politica.toml)"
+        )
+
+
 def montar_dependencias(config: Config) -> Dependencias:
     modo = Modo.ATIVO if config.modo == "ativo" else Modo.SOMBRA
     if config.chatwoot_url and config.chatwoot_conta and config.chatwoot_token:
@@ -88,12 +106,9 @@ def montar_dependencias(config: Config) -> Dependencias:
     else:
         log.warning("Chatwoot não configurado: usando a interface falsa, em modo sombra")
         chatwoot = ChatwootFalso()
-    if modo is Modo.ATIVO:
-        # O robô nunca age sem avaliação (arquitetura, seção 9), e o Jev ainda é o falso.
-        chatwoot.fechar()
-        raise ValueError("o modo ativo exige o Jev real (T10)")
     politica = carregar_politica(config.politica_path)
     try:
+        _exigir_o_modo_ativo_seguro(config, politica, modo)
         jev = _jev(config, politica)
     except ValueError:
         if isinstance(chatwoot, ChatwootHttp):

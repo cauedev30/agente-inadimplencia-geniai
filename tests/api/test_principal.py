@@ -158,6 +158,88 @@ def test_modo_ativo_sem_jev_real_e_recusado():
         montar_dependencias(config)
 
 
+def _politica_com_liberacao(tmp_path, liberacao: str):
+    """Cópia do politica.toml da raiz, trocando só a linha `liberacao = ...`."""
+    linhas = (RAIZ / "politica.toml").read_text(encoding="utf-8").splitlines()
+    assert sum(linha.startswith("liberacao = ") for linha in linhas) == 1
+    texto = "\n".join(
+        f"liberacao = {liberacao}" if linha.startswith("liberacao = ") else linha
+        for linha in linhas
+    )
+    caminho = tmp_path / "politica.toml"
+    caminho.write_text(texto, encoding="utf-8")
+    return caminho
+
+
+PILOTO = '{ modo = "piloto", telefones = ["+5583900000001"] }'
+PERCENTUAL = '{ modo = "percentual", percentual = 10 }'
+
+
+def _config_ativo(tmp_path, liberacao: str, **campos):
+    return _config(
+        modo="ativo",
+        chatwoot_url="https://chatwoot.invalid",
+        chatwoot_conta=7,
+        chatwoot_token="t",
+        politica_path=_politica_com_liberacao(tmp_path, liberacao),
+        **campos,
+    )
+
+
+def test_modo_ativo_com_o_jev_real_e_o_piloto_sobe(tmp_path):
+    config = _config_ativo(
+        tmp_path, PILOTO, jev_api_key="chave-ficticia", jev_dados_reais_liberados=True
+    )
+    deps = montar_dependencias(config)
+    try:
+        assert deps.modo is Modo.ATIVO
+        assert isinstance(deps.chatwoot, ChatwootHttp)
+        assert isinstance(deps.jev, JevComPrazo)
+        assert isinstance(deps.jev.jev, JevTypeSafe)
+    finally:
+        deps.chatwoot.fechar()
+        deps.jev.jev.fechar()
+
+
+@pytest.mark.parametrize("liberacao", [PERCENTUAL, '"sombra"'])
+def test_modo_ativo_so_roda_com_a_liberacao_em_piloto_enquanto_pix_e_ctn_forem_falsos(
+    tmp_path, liberacao
+):
+    config = _config_ativo(
+        tmp_path, liberacao, jev_api_key="chave-ficticia", jev_dados_reais_liberados=True
+    )
+    with pytest.raises(ValueError, match="piloto"):
+        montar_dependencias(config)
+
+
+def test_modo_ativo_com_a_chave_do_jev_sem_a_liberacao_da_zdr_e_recusado(tmp_path):
+    config = _config_ativo(tmp_path, PILOTO, jev_api_key="chave-ficticia")
+    with pytest.raises(ValueError, match="AGENTE_JEV_DADOS_REAIS_LIBERADOS"):
+        montar_dependencias(config)
+
+
+@pytest.mark.parametrize(
+    ("liberacao", "campos", "trecho"),
+    [
+        (PILOTO, {}, "Jev"),
+        (
+            PERCENTUAL,
+            {"jev_api_key": "chave-ficticia", "jev_dados_reais_liberados": True},
+            "piloto",
+        ),
+        (PILOTO, {"jev_api_key": "chave-ficticia"}, "AGENTE_JEV"),
+    ],
+)
+def test_os_erros_do_modo_ativo_fecham_o_chatwoot_real(
+    monkeypatch, tmp_path, liberacao, campos, trecho
+):
+    fechados = []
+    monkeypatch.setattr(ChatwootHttp, "fechar", lambda self: fechados.append(self))
+    with pytest.raises(ValueError, match=trecho):
+        montar_dependencias(_config_ativo(tmp_path, liberacao, **campos))
+    assert len(fechados) == 1
+
+
 def test_app_de_producao_responde_a_saude():
     with TestClient(montar_app(_config(), iniciar_trabalhador=False)) as cliente:
         assert cliente.get("/saude").json() == {"status": "ok"}
