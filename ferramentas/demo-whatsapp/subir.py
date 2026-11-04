@@ -233,6 +233,24 @@ def _encerrar(processos: list[subprocess.Popen]) -> None:
             processo.kill()
 
 
+def preparar_banco(kit: Path, ambiente: Mapping[str, str], carteira: Path) -> None:
+    """Migra o `demo.db` do kit e, se ele ainda não existia, importa a carteira.
+
+    Com o banco já criado, a carteira não é reimportada: as conversas do ensaio anterior ficam.
+    """
+    banco_existia = (kit / "demo.db").exists()
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"], cwd=REPO, env=ambiente, check=True
+    )
+    if not banco_existia:
+        subprocess.run(
+            [sys.executable, "-m", "agente.cli", "importar", str(carteira), "--campanha", "demo"],
+            cwd=REPO,
+            env=ambiente,
+            check=True,
+        )
+
+
 def subir(kit: Path, pasta_segredos: Path, porta: int) -> int:
     for arquivo in ("politica-demo.toml", "carteira-demo.csv"):
         if not (kit / arquivo).is_file():
@@ -250,25 +268,7 @@ def subir(kit: Path, pasta_segredos: Path, porta: int) -> int:
         ambiente_base=os.environ,
     )
 
-    banco_existia = (kit / "demo.db").exists()
-    subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"], cwd=REPO, env=ambiente, check=True
-    )
-    if not banco_existia:
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "agente.cli",
-                "importar",
-                str(kit / "carteira-demo.csv"),
-                "--campanha",
-                "demo",
-            ],
-            cwd=REPO,
-            env=ambiente,
-            check=True,
-        )
+    preparar_banco(kit, ambiente, kit / "carteira-demo.csv")
 
     processos: list[subprocess.Popen] = []
     try:

@@ -1,0 +1,114 @@
+# Roteiros do ensaio automático da demo (ferramentas/demo-whatsapp/ensaiar.py).
+#
+# Cada roteiro é um devedor inventado, com telefone próprio. A régua padrão é R3, com 3 mensalidades
+# (R$ 100,20). `espera.acao` compara com `turno.acao_principal` (INFORM_DEBT, HUMAN:DESCONFIANCA,
+# REINICIO…). `a_decidir: true` mostra o que veio, sem veredito: o "certo" é decisão do Cauê.
+# `intervalo: N` manda a mensagem N s depois da anterior, sem esperar o turno dela.
+
+- nome: divida
+  passos:
+    - cliente: "Quanto eu estou devendo?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+        texto_tem: ["100,20", "00020126"]
+
+- nome: desconto
+  passos:
+    - cliente: "Não tenho como pagar tudo agora"
+      espera:
+        acao: OFFER_DISCOUNT
+        texto_tem: ["ctn.invalid"]
+    - cliente: "Quero pagar com esse desconto"
+      a_decidir: true
+    - cliente: "Pode mandar o Pix"
+      espera:
+        texto_tem: ["00020126"]
+
+# O caso de 2026-11-04: o aceite condicional de uma oferta já enviada.
+- nome: aceite-condicional
+  passos:
+    - cliente: "Não tenho como pagar tudo agora"
+      espera:
+        acao: OFFER_DISCOUNT
+    - cliente: "Se tiver desconto eu pago hoje"
+      a_decidir: true
+
+- nome: golpe
+  passos:
+    - cliente: "Isso é golpe? Como sei que vocês são da empresa mesmo?"
+      espera:
+        acao: "HUMAN:DESCONFIANCA"
+        resultado: HANDOFF
+        texto_nao_tem: ["http"]
+        etiqueta: desconfianca
+
+# Seis respostas que não resolvem: a 6ª mensagem é a fixa e a conversa sai pelo teto (D33).
+- nome: enrolacao
+  passos:
+    - cliente: "Quanto eu estou devendo?"
+      espera:
+        acao: INFORM_DEBT
+    - cliente: "Por que está tão caro?"
+      a_decidir: true
+    - cliente: "Não entendi esse valor"
+      a_decidir: true
+    - cliente: "E se eu pagar só mês que vem?"
+      a_decidir: true
+    - cliente: "Ainda não sei se vou pagar"
+      a_decidir: true
+    - cliente: "Vou pensar com calma"
+      a_decidir: true
+  fim:
+    motivo: TETO
+
+- nome: contestacao
+  passos:
+    - cliente: "Essa dívida não é minha"
+      espera:
+        acao: "HUMAN:CONTESTACAO"
+
+- nome: ja-paguei
+  passos:
+    - cliente: "Já paguei isso semana passada"
+      a_decidir: true # CONCILIACAO?
+
+- nome: fora-da-politica
+  passos:
+    - cliente: "Posso parcelar em 3 vezes?"
+      espera:
+        resultado: ENVIADO
+      a_decidir: true
+
+- nome: irritado
+  passos:
+    - cliente: "Vocês ficam me cobrando o tempo todo, isso é um absurdo!"
+      espera:
+        acao: "HUMAN:TOM"
+
+- nome: fora-do-assunto
+  passos:
+    - cliente: "O cartão cobre dentista?"
+      a_decidir: true # OUT_OF_SCOPE?
+
+# Documenta o A2: o cliente que só cumprimenta fica sem resposta.
+- nome: cumprimento-solto
+  passos:
+    - cliente: "Bom dia"
+      espera:
+        acao: "NONE"
+        resultado: SEM_ENVIO
+
+# Falha hoje de propósito: o /reset engole a mensagem que vem logo depois dele. Quando a E2
+# corrigir, o 3º passo passa a dar INFORM_DEBT.
+- nome: reset
+  equipe: true
+  passos:
+    - cliente: "Quanto eu estou devendo?"
+      espera:
+        acao: INFORM_DEBT
+    - cliente: "/reset"
+    - cliente: "Quanto eu estou devendo?"
+      intervalo: 3
+      espera:
+        acao: INFORM_DEBT
