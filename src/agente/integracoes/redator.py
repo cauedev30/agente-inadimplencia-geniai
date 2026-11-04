@@ -20,7 +20,10 @@ DESCRICAO_ACOES = {
     "INFORM_DEBT": "apresentar o valor em aberto, sem desconto",
     "OFFER_DISCOUNT": "oferecer o valor com desconto, que só vale no link do cartão",
     "SEND_CTN_LINK": "mandar o link em que o cliente paga e já cadastra o cartão",
-    "GENERATE_PIX": "mandar o Pix copia e cola do valor integral",
+    "GENERATE_PIX": (
+        "mandar o Pix copia e cola do valor integral; se o histórico já tem uma oferta com "
+        "desconto, dizer que no Pix vale o valor integral e que o desconto só vale pelo link"
+    ),
     "OUT_OF_SCOPE": "dizer, com gentileza, que o assunto não é tratado por aqui",
 }
 

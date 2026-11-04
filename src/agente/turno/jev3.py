@@ -48,15 +48,20 @@ DEVEM_DAR_NAO = (
 )
 _APROVA = {nome: True for nome in DEVEM_DAR_SIM} | {nome: False for nome in DEVEM_DAR_NAO}
 
-# O "não" do pt_br_natural fica perto de 0,5 em texto bom e trocava o texto pela resposta genérica
-# (2º ensaio, E2.8, 2026-11-04): só reprova com esta probabilidade. Decisão do Cauê.
-LIMIAR_REPROVAR_PT_BR = 0.70
+# O "não" das perguntas de qualidade fica perto de 0,5 em texto bom e trocava o texto pela resposta
+# genérica (2º e 3º ensaios, E2.8 e E2.9, 2026-11-04): só reprovam com esta probabilidade. As de
+# segurança (valor, promessa, fato, terceiro, instrução, tom) reprovam na dúvida. Decisão do Cauê.
+PERGUNTAS_DE_QUALIDADE = frozenset({"pt_br_natural", "responde_a_pergunta", "bate_com_acao"})
+LIMIAR_REPROVAR_QUALIDADE = 0.70
 
 
 def _reprova(laudo: Laudo) -> bool:
     if laudo.valor is _APROVA[laudo.pergunta]:
         return False
-    return laudo.pergunta != "pt_br_natural" or laudo.probabilidade >= LIMIAR_REPROVAR_PT_BR
+    return (
+        laudo.pergunta not in PERGUNTAS_DE_QUALIDADE
+        or laudo.probabilidade >= LIMIAR_REPROVAR_QUALIDADE
+    )
 
 
 def aprovar_tudo() -> list[Regra]:

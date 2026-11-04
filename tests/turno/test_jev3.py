@@ -155,21 +155,44 @@ def test_informar_a_divida_continua_reprovando_por_nao_responder_a_pergunta():
     assert validacao.reprovadas == ["responde_a_pergunta"]
 
 
-def test_pt_br_natural_com_nao_abaixo_do_limiar_aprova():
-    # O "não" do pt_br_natural é cara ou coroa perto de 0,5 em texto bom (2º ensaio, E2.8): só
-    # reprova com p ≥ 0,70. O laudo continua gravado, para a calibração.
-    jev = JevFalso([responder("pt_br_natural", False, 0.69), *_aprovadas()])
+QUALIDADE = ["pt_br_natural", "responde_a_pergunta", "bate_com_acao"]
+
+
+@pytest.mark.parametrize("pergunta", QUALIDADE)
+def test_pergunta_de_qualidade_com_nao_abaixo_do_limiar_aprova(pergunta):
+    # O "não" das perguntas de qualidade fica perto de 0,5 em texto bom (2º e 3º ensaios, E2.8 e
+    # E2.9): só reprova com p ≥ 0,70. O laudo continua gravado, para a calibração.
+    jev = JevFalso([responder(pergunta, False, 0.69), *_aprovadas()])
 
     validacao = validar(jev, TEXTO, ACOES, NUMEROS, ESTADO)
 
     assert validacao.aprovado
-    [laudo] = [x for x in validacao.laudos if x.pergunta == "pt_br_natural"]
+    [laudo] = [x for x in validacao.laudos if x.pergunta == pergunta]
     assert laudo.valor is False
 
 
-def test_pt_br_natural_com_nao_no_limiar_reprova():
-    jev = JevFalso([responder("pt_br_natural", False, 0.70), *_aprovadas()])
+@pytest.mark.parametrize("pergunta", QUALIDADE)
+def test_pergunta_de_qualidade_com_nao_no_limiar_reprova(pergunta):
+    jev = JevFalso([responder(pergunta, False, 0.70), *_aprovadas()])
 
     validacao = validar(jev, TEXTO, ACOES, NUMEROS, ESTADO)
 
-    assert validacao.reprovadas == ["pt_br_natural"]
+    assert validacao.reprovadas == [pergunta]
+
+
+@pytest.mark.parametrize("pergunta", ["valor_nao_autorizado", "promessa_indevida"])
+def test_pergunta_de_seguranca_reprova_mesmo_em_duvida(pergunta):
+    jev = JevFalso([responder(pergunta, True, 0.55), *_aprovadas()])
+
+    validacao = validar(jev, TEXTO, ACOES, NUMEROS, ESTADO)
+
+    assert validacao.reprovadas == [pergunta]
+
+
+@pytest.mark.parametrize("pergunta", ["tom_adequado"])
+def test_tom_reprova_mesmo_em_duvida(pergunta):
+    jev = JevFalso([responder(pergunta, False, 0.55), *_aprovadas()])
+
+    validacao = validar(jev, TEXTO, ACOES, NUMEROS, ESTADO)
+
+    assert validacao.reprovadas == [pergunta]
