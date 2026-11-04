@@ -45,8 +45,9 @@ PERGUNTAS_JEV1 = (
     Pergunta(
         "contesta_divida",
         "bool",
-        "afirma que não deve essa dívida ou que não é a pessoa cobrada; recusar pagar ou "
-        "reclamar da clínica não é contestar",
+        "afirma que não deve essa dívida, que não é a pessoa cobrada ou que não reconhece o "
+        "contrato (nunca assinei, o valor não é meu); só recusar pagar ou reclamar da clínica não "
+        "é contestar, mas recusar e contestar na mesma frase conta",
     ),
     Pergunta(
         "desconfia_golpe",

@@ -51,7 +51,7 @@ def test_com_a_falsa_todos_os_roteiros_passam(casos, politica):
     relatorio = rodar_simulacao(casos, DependenciasSimulacao(politica))
 
     assert relatorio.divergencias == []
-    assert relatorio.casos == len(casos) == 16
+    assert relatorio.casos == len(casos) == 22
     assert all(a.acertos == a.total for a in relatorio.por_pergunta.values())
     assert all(a.acertos == a.total for a in relatorio.por_acao.values())
 
@@ -124,7 +124,7 @@ def test_o_caso_para_na_saida_para_o_humano(politica, tmp_path):
 
 def test_relatorio_formatado(politica, casos):
     texto = formatar_relatorio(rodar_simulacao(casos, DependenciasSimulacao(politica)))
-    assert "16 casos" in texto
+    assert "22 casos" in texto
     assert "objecao_valor" in texto
     assert "HUMAN:RETENCAO" in texto
     assert "Divergências: nenhuma" in texto
@@ -151,7 +151,7 @@ def test_comando_simular(capsys):
     codigo = main(["simular", str(CONVERSAS), "--politica", str(RAIZ / "politica.toml")])
     saida = capsys.readouterr().out
     assert codigo == 0
-    assert "16 casos" in saida and "Divergências: nenhuma" in saida
+    assert "22 casos" in saida and "Divergências: nenhuma" in saida
 
 
 def test_comando_simular_com_divergencia_sai_com_1(tmp_path, capsys):
@@ -165,7 +165,7 @@ def test_comando_simular_le_a_politica_como_o_config(tmp_path, monkeypatch, caps
     monkeypatch.setenv("AGENTE_POLITICA_PATH", str(RAIZ / "politica.toml"))
     monkeypatch.chdir(tmp_path)
     assert main(["simular", str(CONVERSAS)]) == 0
-    assert "16 casos" in capsys.readouterr().out
+    assert "22 casos" in capsys.readouterr().out
 
 
 def test_simular_jev_real_sem_a_chave_sai_com_2(tmp_path, monkeypatch, capsys):

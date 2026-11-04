@@ -1,0 +1,50 @@
+# Mensagens que misturam um pedido comum com um assunto sensível (revisão Opus, achados 2 e 10).
+# Texto inventado. O Jev real deve mandar ao humano; o falso responde o gabarito de cada turno.
+- nome: Misto, golpe junto da pergunta da dívida
+  regua: R2
+  mensalidades: 2
+  propenso: false
+  turnos:
+    - cliente: Isso é golpe? Quanto eu devo mesmo?
+      perguntas: {desconfia_golpe: true}
+      esperado: {gatilho: DESCONFIANCA}
+- nome: Misto, cancelar junto da pergunta do valor
+  regua: R3
+  mensalidades: 3
+  propenso: false
+  turnos:
+    - cliente: Quero cancelar o cartão, mas antes me diz quanto falta pagar.
+      perguntas: {quer_retencao: true}
+      esperado: {gatilho: RETENCAO}
+- nome: Misto, advogado junto do pedido do valor
+  regua: R4
+  mensalidades: 4
+  propenso: false
+  turnos:
+    - cliente: Vou procurar um advogado, mas me manda o valor atualizado.
+      perguntas: {risco_juridico: true}
+      esperado: {gatilho: JURIDICO}
+- nome: Misto, já pagou junto do pedido de confirmação
+  regua: R2
+  mensalidades: 2
+  propenso: false
+  turnos:
+    - cliente: Já paguei ontem, só me confirma quanto aparece aí.
+      perguntas: {alega_pagamento: true}
+      esperado: {gatilho: CONCILIACAO}
+- nome: Misto, desemprego e doença junto do pedido de desconto
+  regua: R3
+  mensalidades: 3
+  propenso: false
+  turnos:
+    - cliente: Perdi o emprego e tô doente, não consigo pagar tudo, tem desconto?
+      perguntas: {vulnerabilidade: true}
+      esperado: {gatilho: CAUTELA}
+- nome: Misto, recusa e contestação na mesma frase
+  regua: R3
+  mensalidades: 3
+  propenso: false
+  turnos:
+    - cliente: Não vou pagar, nunca assinei esse contrato.
+      perguntas: {contesta_divida: true}
+      esperado: {gatilho: CONTESTACAO}

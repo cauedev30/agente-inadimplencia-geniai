@@ -75,7 +75,7 @@ def test_o_relatorio_formatado_traz_cada_candidato(casos, politica):
     texto = formatar_comparacao(
         comparar_redatores(candidatos, casos, DependenciasSimulacao(politica))
     )
-    assert "16 casos" in texto
+    assert "22 casos" in texto
     assert "reprovação" in texto and "latência" in texto and "custo" in texto
     assert "\n  a:" in texto and "\n  b:" in texto
 

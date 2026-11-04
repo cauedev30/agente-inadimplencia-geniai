@@ -147,6 +147,43 @@ estado. É o "hoje" que pesa? Decisão do Cauê (gabarito ou descrição de `imp
   leitura. Com os gabaritos antigos o `tom` seria 3/5.
 - Latência não foi medida nesta rodada (rodada 1: ~0,27 s por chamada).
 
+## Rodada 3: assunto sensível vence o pedido comum (2026-11-03)
+
+**Motivo:** a revisão Opus da etapa apontou que, com a `acao` em 0,93 a 1,0, a rede de segurança da
+`BAIXA_CONFIANCA` deixou de pegar a mensagem mista (um gatilho logo abaixo do limiar + um pedido comum), e que a
+`contesta_divida` podia apagar "recusa e nega a dívida". **O que mudou:** o `HUMAN` da `acao` lista os assuntos
+sensíveis e manda escolhê-lo na dúvida; `INFORM_DEBT`, `OFFER_DISCOUNT` e `OUT_OF_SCOPE` ganharam "se a mensagem
+também traz um assunto sensível, vale HUMAN" (`turno/jev2.py`); a `contesta_divida` passou a incluir "não
+reconheço o contrato" e "recusar e contestar na mesma frase conta" (`turno/jev1.py`); 6 casos mistos novos em
+`tests/conversas/mistos.yaml`. Limiares e código de decisão **não mudaram**. Duas execuções, laudos gravados.
+
+| | Rodada 2 | Rodada 3 (a) | Rodada 3 (b) |
+|---|---|---|---|
+| Casos / turnos que rodaram | 16 / 20 | 22 / 26 | 22 / 26 |
+| Divergências | 2 | 3 | 3 (as mesmas) |
+| `acao` | 13/14 | 13/14 | 13/14 |
+| `tom` | 4/5 | 4/5 | 4/5 |
+| `intencao_pagar` | 7/7 | 7/7 | 7/7 |
+| Tokens de entrada | 48.203 | 56.396 | 56.353 |
+
+- **Os 20 turnos antigos não pioraram:** as mesmas 2 divergências da rodada 2, `acao` e `tom` iguais. Nenhuma
+  ação comum virou `HUMAN` por engano.
+- **Casos mistos: 5 de 6 saíram com o motivo esperado**, todos com folga sobre o limiar: golpe 0,91 (0,70),
+  cancelar 0,93 a 0,94 (0,80), já paguei 0,92 (0,70), desemprego e doença 0,89 a 0,90 (0,75), "nunca assinei"
+  `contesta_divida` 0,93 (0,70).
+- **O sexto é o cenário que a revisão temia:** "Vou procurar um advogado, mas me manda o valor atualizado."
+  Nenhum gatilho passou do limiar (`risco_juridico` 0,65 e 0,66 contra 0,70; `quer_retencao` 0,72 e 0,75 contra
+  0,80), mas o Jev 2 escolheu `HUMAN` com 0,98 e o turno foi ao humano por `DECISAO_JEV2`. **Destino correto,
+  motivo diferente do gabarito** (conta como a 1 divergência nova). Atenção: o `risco_juridico` deu só 0,65 para
+  "advogado" (o Procon dá 0,93), então o limiar de 0,70 fica a 0,05 de deixar passar essa palavra sozinha.
+- As 2 divergências antigas seguem como na rodada 2 (`tom = irritado` em "Sem desconto eu não pago."; o R3 que
+  repete a objeção vai ao humano no 2º turno).
+
+**O que a rodada 3 não prova:** não medi os 6 casos mistos com os textos da rodada 2, então **não sei se o novo
+`HUMAN` foi o que segurou o caso do advogado**, só que ele saiu certo. São 6 mensagens inventadas por quem
+conhece os textos. A decisão sobre o limiar de `risco_juridico` (e o do `quer_retencao`) é do Cauê e precisa de
+mais mensagens de advogado, Procon e cancelamento, escritas de formas diferentes.
+
 ## Hipótese da rodada 1 (aplicada na rodada 2)
 
 O cliente manda ao Jev 2 as opções do `choice` como `criteria = {opção: opção}`, isto é, **só os códigos**
