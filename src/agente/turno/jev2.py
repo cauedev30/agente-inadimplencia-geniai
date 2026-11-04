@@ -34,7 +34,10 @@ CRITERIOS_DA_ACAO = {
     Acao.OUT_OF_SCOPE: (
         "o assunto não é a dívida nem o pagamento (horário, endereço, outro serviço)" + _SENSIVEL
     ),
-    Acao.NONE: "o cliente só confirma que leu ou agradece, sem pergunta nem pedido",
+    Acao.NONE: (
+        "o cliente só cumprimenta (bom dia, oi, olá), confirma que leu ou agradece, sem pergunta "
+        "nem pedido"
+    ),
     Acao.HUMAN: (
         "o cliente pede uma pessoa, ou a mensagem traz um assunto sensível mesmo junto de outro "
         "pedido: desconfia de golpe, quer cancelar, cita Procon ou advogado, diz que já pagou, diz "

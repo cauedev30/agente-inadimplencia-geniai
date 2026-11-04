@@ -24,7 +24,10 @@ DESCRICAO_ACOES = {
         "mandar o Pix copia e cola do valor integral; se o histórico já tem uma oferta com "
         "desconto, dizer que no Pix vale o valor integral e que o desconto só vale pelo link"
     ),
-    "OUT_OF_SCOPE": "dizer, com gentileza, que o assunto não é tratado por aqui",
+    "OUT_OF_SCOPE": (
+        "dizer, com gentileza e numa frase completa, que esse assunto não é tratado por aqui e que "
+        "esta conversa é sobre a mensalidade em aberto, sem afirmar nada sobre o assunto"
+    ),
 }
 
 INSTRUCOES = """Você redige mensagens de WhatsApp da cobrança do Cartão de Todos.
