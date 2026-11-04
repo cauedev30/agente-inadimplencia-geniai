@@ -16,14 +16,20 @@ _SENSIVEL = "; se a mensagem também traz um assunto sensível, vale HUMAN"
 # Quando cada ação se aplica. Um dict por ação, para a ordem dos critérios nunca desalinhar do enum.
 CRITERIOS_DA_ACAO = {
     Acao.INFORM_DEBT: (
-        "o cliente pergunta quanto deve, como pagar ou diz que quer pagar, sem escolher Pix nem "
-        "cartão; o sistema junta a forma de pagamento" + _SENSIVEL
+        "o cliente pergunta quanto deve, não entendeu o valor ou pede que o expliquem, pergunta "
+        "como pagar, pede parcelamento (a dívida é à vista) ou diz que quer pagar, sem escolher "
+        "Pix nem cartão; o sistema junta a forma de pagamento" + _SENSIVEL
     ),
     Acao.OFFER_DISCOUNT: (
         "o cliente acha caro, diz que não consegue pagar tudo, pede desconto ou um valor melhor, "
-        "mesmo que já tenha pedido antes; o sistema decide se há desconto" + _SENSIVEL
+        "mesmo que já tenha pedido antes; se já recebeu uma oferta, só quando a recusa ou pede "
+        "menos; o sistema decide se há desconto" + _SENSIVEL
     ),
-    Acao.SEND_CTN_LINK: "o cliente pede o link ou quer pagar no cartão de crédito",
+    Acao.SEND_CTN_LINK: (
+        "o cliente pede o link, quer pagar no cartão de crédito ou aceita a oferta com desconto "
+        "já enviada (o desconto só vale pelo link), mesmo com condição como 'se tiver desconto eu "
+        "pago'"
+    ),
     Acao.GENERATE_PIX: "o cliente pede o Pix pelo nome (código, chave, pagar no Pix)",
     Acao.OUT_OF_SCOPE: (
         "o assunto não é a dívida nem o pagamento (horário, endereço, outro serviço)" + _SENSIVEL

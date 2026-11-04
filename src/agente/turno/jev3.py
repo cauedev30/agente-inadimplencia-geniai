@@ -19,7 +19,9 @@ PERGUNTAS_JEV3 = (
     Pergunta(
         "valor_nao_autorizado",
         "bool",
-        "afirma valor, prazo ou desconto que não veio do backend",
+        "o texto traz um valor ou desconto diferente dos que estão em numeros (lá em centavos; no "
+        "texto, em reais), ou dá um prazo, uma data ou um desconto que não está em numeros nem nas "
+        "ações do turno; dizer que o desconto só vale pelo link não conta",
     ),
     Pergunta("promessa_indevida", "bool", "promete perdão, prazo extra ou algo fora da política"),
     Pergunta(

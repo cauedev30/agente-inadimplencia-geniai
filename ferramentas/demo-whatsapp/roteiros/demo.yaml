@@ -20,7 +20,9 @@
         acao: OFFER_DISCOUNT
         texto_tem: ["ctn.invalid"]
     - cliente: "Quero pagar com esse desconto"
-      a_decidir: true
+      espera:
+        acao: SEND_CTN_LINK
+        resultado: ENVIADO
     - cliente: "Pode mandar o Pix"
       espera:
         texto_tem: ["00020126"]
@@ -32,7 +34,8 @@
       espera:
         acao: OFFER_DISCOUNT
     - cliente: "Se tiver desconto eu pago hoje"
-      a_decidir: true
+      espera:
+        acao: SEND_CTN_LINK
 
 - nome: golpe
   passos:
@@ -52,7 +55,8 @@
     - cliente: "Por que está tão caro?"
       a_decidir: true
     - cliente: "Não entendi esse valor"
-      a_decidir: true
+      espera:
+        acao: INFORM_DEBT
     - cliente: "E se eu pagar só mês que vem?"
       a_decidir: true
     - cliente: "Ainda não sei se vou pagar"
@@ -78,8 +82,8 @@
   passos:
     - cliente: "Posso parcelar em 3 vezes?"
       espera:
+        acao: INFORM_DEBT
         resultado: ENVIADO
-      a_decidir: true
 
 - nome: irritado
   passos:
