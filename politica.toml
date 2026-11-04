@@ -135,7 +135,7 @@ OFFER_DISCOUNT = 0.80
 SEND_CTN_LINK = 0.85
 GENERATE_PIX = 0.90
 OUT_OF_SCOPE = 0.70
-NONE = 0.70
+NONE = 0.60
 
 # Layout do CSV da carteira. Padrão (G5) até saber de onde a lista vem e com quais colunas.
 [carteira]

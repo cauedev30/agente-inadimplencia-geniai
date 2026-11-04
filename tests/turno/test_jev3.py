@@ -153,3 +153,23 @@ def test_informar_a_divida_continua_reprovando_por_nao_responder_a_pergunta():
     validacao = validar(jev, TEXTO, [Acao.INFORM_DEBT], NUMEROS, ESTADO)
 
     assert validacao.reprovadas == ["responde_a_pergunta"]
+
+
+def test_pt_br_natural_com_nao_abaixo_do_limiar_aprova():
+    # O "não" do pt_br_natural é cara ou coroa perto de 0,5 em texto bom (2º ensaio, E2.8): só
+    # reprova com p ≥ 0,70. O laudo continua gravado, para a calibração.
+    jev = JevFalso([responder("pt_br_natural", False, 0.69), *_aprovadas()])
+
+    validacao = validar(jev, TEXTO, ACOES, NUMEROS, ESTADO)
+
+    assert validacao.aprovado
+    [laudo] = [x for x in validacao.laudos if x.pergunta == "pt_br_natural"]
+    assert laudo.valor is False
+
+
+def test_pt_br_natural_com_nao_no_limiar_reprova():
+    jev = JevFalso([responder("pt_br_natural", False, 0.70), *_aprovadas()])
+
+    validacao = validar(jev, TEXTO, ACOES, NUMEROS, ESTADO)
+
+    assert validacao.reprovadas == ["pt_br_natural"]

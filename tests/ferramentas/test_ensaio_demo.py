@@ -173,7 +173,8 @@ def test_o_demo_yaml_real_carrega_com_os_doze_roteiros():
     assert reset.passos[1].cliente == "/reset"
     assert reset.passos[2].intervalo == 3
     assert roteiros[3].passos[0].espera.etiqueta == "desconfianca"
-    assert roteiros[4].fim.motivo == MotivoHumano.TETO
+    # A enrolação não chega ao teto de forma garantida: o SEM_MELHORA pode vir antes (E2.8).
+    assert roteiros[4].fim is None
 
 
 # --------------------------------------------------------------------------- kit

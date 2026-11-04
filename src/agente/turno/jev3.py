@@ -48,6 +48,16 @@ DEVEM_DAR_NAO = (
 )
 _APROVA = {nome: True for nome in DEVEM_DAR_SIM} | {nome: False for nome in DEVEM_DAR_NAO}
 
+# O "não" do pt_br_natural fica perto de 0,5 em texto bom e trocava o texto pela resposta genérica
+# (2º ensaio, E2.8, 2026-11-04): só reprova com esta probabilidade. Decisão do Cauê.
+LIMIAR_REPROVAR_PT_BR = 0.70
+
+
+def _reprova(laudo: Laudo) -> bool:
+    if laudo.valor is _APROVA[laudo.pergunta]:
+        return False
+    return laudo.pergunta != "pt_br_natural" or laudo.probabilidade >= LIMIAR_REPROVAR_PT_BR
+
 
 def aprovar_tudo() -> list[Regra]:
     """As regras da falsa que aprovam todo texto. A resposta neutra da falsa (não) reprovaria."""
@@ -90,8 +100,6 @@ def validar(jev: Jev, texto: str, acoes: list[Acao], numeros: dict, estado: Esta
     # é o esperado e não reprova (A10a, 2026-11-04). Ela continua nos laudos, para a calibração.
     dispensadas = {"responde_a_pergunta"} if Acao.OUT_OF_SCOPE in acoes else set()
     reprovadas = [
-        laudo.pergunta
-        for laudo in laudos
-        if laudo.pergunta not in dispensadas and laudo.valor is not _APROVA[laudo.pergunta]
+        laudo.pergunta for laudo in laudos if laudo.pergunta not in dispensadas and _reprova(laudo)
     ]
     return Validacao(not reprovadas, reprovadas, laudos)

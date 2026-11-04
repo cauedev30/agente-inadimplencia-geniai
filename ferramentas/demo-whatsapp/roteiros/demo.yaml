@@ -54,17 +54,16 @@
         acao: INFORM_DEBT
     - cliente: "Por que está tão caro?"
       a_decidir: true
+    # A conversa pode estar em EM_RISCO depois do passo anterior: aí o tom fraco já leva ao humano
+    # (SEM_MELHORA, risco aceito "tom sem limiar"). Sem ele, o Jev 2 escolhe INFORM_DEBT (E2.8).
     - cliente: "Não entendi esse valor"
-      espera:
-        acao: INFORM_DEBT
+      a_decidir: true
     - cliente: "E se eu pagar só mês que vem?"
       a_decidir: true
     - cliente: "Ainda não sei se vou pagar"
       a_decidir: true
     - cliente: "Vou pensar com calma"
       a_decidir: true
-  fim:
-    motivo: TETO
 
 - nome: contestacao
   passos:
