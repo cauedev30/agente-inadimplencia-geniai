@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from agente.abertura.disparar import BOTAO_PAGAR_PIX
@@ -83,12 +84,20 @@ def _de_outro_lugar(evento: EventoMensagem, config: Config) -> bool:
     return config.chatwoot_inbox is not None and evento.inbox_id != config.chatwoot_inbox
 
 
-def _conversa_do_cliente(sessao: Session, evento: EventoMensagem) -> Conversa | None:
-    """A conversa já ligada ao Chatwoot ou, na 1ª mensagem (a do cliente ou a do atendente que abriu
-    a cobrança), a da cobrança ativa do telefone."""
-    conversa = sessao.scalar(
+def _conversa_ligada(sessao: Session, evento: EventoMensagem) -> Conversa | None:
+    return sessao.scalar(
         select(Conversa).where(Conversa.chatwoot_conversa_id == evento.conversa_chatwoot_id)
     )
+
+
+def _conversa_do_cliente(sessao: Session, evento: EventoMensagem) -> Conversa | None:
+    """A conversa já ligada ao Chatwoot ou, na 1ª mensagem (a do cliente ou a do atendente que abriu
+    a cobrança), a da cobrança ativa do telefone.
+
+    O bot e o webhook entregam a mesma 1ª mensagem ao mesmo tempo: se a outra entrega ligar a
+    conversa antes, a ligação daqui quebra a unicidade. Ela roda num savepoint e, nesse caso,
+    usa a conversa que a outra criou (A8 do ensaio de 2026-11-04)."""
+    conversa = _conversa_ligada(sessao, evento)
     if conversa is not None:
         return conversa
     telefone = normalizar_telefone(evento.telefone or "")
@@ -102,10 +111,16 @@ def _conversa_do_cliente(sessao: Session, evento: EventoMensagem) -> Conversa | 
     if cobranca is None:
         return None
     sem_chatwoot = [c for c in cobranca.conversas if c.chatwoot_conversa_id is None]
-    conversa = sem_chatwoot[-1] if sem_chatwoot else Conversa(cobranca=cobranca)
-    conversa.chatwoot_conversa_id = evento.conversa_chatwoot_id
-    sessao.add(conversa)
-    sessao.flush()
+    conversa = sem_chatwoot[-1] if sem_chatwoot else Conversa(cobranca_id=cobranca.id)
+    try:
+        with sessao.begin_nested():
+            conversa.chatwoot_conversa_id = evento.conversa_chatwoot_id
+            sessao.add(conversa)
+    except IntegrityError:
+        existente = _conversa_ligada(sessao, evento)
+        if existente is None:
+            raise
+        return existente
     return conversa
 
 

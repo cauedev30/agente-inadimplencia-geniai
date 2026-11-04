@@ -2,8 +2,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import insert, select
 
+from agente.api import chatwoot_webhook
 from agente.api.app import criar_app
 from agente.config import Config
 from agente.db.modelos import Base, Cliente, Cobranca, Conversa, Mensagem
@@ -386,3 +387,67 @@ def test_a_nota_privada_da_transcricao_nao_vira_mensagem_do_cliente(cliente_http
     with fabrica() as sessao:
         textos = [m.texto for m in sessao.scalars(select(Mensagem))]
     assert textos == ["quanto eu devo?"]
+
+
+def _outra_entrega_cria_a_conversa(monkeypatch, sessao):
+    """Entre o `select` e o `flush` da nossa entrega, a outra (bot e webhook) grava a conversa."""
+    normalizar = chatwoot_webhook.normalizar_telefone
+
+    def com_a_corrida(telefone):
+        cobranca = sessao.scalars(select(Cobranca)).one()
+        sessao.execute(insert(Conversa).values(cobranca_id=cobranca.id, chatwoot_conversa_id=555))
+        return normalizar(telefone)
+
+    monkeypatch.setattr(chatwoot_webhook, "normalizar_telefone", com_a_corrida)
+
+
+def test_a_corrida_na_primeira_mensagem_usa_a_conversa_criada_pela_outra_entrega(
+    fabrica, politica, monkeypatch
+):
+    config = Config(database_url="sqlite://", chatwoot_conta=7, chatwoot_inbox=3)
+    with fabrica() as sessao:
+        _outra_entrega_cria_a_conversa(monkeypatch, sessao)
+
+        resultado = chatwoot_webhook.receber_evento(sessao, _evento(), politica, config, AGORA)
+
+        assert resultado == "agendado"
+        existente = sessao.scalars(
+            select(Conversa).where(Conversa.chatwoot_conversa_id == 555)
+        ).one()
+        assert [m.conversa_id for m in sessao.scalars(select(Mensagem)).all()] == [existente.id]
+        assert existente.turno_em == AGORA + timedelta(seconds=politica.rajada_segundos)
+
+
+def test_a_corrida_tambem_vale_para_a_mensagem_do_atendente(fabrica, politica, monkeypatch):
+    config = Config(database_url="sqlite://", chatwoot_conta=7, chatwoot_inbox=3)
+    with fabrica() as sessao:
+        _outra_entrega_cria_a_conversa(monkeypatch, sessao)
+
+        resultado = chatwoot_webhook.receber_evento(
+            sessao, _do_atendente(), politica, config, AGORA
+        )
+
+        assert resultado == "humano"
+        mensagem = sessao.scalars(select(Mensagem)).one()
+        assert mensagem.origem == OrigemMensagem.HUMANO
+        existente = sessao.scalars(
+            select(Conversa).where(Conversa.chatwoot_conversa_id == 555)
+        ).one()
+        assert (mensagem.conversa_id, existente.human_owned) == (existente.id, True)
+
+
+def test_a_corrida_sem_conversa_livre_nao_deixa_conversa_sobrando(fabrica, politica, monkeypatch):
+    """Sem conversa livre, a entrega cria uma nova; ao perder a corrida, ela não pode sobrar."""
+    config = Config(database_url="sqlite://", chatwoot_conta=7, chatwoot_inbox=3)
+    with fabrica() as sessao:
+        sessao.scalars(select(Conversa)).one().chatwoot_conversa_id = 444
+        sessao.commit()
+        _outra_entrega_cria_a_conversa(monkeypatch, sessao)
+
+        resultado = chatwoot_webhook.receber_evento(sessao, _evento(), politica, config, AGORA)
+
+        assert resultado == "agendado"
+        assert sorted(c.chatwoot_conversa_id for c in sessao.scalars(select(Conversa))) == [
+            444,
+            555,
+        ]
