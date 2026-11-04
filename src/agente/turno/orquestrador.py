@@ -146,6 +146,7 @@ def _retomar(sessao: Session, conversa: Conversa, deps: Dependencias, agora: dat
 def _reiniciar(
     sessao: Session,
     conversa: Conversa,
+    turno: Turno,
     mensagens: list[Mensagem],
     deps: Dependencias,
     agora: datetime,
@@ -171,6 +172,8 @@ def _reiniciar(
     depois = mensagens[posicao + 1 :]
     for mensagem in depois:
         mensagem.conversa_id = nova.id
+    # O turno do reinício fica só com o que ele consumiu; o resto é do turno da conversa nova.
+    turno.mensagens_ids = [m.id for m in mensagens[: posicao + 1]]
     if depois:
         agendar_turno(sessao, nova.id, agora)
     sessao.flush()
@@ -1033,7 +1036,7 @@ def _rodar_turno(
         _retomar(sessao, conversa, deps, agora)
         return fechar(ResultadoTurno.FIXA)
     if isinstance(gate, Reiniciar):
-        _reiniciar(sessao, conversa, mensagens, deps, agora)
+        _reiniciar(sessao, conversa, turno, mensagens, deps, agora)
         return fechar(ResultadoTurno.IGNORADO)
     # A confirmação de pagamento não sai dos gates do turno (tarefa 6.1).
     return fechar(ResultadoTurno.SOMBRA)

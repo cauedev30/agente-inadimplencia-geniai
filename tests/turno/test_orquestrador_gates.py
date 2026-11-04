@@ -209,6 +209,10 @@ def test_a_mensagem_depois_do_comando_passa_para_a_conversa_nova_e_ganha_turno(
         "e como pago?",
     ]
     assert nova.turno_em == SEGUNDA_10H
+    # O turno do reinício guarda só o que consumiu (o ensaio acha o turno da mensagem por aqui).
+    [turno] = sessao.scalars(select(Turno).where(Turno.conversa_id == antiga.id)).all()
+    ids = {m.texto: m.id for m in sessao.scalars(select(Mensagem))}
+    assert turno.mensagens_ids == [ids["oi"], ids[deps.politica.comando_reinicio]]
     # A anterior ao comando continua descartada, e a antiga não fica com pendência.
     assert [m.texto for m in mensagens_pendentes(sessao, antiga.id)] == []
     restantes = sessao.scalars(
