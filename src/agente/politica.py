@@ -182,6 +182,8 @@ class Politica(_Imutavel):
     agente_da_baixa_no_link: bool
     anexos_aceitos: frozenset[str]
     comando_reinicio: str = Field(min_length=1)
+    # O que o reinício responde (sai fora do teto e fica na conversa antiga).
+    texto_reinicio: str = Field(default="Conversa reiniciada.", min_length=1)
     telefones_equipe: frozenset[str] = frozenset()
     reguas: dict[Regua, ReguaParametros]
     janela: Janela

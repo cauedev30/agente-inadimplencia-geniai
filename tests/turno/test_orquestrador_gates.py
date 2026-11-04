@@ -144,8 +144,8 @@ def test_reinicio_abre_uma_conversa_nova(sessao, ligada, deps):
     nova = conversas[1]
     assert nova.cobranca_id == ligada.cobranca_id
     assert nova.estado is EstadoConversa.INICIADO
-    # O histórico da conversa antiga continua gravado.
-    assert len(sessao.scalars(select(Mensagem).where(Mensagem.conversa_id == ligada.id)).all()) == 4
+    # O histórico da conversa antiga continua gravado, com a confirmação do reinício no fim.
+    assert len(sessao.scalars(select(Mensagem).where(Mensagem.conversa_id == ligada.id)).all()) == 5
 
 
 def test_reinicio_depois_do_handoff_abre_uma_conversa_nova_com_o_robo(sessao, ligada, deps):
@@ -163,5 +163,72 @@ def test_reinicio_depois_do_handoff_abre_uma_conversa_nova_com_o_robo(sessao, li
     assert nova.chatwoot_conversa_id == 555
     assert nova.estado is EstadoConversa.INICIADO
     assert nova.human_owned is False
-    # Nada vai ao cliente: o reinício só troca a conversa.
-    assert deps.chatwoot.enviadas(555) == []
+    # O reinício troca a conversa e confirma ao cliente (antes, ficava mudo).
+    assert deps.chatwoot.enviadas(555) == [deps.politica.texto_reinicio]
+
+
+def _equipe(deps, ligada):
+    telefone = ligada.cobranca.cliente.telefone
+    deps.politica = deps.politica.model_copy(update={"telefones_equipe": frozenset({telefone})})
+
+
+def test_reinicio_confirma_e_a_confirmacao_fica_na_conversa_antiga(sessao, ligada, deps):
+    _equipe(deps, ligada)
+    _cliente(sessao, ligada, texto=deps.politica.comando_reinicio)
+
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert deps.politica.texto_reinicio == "Conversa reiniciada."
+    assert deps.chatwoot.enviadas(555) == ["Conversa reiniciada."]
+    antiga, nova = sessao.scalars(select(Conversa).order_by(Conversa.id)).all()
+    [confirmacao] = sessao.scalars(
+        select(Mensagem).where(
+            Mensagem.conversa_id == antiga.id, Mensagem.origem == OrigemMensagem.FIXA
+        )
+    )
+    assert (confirmacao.texto, confirmacao.conta_no_teto) == ("Conversa reiniciada.", False)
+    assert confirmacao.chatwoot_message_id is not None
+    # O histórico da conversa nova começa limpo.
+    assert sessao.scalars(select(Mensagem).where(Mensagem.conversa_id == nova.id)).all() == []
+
+
+def test_a_mensagem_depois_do_comando_passa_para_a_conversa_nova_e_ganha_turno(
+    sessao, ligada, deps
+):
+    _equipe(deps, ligada)
+    _cliente(sessao, ligada, texto="oi", mid="cw-0")
+    _cliente(sessao, ligada, texto=deps.politica.comando_reinicio, mid="cw-1")
+    _cliente(sessao, ligada, texto="quanto eu devo?", mid="cw-2")
+    _cliente(sessao, ligada, texto="e como pago?", mid="cw-3")
+
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    antiga, nova = sessao.scalars(select(Conversa).order_by(Conversa.id)).all()
+    assert [m.texto for m in mensagens_pendentes(sessao, nova.id)] == [
+        "quanto eu devo?",
+        "e como pago?",
+    ]
+    assert nova.turno_em == SEGUNDA_10H
+    # A anterior ao comando continua descartada, e a antiga não fica com pendência.
+    assert [m.texto for m in mensagens_pendentes(sessao, antiga.id)] == []
+    restantes = sessao.scalars(
+        select(Mensagem.texto).where(
+            Mensagem.conversa_id == antiga.id, Mensagem.origem == OrigemMensagem.CLIENTE
+        )
+    ).all()
+    assert list(restantes) == ["oi", deps.politica.comando_reinicio]
+
+
+def test_o_turno_da_conversa_nova_responde_a_mensagem_que_veio_depois_do_comando(
+    sessao, ligada, deps
+):
+    _equipe(deps, ligada)
+    _cliente(sessao, ligada, texto=deps.politica.comando_reinicio, mid="cw-1")
+    _cliente(sessao, ligada, texto="quanto eu devo?", mid="cw-2")
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    nova = sessao.scalars(select(Conversa).order_by(Conversa.id.desc())).first()
+
+    resultado = processar_turno(sessao, nova.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.ENVIADO
+    assert len(deps.chatwoot.enviadas(555)) == 2  # a confirmação e a resposta

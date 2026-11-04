@@ -68,6 +68,7 @@ from agente.turno.gates import (
     Seguir,
     avaliar_envio,
     avaliar_gates,
+    e_comando_de_reinicio,
     humano_na_conversa,
 )
 from agente.turno.handoff import fazer_handoff, ja_desconfiou, ja_saiu_pelo_teto
@@ -142,12 +143,36 @@ def _retomar(sessao: Session, conversa: Conversa, deps: Dependencias, agora: dat
     )
 
 
-def _reiniciar(sessao: Session, conversa: Conversa) -> None:
-    """Abre uma conversa nova para a mesma cobrança; a antiga fica no histórico."""
+def _reiniciar(
+    sessao: Session,
+    conversa: Conversa,
+    mensagens: list[Mensagem],
+    deps: Dependencias,
+    agora: datetime,
+) -> None:
+    """Abre uma conversa nova para a mesma cobrança; a antiga fica no histórico.
+
+    A confirmação sai antes de a conversa trocar, fora do teto, e fica gravada na antiga, para o
+    histórico da nova começar limpo. As mensagens da rajada que vieram depois do comando passam para
+    a nova, com um turno agendado (sem isso, o `/reset` e a mensagem seguinte, dentro dos mesmos
+    7 s, deixavam a 2ª sem resposta); as anteriores ao comando continuam descartadas.
+    """
     chatwoot_id = conversa.chatwoot_conversa_id
+    texto = deps.politica.texto_reinicio
+    # Se o Chatwoot falhar, o turno inteiro é desfeito e tentado de novo (`_turno_ativo`).
+    confirmacao = deps.chatwoot.enviar_mensagem(chatwoot_id, texto)
+    registrar_mensagem(sessao, conversa.id, OrigemMensagem.FIXA, texto, confirmacao, False, agora)
+    posicao = max(i for i, m in enumerate(mensagens) if e_comando_de_reinicio(m, deps.politica))
     conversa.chatwoot_conversa_id = None
     sessao.flush()
-    sessao.add(Conversa(cobranca_id=conversa.cobranca_id, chatwoot_conversa_id=chatwoot_id))
+    nova = Conversa(cobranca_id=conversa.cobranca_id, chatwoot_conversa_id=chatwoot_id)
+    sessao.add(nova)
+    sessao.flush()
+    depois = mensagens[posicao + 1 :]
+    for mensagem in depois:
+        mensagem.conversa_id = nova.id
+    if depois:
+        agendar_turno(sessao, nova.id, agora)
     sessao.flush()
 
 
@@ -1008,7 +1033,7 @@ def _rodar_turno(
         _retomar(sessao, conversa, deps, agora)
         return fechar(ResultadoTurno.FIXA)
     if isinstance(gate, Reiniciar):
-        _reiniciar(sessao, conversa)
+        _reiniciar(sessao, conversa, mensagens, deps, agora)
         return fechar(ResultadoTurno.IGNORADO)
     # A confirmação de pagamento não sai dos gates do turno (tarefa 6.1).
     return fechar(ResultadoTurno.SOMBRA)

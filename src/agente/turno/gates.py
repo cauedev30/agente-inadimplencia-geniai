@@ -77,6 +77,10 @@ def _so_toque_no_botao_pix(mensagens: list[Mensagem]) -> bool:
     return all(mensagem.texto.strip().casefold() == botao for mensagem in mensagens)
 
 
+def e_comando_de_reinicio(mensagem: Mensagem, politica: Politica) -> bool:
+    return mensagem.texto.strip().casefold() == politica.comando_reinicio.casefold()
+
+
 def humano_na_conversa(conversa: Conversa) -> bool:
     return conversa.human_owned or conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO
 
@@ -97,9 +101,8 @@ def avaliar_gates(
         return Ignorar("sem_cobranca_ativa")
     # O reinício vem antes do humano: o telefone da equipe recomeça a conversa de teste mesmo
     # depois de um handoff, sem precisar devolvê-la ao robô no Chatwoot.
-    comando = politica.comando_reinicio.casefold()
     if conversa.cobranca.cliente.telefone in politica.telefones_equipe and any(
-        mensagem.texto.strip().casefold() == comando for mensagem in mensagens
+        e_comando_de_reinicio(mensagem, politica) for mensagem in mensagens
     ):
         return Reiniciar()
     if barrar_humano and humano_na_conversa(conversa):

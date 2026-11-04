@@ -54,6 +54,7 @@ template_confirmacao = "cobranca_confirmacao"  # padrão (D28, T4): a confirmaç
 agente_da_baixa_no_link = false
 anexos_aceitos = ["image", "file", "audio"]  # o comprovante vem como imagem ou PDF; o áudio é transcrito antes do Jev (D43)
 comando_reinicio = "#reiniciar"
+texto_reinicio = "Conversa reiniciada."  # a confirmação do comando, fora do teto, gravada na conversa antiga
 telefones_equipe = []  # só estes telefones podem usar o comando de reinício
 # Liberação gradual do modo ativo (T7), quando o AGENTE_MODO é "ativo". Padrão: tudo em sombra.
 # O piloto: liberacao = { modo = "piloto", telefones = ["+55..."] }
