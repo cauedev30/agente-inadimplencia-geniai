@@ -123,3 +123,33 @@ def test_o_texto_que_afirma_fato_sem_fonte_e_reprovado():
     validacao = validar(jev, texto, ACOES, NUMEROS, ESTADO)
     assert not validacao.aprovado
     assert validacao.reprovadas == ["afirma_fato_sem_fonte"]
+
+
+def test_fora_do_escopo_nao_reprova_por_nao_responder_a_pergunta():
+    # OUT_OF_SCOPE manda não responder o que não veio do backend: `responde_a_pergunta = não` é o
+    # esperado. A pergunta continua no laudo, para a calibração.
+    jev = JevFalso([responder("responde_a_pergunta", False), *_aprovadas()])
+
+    validacao = validar(jev, TEXTO, [Acao.OUT_OF_SCOPE], NUMEROS, ESTADO)
+
+    assert validacao.aprovado
+    assert validacao.reprovadas == []
+    assert len(validacao.laudos) == 9
+    [laudo] = [x for x in validacao.laudos if x.pergunta == "responde_a_pergunta"]
+    assert laudo.valor is False
+
+
+def test_fora_do_escopo_ainda_reprova_pelas_outras_perguntas():
+    jev = JevFalso([responder("pt_br_natural", False), *_aprovadas()])
+
+    validacao = validar(jev, TEXTO, [Acao.OUT_OF_SCOPE], NUMEROS, ESTADO)
+
+    assert validacao.reprovadas == ["pt_br_natural"]
+
+
+def test_informar_a_divida_continua_reprovando_por_nao_responder_a_pergunta():
+    jev = JevFalso([responder("responde_a_pergunta", False), *_aprovadas()])
+
+    validacao = validar(jev, TEXTO, [Acao.INFORM_DEBT], NUMEROS, ESTADO)
+
+    assert validacao.reprovadas == ["responde_a_pergunta"]

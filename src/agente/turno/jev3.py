@@ -84,5 +84,12 @@ def validar(jev: Jev, texto: str, acoes: list[Acao], numeros: dict, estado: Esta
         numeros=numeros_lidos,
     )
     laudos = tuple(jev.avaliar(PERGUNTAS_JEV3, alvo))
-    reprovadas = [laudo.pergunta for laudo in laudos if laudo.valor is not _APROVA[laudo.pergunta]]
+    # Com OUT_OF_SCOPE o texto não responde o que não veio do backend: "não" a `responde_a_pergunta`
+    # é o esperado e não reprova (A10a, 2026-11-04). Ela continua nos laudos, para a calibração.
+    dispensadas = {"responde_a_pergunta"} if Acao.OUT_OF_SCOPE in acoes else set()
+    reprovadas = [
+        laudo.pergunta
+        for laudo in laudos
+        if laudo.pergunta not in dispensadas and laudo.valor is not _APROVA[laudo.pergunta]
+    ]
     return Validacao(not reprovadas, reprovadas, laudos)
