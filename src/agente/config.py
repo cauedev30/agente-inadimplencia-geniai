@@ -83,6 +83,9 @@ class Config(ConfigRedator, ConfigJev):
     database_url: str
     modo: Literal["sombra", "ativo"] = "sombra"
     log_level: str = "INFO"
+    # Quem conduz o turno (D47): o pipeline do Jev (o padrão) ou uma chamada só ao Luna
+    # (experimento).
+    turno: Literal["pipeline", "uma_chamada"] = "pipeline"
 
     # Chatwoot (T3). Vazios até a conta, a inbox e o token do Agent Bot existirem.
     chatwoot_url: str | None = None
@@ -109,6 +112,12 @@ class Config(ConfigRedator, ConfigJev):
     webchat_website_token: str | None = None  # o token público da inbox Website (vai ao navegador)
     webchat_inbox: int | None = None  # a inbox Website, para reconhecer a conversa do webchat (7.3)
     webchat_url_base: str | None = None  # o domínio do link da 6ª mensagem (G7)
+
+    @field_validator("turno", mode="before")
+    @classmethod
+    def _turno_vazio_volta_ao_padrao(cls, valor):
+        # O .env copiado do .env.example traz a variável vazia.
+        return valor.strip() if isinstance(valor, str) and valor.strip() else "pipeline"
 
     @field_validator(
         "webhook_segredo",

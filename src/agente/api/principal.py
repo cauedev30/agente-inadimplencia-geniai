@@ -5,7 +5,8 @@ serviço só roda em modo sombra, com a interface falsa. O modo ativo exige o Ch
 real e, enquanto o Pix e o CTN forem os falsos, a liberação em piloto. Sem o AGENTE_JEV_API_KEY, o
 Jev é o falso; com ela, o serviço só sobe com o AGENTE_JEV_DADOS_REAIS_LIBERADOS=true (a ZDR da
 TypeSafe, D12). Sem o AGENTE_LLM_API_KEY, o redator é o falso; sem o AGENTE_TRANSCRICAO_*, o áudio
-não é transcrito.
+não é transcrito. Com AGENTE_TURNO=uma_chamada (D47), o turno é uma chamada só ao Luna: ela exige o
+AGENTE_LLM_API_KEY, e o modo ativo pede essa chave no lugar da do Jev, que não é usado.
 """
 
 import logging
@@ -20,6 +21,7 @@ from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import Jev, JevComPrazo, JevFalso
 from agente.integracoes.jev_typesafe import JevTypeSafe
+from agente.integracoes.llm_turno import LLMTurno, LLMTurnoOpenAI
 from agente.integracoes.redator import Redator, RedatorFalso, RedatorOpenAI
 from agente.integracoes.transcritor import Transcritor, TranscritorOpenAI
 from agente.logs import configurar_logging
@@ -54,6 +56,21 @@ def _jev(config: Config, politica: Politica) -> Jev:
     return JevComPrazo(JevFalso(), politica.jev_timeout_ms)
 
 
+def _llm_turno(config: Config) -> LLMTurno | None:
+    """O LLM do turno de uma chamada (D47); None no pipeline, que é o padrão."""
+    if config.turno == "pipeline":
+        return None
+    if not config.llm_api_key:
+        raise ValueError("AGENTE_TURNO=uma_chamada exige o AGENTE_LLM_API_KEY (D47)")
+    log.info("turno de uma chamada (D47)")
+    return LLMTurnoOpenAI(
+        config.llm_api_key,
+        config.llm_modelo,
+        url=config.llm_url,
+        corpo_extra=config.llm_corpo_extra,
+    )
+
+
 def _transcritor(config: Config, politica: Politica) -> Transcritor | None:
     if config.transcricao_ligada:
         return TranscritorOpenAI(
@@ -83,11 +100,20 @@ def _webchat(config: Config) -> ConfigWebchat | None:
 
 
 def _exigir_o_modo_ativo_seguro(config: Config, politica: Politica, modo: Modo) -> None:
-    """O modo ativo só sobe com o Jev real e, enquanto o Pix e o CTN forem os falsos, no piloto."""
+    """O modo ativo só sobe com o avaliador real do caminho e, enquanto o Pix e o CTN forem os
+    falsos, no piloto.
+
+    O avaliador é o Jev real no pipeline e o Luna no turno de uma chamada (D47, decisão 10).
+    """
     if modo is not Modo.ATIVO:
         return
     # O robô nunca age sem avaliação (arquitetura, seção 9).
-    if not config.jev_api_key:
+    if config.turno == "uma_chamada":
+        if not config.llm_api_key:
+            raise ValueError(
+                "o modo ativo com AGENTE_TURNO=uma_chamada exige o AGENTE_LLM_API_KEY (D47)"
+            )
+    elif not config.jev_api_key:
         raise ValueError("o modo ativo exige o Jev real (AGENTE_JEV_API_KEY, T10)")
     # Um Pix falso nunca pode chegar a um cliente de verdade: só os telefones da lista saem.
     if not isinstance(politica.liberacao, LiberacaoPiloto):
@@ -111,6 +137,7 @@ def montar_dependencias(config: Config) -> Dependencias:
     try:
         _exigir_o_modo_ativo_seguro(config, politica, modo)
         jev = _jev(config, politica)
+        llm_turno = _llm_turno(config)
     except ValueError:
         if isinstance(chatwoot, ChatwootHttp):
             chatwoot.fechar()
@@ -126,6 +153,7 @@ def montar_dependencias(config: Config) -> Dependencias:
         redator=_redator(config),
         transcritor=_transcritor(config, politica),
         webchat=_webchat(config),
+        llm_turno=llm_turno,
         # Até a T9, o CTN é o falso e não tem a carteira: no ativo (só no piloto, acima) ele aceita
         # a matrícula, senão todo turno com link do CTN falha com ClienteNaoEncontrado.
         ctn=CTNFalso(aceita_qualquer_matricula=modo is Modo.ATIVO),

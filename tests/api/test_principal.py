@@ -8,6 +8,7 @@ from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.ctn import ClienteNaoEncontrado
 from agente.integracoes.jev import JevComPrazo, JevFalso
 from agente.integracoes.jev_typesafe import JevTypeSafe
+from agente.integracoes.llm_turno import LLMTurnoOpenAI
 from agente.integracoes.redator import RedatorFalso, RedatorOpenAI
 from agente.integracoes.transcritor import TranscritorOpenAI
 from agente.tipos import Modo
@@ -319,3 +320,90 @@ def test_com_a_pagina_desligada_o_link_continua_provisorio(faltando, caplog):
 
 def test_sem_nada_do_webchat_o_link_continua_provisorio():
     assert montar_dependencias(_config()).webchat is None
+
+
+# O turno de uma chamada (D47, E1.6)
+
+
+def test_com_o_pipeline_nao_ha_llm_turno():
+    deps = montar_dependencias(_config(llm_api_key="chave-ficticia"))
+
+    assert deps.llm_turno is None
+    deps.redator.fechar()
+
+
+def test_uma_chamada_sem_a_chave_do_llm_nao_sobe():
+    with pytest.raises(ValueError, match=r"AGENTE_TURNO=uma_chamada exige o AGENTE_LLM_API_KEY"):
+        montar_dependencias(_config(turno="uma_chamada"))
+
+
+def test_uma_chamada_com_a_chave_monta_o_llm_do_turno_com_o_luna(caplog):
+    caplog.set_level("INFO")
+    deps = montar_dependencias(_config(turno="uma_chamada", llm_api_key="chave-ficticia"))
+    try:
+        assert isinstance(deps.llm_turno, LLMTurnoOpenAI)
+        assert deps.llm_turno.modelo == "gpt-6-luna"
+        assert deps.llm_turno.corpo_extra == {"reasoning_effort": "none"}
+        assert "turno de uma chamada (D47)" in caplog.text
+        assert "chave-ficticia" not in caplog.text
+    finally:
+        deps.llm_turno.fechar()
+        deps.redator.fechar()
+
+
+def test_uma_chamada_usa_a_url_e_o_modelo_da_configuracao():
+    config = _config(
+        turno="uma_chamada",
+        llm_api_key="chave-ficticia",
+        llm_modelo="outro-modelo",
+        llm_url="https://llm.invalid/v1",
+        llm_corpo_extra={},
+    )
+    deps = montar_dependencias(config)
+    try:
+        assert deps.llm_turno.nome == "openai:outro-modelo"
+        assert deps.llm_turno.corpo_extra == {}
+        assert str(deps.llm_turno._cliente.base_url) == "https://llm.invalid/v1/"
+    finally:
+        deps.llm_turno.fechar()
+        deps.redator.fechar()
+
+
+def test_uma_chamada_com_o_modo_ativo_sobe_com_a_chave_do_luna_sem_a_do_jev_no_piloto(tmp_path):
+    config = _config_ativo(tmp_path, PILOTO, turno="uma_chamada", llm_api_key="chave-ficticia")
+    deps = montar_dependencias(config)
+    try:
+        assert deps.modo is Modo.ATIVO
+        assert isinstance(deps.llm_turno, LLMTurnoOpenAI)
+        # Sem a chave do Jev, o Jev é o falso, e o turno novo nunca o chama.
+        assert isinstance(deps.jev.jev, JevFalso)
+    finally:
+        deps.chatwoot.fechar()
+        deps.llm_turno.fechar()
+        deps.redator.fechar()
+
+
+def test_uma_chamada_com_o_modo_ativo_sem_a_chave_do_luna_e_recusada(tmp_path):
+    config = _config_ativo(tmp_path, PILOTO, turno="uma_chamada")
+    with pytest.raises(ValueError, match="o modo ativo com AGENTE_TURNO=uma_chamada exige"):
+        montar_dependencias(config)
+
+
+def test_uma_chamada_com_o_modo_ativo_fora_do_piloto_e_recusada(tmp_path):
+    config = _config_ativo(tmp_path, PERCENTUAL, turno="uma_chamada", llm_api_key="chave-ficticia")
+    with pytest.raises(ValueError, match="piloto"):
+        montar_dependencias(config)
+
+
+def test_o_pipeline_com_o_modo_ativo_sem_a_chave_do_jev_segue_recusado(tmp_path):
+    config = _config_ativo(tmp_path, PILOTO, llm_api_key="chave-ficticia")
+    with pytest.raises(ValueError, match="o modo ativo exige o Jev real"):
+        montar_dependencias(config)
+
+
+def test_a_recusa_do_modo_ativo_no_turno_novo_fecha_o_chatwoot_real(monkeypatch, tmp_path):
+    fechados = []
+    monkeypatch.setattr(ChatwootHttp, "fechar", lambda self: fechados.append(self))
+    with pytest.raises(ValueError, match="uma_chamada"):
+        montar_dependencias(_config_ativo(tmp_path, PILOTO, turno="uma_chamada"))
+    assert len(fechados) == 1

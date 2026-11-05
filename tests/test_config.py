@@ -40,6 +40,36 @@ def test_segredo_vazio_vira_desligado(monkeypatch, variavel):
     assert getattr(config, variavel.lower()) is None
 
 
+def test_o_turno_padrao_e_o_pipeline(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.delenv("AGENTE_TURNO", raising=False)
+
+    assert carregar_config(_env_file=None).turno == "pipeline"
+
+
+@pytest.mark.parametrize(("valor", "esperado"), [("", "pipeline"), ("  ", "pipeline")])
+def test_o_turno_vazio_volta_ao_padrao(monkeypatch, valor, esperado):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_TURNO", valor)
+
+    assert carregar_config(_env_file=None).turno == esperado
+
+
+def test_o_turno_aceita_uma_chamada(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_TURNO", "uma_chamada")
+
+    assert carregar_config(_env_file=None).turno == "uma_chamada"
+
+
+def test_o_turno_invalido_e_recusado(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_TURNO", "duas_chamadas")
+
+    with pytest.raises(ValidationError, match="turno"):
+        carregar_config(_env_file=None)
+
+
 def test_modo_invalido_e_recusado(monkeypatch):
     monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
     monkeypatch.setenv("AGENTE_MODO", "talvez")
