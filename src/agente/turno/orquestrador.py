@@ -20,6 +20,7 @@ from agente.db.historico import (
     abrir_turno,
     fechar_turno,
     gravar_laudos,
+    mensagens_no_teto,
     registrar_mensagem,
     transicionar,
 )
@@ -29,6 +30,7 @@ from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNFalso, CTNIndisponivel
 from agente.integracoes.disparador import Disparador, FalhaNoEnvio
 from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
+from agente.integracoes.llm_turno import LLMTurno
 from agente.integracoes.pix import PixBanco, PixFalso, PixIndisponivel
 from agente.integracoes.redator import Redator, RedatorFalso, RedatorIndisponivel
 from agente.integracoes.transcritor import Transcritor
@@ -47,6 +49,7 @@ from agente.tipos import (
 )
 from agente.turno.acoes import Acao
 from agente.turno.avaliacao import (
+    NAO_EXECUTADA,
     Avaliacao,
     avaliar,
     estado_jev,
@@ -74,7 +77,14 @@ from agente.turno.gates import (
 from agente.turno.handoff import fazer_handoff, ja_desconfiou, ja_saiu_pelo_teto
 from agente.turno.jev1 import LeituraJev1, desconfia_no_limiar, laudo_do_risco
 from agente.turno.liberacao import modo_da_conversa
-from agente.turno.redacao import Redacao, anexar_recebedor, montar_pedido, redigir_validado
+from agente.turno.redacao import (
+    Redacao,
+    RedacaoInvalida,
+    anexar_recebedor,
+    interpolar,
+    montar_pedido,
+    redigir_validado,
+)
 from agente.turno.transcricao import (
     LONGO_DEMAIS,
     audios_sem_resultado,
@@ -82,12 +92,22 @@ from agente.turno.transcricao import (
     texto_da_mensagem,
     transcrever_audios,
 )
+from agente.turno.uma_chamada import (
+    ORIGEM_UMA_CHAMADA,
+    ResolucaoTurno,
+    montar_entrada,
+    palavra_chave,
+    previa_numeros,
+    resolver_turno,
+)
 from agente.webchat.link import ConfigWebchat
 
 log = logging.getLogger(__name__)
 
 # O que o turno grava como ação principal quando pede o texto do áudio que não foi lido (D43).
 ROTULO_PEDIR_TEXTO = f"FIXA:{TipoFixa.PEDIR_TEXTO.value}"
+# O que o turno de uma chamada grava como ação principal quando o cliente não é o devedor (D47).
+ROTULO_TERCEIRO = "TERCEIRO"
 
 # O que conta como integração fora do ar (CTN, Pix, Chatwoot, redator e Jev): é tentado de novo e
 # depois vai ao humano. Qualquer outro erro é bug de código: tem o próprio teto (`erros_turno`).
@@ -119,6 +139,8 @@ class Dependencias:
     transcritor: Transcritor | None = None
     # O domínio e o segredo do link do webchat (G7); sem eles, a 6ª mensagem leva o link provisório.
     webchat: ConfigWebchat | None = None
+    # Com ele, o turno é o de uma chamada ao Luna (D47) e o Jev não é usado; sem ele, o pipeline.
+    llm_turno: LLMTurno | None = None
 
 
 def _rotulo(gate: Gate) -> str | None:
@@ -187,6 +209,25 @@ def _historico(sessao: Session, conversa_id: int) -> list[tuple[str, str]]:
     )
     # O áudio do cliente entra como o texto transcrito, com o rótulo (D43).
     return [(mensagem.origem.value, texto_da_mensagem(mensagem)) for mensagem in mensagens]
+
+
+def _historico_e_novas(
+    sessao: Session, conversa_id: int, ids_do_turno: list[int]
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """O histórico de `_historico`, com as mensagens deste turno (a rajada) separadas como novas."""
+    mensagens = sessao.scalars(
+        select(Mensagem)
+        .where(Mensagem.conversa_id == conversa_id, Mensagem.envio != EstadoEnvio.DESCARTADA)
+        .order_by(Mensagem.id)
+    )
+    historico, novas = [], []
+    for mensagem in mensagens:
+        texto = texto_da_mensagem(mensagem)
+        if mensagem.id in ids_do_turno:
+            novas.append(texto)
+        else:
+            historico.append((mensagem.origem.value, texto))
+    return historico, novas
 
 
 def _ouvir_os_audios(
@@ -291,8 +332,12 @@ def _fechar_ignorado(
     agora: datetime,
     *,
     nao_executado: bool = False,
+    rotulo: str | None = None,
 ) -> ResultadoTurno:
-    """A cobrança fechou durante o turno (o pagamento chegou): nada do turno vale nem sai."""
+    """A cobrança fechou durante o turno (o pagamento chegou): nada do turno vale nem sai.
+
+    O turno de uma chamada passa o `rotulo`, porque a avaliação dele pode não ter ação.
+    """
     return _fechar(
         sessao,
         turno,
@@ -301,7 +346,7 @@ def _fechar_ignorado(
         {"executado": False} if nao_executado else {},
         agora,
         redacao={"saida": "IGNORADO", "motivo": "sem_cobranca_ativa"},
-        rotulo=avaliacao.rotulo_nao_executado if nao_executado else None,
+        rotulo=rotulo or (avaliacao.rotulo_nao_executado if nao_executado else None),
     )
 
 
@@ -316,10 +361,12 @@ def _handoff(
     *,
     leitura: LeituraJev1 | None = None,
     enviar_mensagem: bool = True,
+    texto: str | None = None,
 ) -> None:
     """A saída para o humano. A mensagem sai sem link (D44) se o motivo é da lista, se a conversa já
     saiu por um motivo da lista, ou se o Jev 1 deste turno deu `desconfia_golpe` sim, seja qual
-    for o motivo que venceu: quem desconfia de golpe não recebe link."""
+    for o motivo que venceu: quem desconfia de golpe não recebe link. O `texto` (D47) troca o texto
+    fixo da mensagem ao cliente."""
     sem_link = (
         motivo in deps.politica.motivos_humano_no_whatsapp
         or ja_desconfiou(sessao, conversa, deps.politica)
@@ -338,6 +385,7 @@ def _handoff(
         webchat=deps.webchat,
         sem_link=sem_link,
         enviar_mensagem=enviar_mensagem,
+        texto=texto,
     )
 
 
@@ -561,6 +609,8 @@ def _agir(
 def _seguir(
     sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
+    if deps.llm_turno is not None:
+        return _seguir_uma_chamada(sessao, conversa, turno, deps, agora)
     cobranca = conversa.cobranca
     historico = _historico(sessao, conversa.id)
     estado = estado_jev(conversa, cobranca, historico, deps.politica)
@@ -595,6 +645,266 @@ def _seguir(
         _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
         return _fechar(sessao, turno, ResultadoTurno.SEM_ENVIO, avaliacao, {}, agora)
     return _agir(sessao, conversa, turno, avaliacao, estado, historico, deps, ids, agora)
+
+
+def _avaliacao_uma_chamada(resolucao: ResolucaoTurno) -> Avaliacao:
+    """A avaliação do turno novo, para o `_fechar` e o `numeros_previstos`: sem leitura nem decisão.
+
+    A ação só entra quando o turno passou com ela. O terceiro e o que não passou ficam sem ação, e o
+    rótulo vai explícito (`_rotulo_uma_chamada`).
+    """
+    if resolucao.motivo is not None:
+        return Avaliacao(None, None, None, [], resolucao.motivo, resolucao.erro)
+    veredito = resolucao.veredito
+    if _passou(resolucao) and not veredito.terceiro:
+        return Avaliacao(None, None, veredito.acao, list(veredito.anexos), None, resolucao.erro)
+    return Avaliacao(None, None, None, [], None, resolucao.erro)
+
+
+def _passou(resolucao: ResolucaoTurno) -> bool:
+    """O turno tem o que fazer: um texto aprovado, ou a ação que não envia nada (`NONE`)."""
+    veredito = resolucao.veredito
+    return veredito is not None and (resolucao.reply is not None or veredito.acao is Acao.NONE)
+
+
+def _rotulo_uma_chamada(resolucao: ResolucaoTurno) -> str:
+    """A ação principal que o turno grava: o humano, o terceiro, a ação, ou a que não saiu."""
+    if resolucao.motivo is not None:
+        return rotulo_humano(resolucao.motivo)
+    if not _passou(resolucao):
+        ultima = next((t.acao for t in reversed(resolucao.tentativas) if t.acao), "SEM_ACAO")
+        return f"{NAO_EXECUTADA}{ultima}"
+    if resolucao.veredito.terceiro:
+        return ROTULO_TERCEIRO
+    return resolucao.veredito.acao.value
+
+
+def _gravar_laudos_uma_chamada(
+    sessao: Session,
+    turno_id: int,
+    resolucao: ResolucaoTurno,
+    guarda: tuple[MotivoHumano, str] | None,
+    golpe_pela_guarda: bool,
+) -> tuple[dict[tuple[BatchJev, str], int], list[Laudo]]:
+    """Os sinais e o tom em JEV1 (mais a palavra-chave que bateu) e a ação em JEV2 (decisão 8).
+
+    Devolve o id de cada laudo por (batch, pergunta) e os laudos do JEV1, para achar a causa.
+    """
+    saida = resolucao.saida
+    jev1 = list(saida.leitura(golpe_pela_guarda=golpe_pela_guarda).laudos) if saida else []
+    if guarda is not None:
+        jev1.append(Laudo("palavra_chave", guarda[1], 1.0, 1.0))
+    lotes = [(BatchJev.JEV1, jev1)]
+    if saida is not None:
+        lotes.append((BatchJev.JEV2, [saida.laudo_da_acao()]))
+    ids = {}
+    for batch, laudos in lotes:
+        if laudos:
+            gravados = gravar_laudos(sessao, turno_id, batch, laudos, ORIGEM_UMA_CHAMADA)
+            ids |= {(batch, laudo.pergunta): i for laudo, i in zip(laudos, gravados, strict=True)}
+    return ids, jev1
+
+
+def _causa_uma_chamada(
+    resolucao: ResolucaoTurno, jev1: list[Laudo], ids: dict[tuple[BatchJev, str], int]
+) -> tuple[list[Laudo], int | None]:
+    """O laudo do JEV1 que levou ao humano (a palavra-chave, o sinal ou o tom), para a nota e a
+    transição. Sem veredito (o LLM fora e sem palavra-chave), não há causa."""
+    if resolucao.veredito is None:
+        return [], None
+    tipo, _, nome = resolucao.veredito.causa.partition(":")
+    pergunta = {"palavra_chave": "palavra_chave", "tom": "tom"}.get(tipo, nome)
+    laudo = next((laudo for laudo in jev1 if laudo.pergunta == pergunta), None)
+    if laudo is None:
+        return [], None
+    return [laudo], ids[(BatchJev.JEV1, pergunta)]
+
+
+def _nada_passou(
+    sessao: Session,
+    conversa: Conversa,
+    turno: Turno,
+    avaliacao: Avaliacao,
+    resolucao: ResolucaoTurno,
+    rotulo: str,
+    leitura: LeituraJev1 | None,
+    deps: Dependencias,
+    agora: datetime,
+    interpolacao: list[str] | None = None,
+) -> ResultadoTurno:
+    """Nenhum texto passou: a resposta segura, uma vez por conversa, e depois o humano (VALIDACAO).
+
+    O backend não executou nada, ou desfez o que executou: o turno grava `{"executado": False}`.
+    """
+    if not _ja_saiu_resposta_segura(sessao, conversa.id):
+        texto = TEXTO_RESPOSTA_SEGURA
+        _gravar_envio(sessao, conversa, texto, agora)
+        saida, resultado = "RESPOSTA_SEGURA", ResultadoTurno.ENVIADO
+    else:
+        texto = None
+        _handoff(sessao, conversa, MotivoHumano.VALIDACAO, deps, agora, leitura=leitura)
+        saida, resultado = "HANDOFF", ResultadoTurno.HANDOFF
+    redacao = resolucao.como_dict(saida)
+    if interpolacao:
+        redacao["interpolacao_reprovada"] = interpolacao
+    return _fechar(
+        sessao,
+        turno,
+        resultado,
+        avaliacao,
+        {"executado": False},
+        agora,
+        texto_enviado=texto,
+        redacao=redacao,
+        rotulo=rotulo,
+    )
+
+
+def _seguir_uma_chamada(
+    sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
+) -> ResultadoTurno:
+    """O turno de uma chamada ao Luna (D47): o LLM lê, decide e redige; o backend executa e envia.
+
+    A ordem é a do pipeline onde importa: os laudos, a sombra, a releitura da cobrança, o humano, o
+    `NONE`, e o savepoint da ação, que só vale se o texto aprovado sair. O texto já foi aprovado
+    numa prévia (`resolver_turno`), então a ação só roda depois dele. O estado nunca vai a
+    `EM_RISCO`.
+    """
+    cobranca = conversa.cobranca
+    historico, novas = _historico_e_novas(sessao, conversa.id, turno.mensagens_ids)
+    guarda = palavra_chave(novas)
+    entrada = montar_entrada(
+        conversa,
+        cobranca,
+        deps.politica,
+        historico,
+        novas,
+        mensagens_no_teto(sessao, conversa.id),
+        agora,
+    )
+    resolucao = resolver_turno(
+        deps.llm_turno,
+        entrada,
+        guarda,
+        lambda acoes: previa_numeros(acoes, conversa, cobranca, deps.politica, agora),
+        cobranca,
+    )
+    # O golpe pela palavra-chave vale como `desconfia_golpe` sim: nada de link (D44).
+    golpe_pela_guarda = guarda is not None and guarda[0] is MotivoHumano.DESCONFIANCA
+    ids, jev1 = _gravar_laudos_uma_chamada(sessao, turno.id, resolucao, guarda, golpe_pela_guarda)
+    avaliacao = _avaliacao_uma_chamada(resolucao)
+    rotulo = _rotulo_uma_chamada(resolucao)
+    leitura = (
+        resolucao.saida.leitura(golpe_pela_guarda=golpe_pela_guarda) if resolucao.saida else None
+    )
+    if deps.modo is Modo.SOMBRA:
+        previstos = numeros_previstos(avaliacao, conversa, cobranca, deps.politica)
+        return _fechar(
+            sessao,
+            turno,
+            ResultadoTurno.SOMBRA,
+            avaliacao,
+            previstos,
+            agora,
+            redacao=resolucao.como_dict("SOMBRA"),
+            rotulo=rotulo,
+        )
+    if _cobranca_fechou_no_meio(sessao, conversa):
+        return _fechar_ignorado(sessao, turno, avaliacao, agora, rotulo=rotulo)
+    if resolucao.motivo is not None:
+        laudos, laudo_id = _causa_uma_chamada(resolucao, jev1, ids)
+        _handoff(
+            sessao,
+            conversa,
+            resolucao.motivo,
+            deps,
+            agora,
+            laudos,
+            laudo_id,
+            leitura=leitura,
+            texto=resolucao.texto_handoff,
+        )
+        return _fechar(
+            sessao,
+            turno,
+            ResultadoTurno.HANDOFF,
+            avaliacao,
+            {},
+            agora,
+            redacao=resolucao.como_dict("HANDOFF"),
+            rotulo=rotulo,
+        )
+    if not _passou(resolucao):
+        return _nada_passou(
+            sessao, conversa, turno, avaliacao, resolucao, rotulo, leitura, deps, agora
+        )
+    veredito = resolucao.veredito
+    laudo_da_acao = ids.get((BatchJev.JEV2, "acao"))
+    if veredito.acao is Acao.NONE:
+        # Não agir (ou o terceiro sem texto): nada é enviado.
+        destino = proximo_estado(conversa.estado, None, False)
+        _mudar_estado(sessao, conversa, destino, laudo_da_acao, agora)
+        return _fechar(
+            sessao,
+            turno,
+            ResultadoTurno.SEM_ENVIO,
+            avaliacao,
+            {},
+            agora,
+            redacao=resolucao.como_dict("SEM_ENVIO"),
+            rotulo=rotulo,
+        )
+    # A trava da cobrança já foi tomada acima, antes do savepoint (o rollback dele a soltaria). A
+    # releitura depois do `executar` confere se o pagamento chegou nesse meio tempo.
+    ponto = sessao.begin_nested()
+    acoes = [] if veredito.terceiro else [veredito.acao, *veredito.anexos]
+    numeros = executar(acoes, cobranca, conversa, deps, agora, objecao=False)
+    interpolacao: list[str] | None = None
+    try:
+        final = interpolar(resolucao.reply, numeros)
+    except RedacaoInvalida as erro:
+        # A prévia já aprovou este texto: não deveria acontecer. Nada do que a ação fez vale.
+        final, interpolacao = None, erro.motivos
+    fechou = _cobranca_fechou_no_meio(sessao, conversa)
+    if final is None or fechou:
+        ponto.rollback()
+    else:
+        ponto.commit()
+    nao_executada = f"{NAO_EXECUTADA}{rotulo}"
+    if fechou:
+        return _fechar_ignorado(
+            sessao, turno, avaliacao, agora, nao_executado=True, rotulo=nao_executada
+        )
+    if final is None:
+        return _nada_passou(
+            sessao,
+            conversa,
+            turno,
+            avaliacao,
+            resolucao,
+            nao_executada,
+            leitura,
+            deps,
+            agora,
+            interpolacao,
+        )
+    # Depois da aprovação e antes de gravar: o histórico guarda o texto que sai, com o recebedor
+    # (D44).
+    texto = anexar_recebedor(final, numeros, deps.politica)
+    _gravar_envio(sessao, conversa, texto, agora)
+    destino = proximo_estado(conversa.estado, numeros.forma, False)
+    _mudar_estado(sessao, conversa, destino, laudo_da_acao, agora)
+    return _fechar(
+        sessao,
+        turno,
+        ResultadoTurno.ENVIADO,
+        avaliacao,
+        numeros.como_dict(),
+        agora,
+        texto_enviado=texto,
+        redacao=resolucao.como_dict("LLM"),
+        rotulo=rotulo,
+    )
 
 
 def _ja_pediu_texto(sessao: Session, conversa_id: int, modo: Modo) -> bool:

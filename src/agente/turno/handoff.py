@@ -82,6 +82,7 @@ def fazer_handoff(
     *,
     sem_link: bool = False,
     enviar_mensagem: bool = True,
+    texto: str | None = None,
 ) -> None:
     """Nota com o laudo, etiqueta, atribuição, status aberta, estado e a mensagem do canal.
 
@@ -89,6 +90,8 @@ def fazer_handoff(
     domínio, G7), leva o link provisório do politica.toml. Com `sem_link` (D44), ou nos motivos de
     `motivos_humano_no_whatsapp`, vai a fixa sem link e nenhum token é gerado. Sem
     `enviar_mensagem`, o cliente não recebe nada: é a volta ao humano de quem já recebeu a 6ª.
+    Com `texto` (o turno de uma chamada, D47), ele troca o texto fixo da mensagem, nos dois
+    caminhos; o botão do canal externo continua.
     """
     if conversa.chatwoot_conversa_id is None:
         raise ValueError(f"a conversa {conversa.id} não está ligada a uma conversa do Chatwoot")
@@ -113,7 +116,7 @@ def fazer_handoff(
             valor_centavos=None,
             link_cartao=None,
             link_canal_externo="",
-            texto=politica.texto_humano_no_whatsapp,
+            texto=texto or politica.texto_humano_no_whatsapp,
         )
         enviar_fixa(sessao, chatwoot, conversa, TipoFixa.HUMANO_NO_WHATSAPP, dados, agora)
         return
@@ -122,6 +125,7 @@ def fazer_handoff(
         valor_centavos=None,
         link_cartao=None,
         link_canal_externo=link_canal_externo(webchat, politica, conversa.cobranca_id, agora),
+        texto=texto,
     )
     enviar_fixa(sessao, chatwoot, conversa, TipoFixa.CANAL_EXTERNO, dados, agora)
 

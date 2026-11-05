@@ -29,6 +29,7 @@ class DadosFixa:
     link_cartao: str | None
     link_canal_externo: str
     # O texto que a política dá à fixa que não tem texto próprio (PEDIR_TEXTO e HUMANO_NO_WHATSAPP).
+    # No CANAL_EXTERNO, o texto redigido pelo LLM no turno de uma chamada (D47); sem ele, o da D19.
     texto: str | None = None
 
 
@@ -51,7 +52,9 @@ def _confirmacao(dados: DadosFixa) -> str:
 def mensagem_fixa(tipo: TipoFixa, dados: DadosFixa) -> MensagemPronta:
     if tipo is TipoFixa.CANAL_EXTERNO:
         botao = Botao("url", "Falar com um atendente", dados.link_canal_externo)
-        return MensagemPronta(TEXTO_CANAL_EXTERNO, [botao])
+        # O texto redigido pelo LLM troca o fixo, e o botão continua (D47; a D19 fica revista só no
+        # turno de uma chamada).
+        return MensagemPronta(dados.texto or TEXTO_CANAL_EXTERNO, [botao])
     if tipo is TipoFixa.PEDIR_TEXTO:
         if not dados.texto:
             raise ValueError("o pedido de texto precisa do texto da política")

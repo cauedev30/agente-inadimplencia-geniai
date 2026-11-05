@@ -213,3 +213,62 @@ def test_os_outros_motivos_seguem_mandando_o_canal_externo(sessao, conversa, pol
         fazer_handoff(sessao, chatwoot, conversa, motivo, [], politica, None, AGORA)
 
     assert chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO, TEXTO_CANAL_EXTERNO]
+
+
+TEXTO_REDIGIDO = "Entendi, você falou do desemprego. Passei a conversa para a nossa equipe."
+
+
+def test_o_texto_redigido_troca_o_da_fixa_no_whatsapp_sem_link(sessao, conversa, politica):
+    chatwoot = ChatwootFalso()
+    conversa.chatwoot_conversa_id = 555
+
+    fazer_handoff(
+        sessao,
+        chatwoot,
+        conversa,
+        MotivoHumano.DESCONFIANCA,
+        [],
+        politica,
+        None,
+        AGORA,
+        texto=TEXTO_REDIGIDO,
+    )
+
+    assert chatwoot.enviadas(555) == [TEXTO_REDIGIDO]
+    assert chatwoot.chamadas[-1][3] == []
+    mensagem = sessao.scalars(select(Mensagem)).one()
+    assert (mensagem.origem, mensagem.texto) == (OrigemMensagem.FIXA, TEXTO_REDIGIDO)
+
+
+def test_o_texto_redigido_troca_o_do_canal_externo_e_mantem_o_botao(sessao, conversa, politica):
+    chatwoot = ChatwootFalso()
+    conversa.chatwoot_conversa_id = 555
+
+    _handoff_com_texto(sessao, conversa, politica, chatwoot, TEXTO_REDIGIDO)
+
+    assert chatwoot.enviadas(555) == [TEXTO_REDIGIDO]
+    [botao] = chatwoot.chamadas[-1][3]
+    assert botao.valor == politica.link_canal_externo
+
+
+def test_sem_texto_o_handoff_e_igual_ao_de_hoje(sessao, conversa, politica):
+    chatwoot = ChatwootFalso()
+    conversa.chatwoot_conversa_id = 555
+
+    _handoff_com_texto(sessao, conversa, politica, chatwoot, None)
+
+    assert chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+
+
+def _handoff_com_texto(sessao, conversa, politica, chatwoot, texto):
+    fazer_handoff(
+        sessao,
+        chatwoot,
+        conversa,
+        MotivoHumano.PEDIU_HUMANO,
+        [],
+        politica,
+        None,
+        AGORA,
+        texto=texto,
+    )
