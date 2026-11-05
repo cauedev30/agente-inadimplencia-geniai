@@ -70,14 +70,14 @@ def test_humano_no_whatsapp_sem_o_texto_e_erro():
         mensagem_fixa(TipoFixa.HUMANO_NO_WHATSAPP, DadosFixa("Maria", None, None, ""))
 
 
-def test_canal_externo_com_texto_redigido_troca_o_texto_e_mantem_o_botao():
+def test_canal_externo_com_texto_redigido_leva_o_texto_depois_a_frase_da_d19_e_o_botao():
     dados = DadosFixa(
         "Maria", None, None, "https://atendimento.invalid/x", texto="Passei a conversa."
     )
 
     mensagem = mensagem_fixa(TipoFixa.CANAL_EXTERNO, dados)
 
-    assert mensagem.texto == "Passei a conversa."
+    assert mensagem.texto == f"Passei a conversa.\n\n{TEXTO_CANAL_EXTERNO}"
     assert mensagem.botoes == [
         Botao("url", "Falar com um atendente", "https://atendimento.invalid/x")
     ]

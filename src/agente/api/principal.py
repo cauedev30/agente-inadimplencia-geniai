@@ -6,7 +6,8 @@ real e, enquanto o Pix e o CTN forem os falsos, a liberação em piloto. Sem o A
 Jev é o falso; com ela, o serviço só sobe com o AGENTE_JEV_DADOS_REAIS_LIBERADOS=true (a ZDR da
 TypeSafe, D12). Sem o AGENTE_LLM_API_KEY, o redator é o falso; sem o AGENTE_TRANSCRICAO_*, o áudio
 não é transcrito. Com AGENTE_TURNO=uma_chamada (D47), o turno é uma chamada só ao Luna: ela exige o
-AGENTE_LLM_API_KEY, e o modo ativo pede essa chave no lugar da do Jev, que não é usado.
+AGENTE_LLM_API_KEY, e o modo ativo pede essa chave no lugar da do Jev. O Jev falso só existe na
+montagem: o turno e o botão do Pix não o consultam nesse caminho.
 """
 
 import logging

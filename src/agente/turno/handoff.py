@@ -90,8 +90,8 @@ def fazer_handoff(
     domínio, G7), leva o link provisório do politica.toml. Com `sem_link` (D44), ou nos motivos de
     `motivos_humano_no_whatsapp`, vai a fixa sem link e nenhum token é gerado. Sem
     `enviar_mensagem`, o cliente não recebe nada: é a volta ao humano de quem já recebeu a 6ª.
-    Com `texto` (o turno de uma chamada, D47), ele troca o texto fixo da mensagem, nos dois
-    caminhos; o botão do canal externo continua.
+    Com `texto` (o turno de uma chamada, D47), ele troca o texto fixo da mensagem no WhatsApp (D44)
+    e abre a mensagem do canal externo, que fecha com a frase fixa da D19 e leva o botão.
     """
     if conversa.chatwoot_conversa_id is None:
         raise ValueError(f"a conversa {conversa.id} não está ligada a uma conversa do Chatwoot")

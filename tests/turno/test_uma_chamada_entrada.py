@@ -297,6 +297,15 @@ def test_o_sistema_traz_as_regras_de_redacao_e_as_proibicoes():
     assert "{mensalidades}" in texto
 
 
+def test_o_sistema_nao_promete_onde_a_equipe_fala_com_o_cliente():
+    # O canal (o WhatsApp ou o botão do webchat) é escolhido depois pelo código (D47, I2). A regra
+    # do handoff_reply não diz "por aqui"; o "por aqui" das regras do reply (assunto não tratado,
+    # sem parcelamento) é outra coisa.
+    trecho = SISTEMA.split("- handoff_reply:")[1].split("Como escrever o reply")[0]
+    assert "por aqui" not in " ".join(trecho.split())
+    assert "continua com você" not in " ".join(trecho.split())
+
+
 def test_o_sistema_explica_o_handoff_reply():
     texto = " ".join(SISTEMA.split())
     assert "300" in texto

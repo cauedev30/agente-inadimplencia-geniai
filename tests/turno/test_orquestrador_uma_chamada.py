@@ -10,6 +10,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import select
 
+from agente.abertura.disparar import BOTAO_PAGAR_PIX
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import LaudoGravado, Mensagem, Pagamento, Transicao, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
@@ -318,7 +319,7 @@ def test_o_texto_valido_do_handoff_e_a_mensagem_ao_cliente_e_o_botao_continua(
 
     assert cliente("perdi o emprego", deps) is ResultadoTurno.HANDOFF
 
-    assert deps.chatwoot.enviadas(555) == [HANDOFF]
+    assert deps.chatwoot.enviadas(555) == [f"{HANDOFF}\n\n{TEXTO_CANAL_EXTERNO}"]
     [botao] = deps.chatwoot.chamadas[-1][3]
     assert botao.valor == deps.politica.link_canal_externo
     assert ligada.motivo_humano is MotivoHumano.CAUTELA
@@ -348,7 +349,7 @@ def test_o_pedido_de_humano_vai_ao_canal_externo_com_o_motivo_novo(
     cliente("quero falar com uma pessoa", deps)
 
     assert ligada.motivo_humano is MotivoHumano.PEDIU_HUMANO
-    assert deps.chatwoot.enviadas(555) == [HANDOFF]
+    assert deps.chatwoot.enviadas(555) == [f"{HANDOFF}\n\n{TEXTO_CANAL_EXTERNO}"]
     assert next(c[2] for c in deps.chatwoot.chamadas if c[0] == "etiquetar") == ["pediu_humano"]
     assert _turno(sessao).acao_principal == "HUMAN:PEDIU_HUMANO"
 
@@ -642,3 +643,62 @@ def test_com_o_recebedor_preenchido_a_frase_vai_no_fim_do_pix(sessao, ligada, cl
     [texto] = deps.chatwoot.enviadas(555)
     assert texto.endswith("confira que o recebedor é Cartão de Todos.")
     assert _turno(sessao).texto_enviado == texto
+
+
+# O botão "Pagar com Pix" (D26, D47): o redator redige e só o `interpolar` valida
+
+TOQUE = BOTAO_PAGAR_PIX.texto
+
+
+def test_o_botao_com_llm_turno_manda_o_pix_validado_so_pelo_interpolar(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica)
+
+    assert cliente(TOQUE, deps) is ResultadoTurno.ENVIADO
+
+    assert deps.jev.chamadas == 0
+    assert deps.llm_turno.pedidos == []
+    [pix] = deps.pix.cobrancas.values()
+    [texto] = deps.chatwoot.enviadas(555)
+    assert pix.br_code in texto
+    assert sessao.scalars(select(Pagamento)).one().referencia == pix.txid
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.resultado) == ("GENERATE_PIX", ResultadoTurno.ENVIADO)
+    assert turno.redacao["saida"] == "LLM" and _laudos(sessao, BatchJev.JEV3) == []
+    assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
+
+
+def test_o_botao_com_o_texto_reprovado_no_interpolar_nao_deixa_o_pix_gravado(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica)
+    ruim = "Fica R$ 70 no Pix {pix_copia_e_cola}"
+    deps.redator = RedatorFalso(respostas=[ruim, ruim], registrar=True)
+
+    assert cliente(TOQUE, deps) is ResultadoTurno.ENVIADO
+
+    assert deps.jev.chamadas == 0
+    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
+    assert sessao.scalars(select(Pagamento)).all() == []
+    assert (ligada.forma_enviada, ligada.estado) == (None, EstadoConversa.INICIADO)
+    turno = _turno(sessao)
+    assert turno.redacao["saida"] == "RESPOSTA_SEGURA" and len(turno.redacao["tentativas"]) == 2
+    assert turno.numeros == {"executado": False}
+
+    deps.redator = RedatorFalso(respostas=[ruim, ruim], registrar=True)
+    assert cliente(TOQUE, deps) is ResultadoTurno.HANDOFF
+
+    assert ligada.motivo_humano is MotivoHumano.VALIDACAO
+    assert sessao.scalars(select(Pagamento)).all() == []
+
+
+def test_o_botao_sem_llm_turno_continua_no_jev_3(sessao, ligada, cliente, politica):
+    deps = _deps(politica)
+    deps.llm_turno = None
+    deps.jev = JevFalso([*aprovar_tudo()], registrar=True)
+
+    assert cliente(TOQUE, deps) is ResultadoTurno.ENVIADO
+
+    assert deps.jev.chamadas
+    assert {laudo.batch for laudo in sessao.scalars(select(LaudoGravado))} == {BatchJev.JEV3}

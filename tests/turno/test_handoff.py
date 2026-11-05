@@ -240,13 +240,15 @@ def test_o_texto_redigido_troca_o_da_fixa_no_whatsapp_sem_link(sessao, conversa,
     assert (mensagem.origem, mensagem.texto) == (OrigemMensagem.FIXA, TEXTO_REDIGIDO)
 
 
-def test_o_texto_redigido_troca_o_do_canal_externo_e_mantem_o_botao(sessao, conversa, politica):
+def test_o_texto_redigido_abre_o_do_canal_externo_com_a_frase_da_d19_e_o_botao(
+    sessao, conversa, politica
+):
     chatwoot = ChatwootFalso()
     conversa.chatwoot_conversa_id = 555
 
     _handoff_com_texto(sessao, conversa, politica, chatwoot, TEXTO_REDIGIDO)
 
-    assert chatwoot.enviadas(555) == [TEXTO_REDIGIDO]
+    assert chatwoot.enviadas(555) == [f"{TEXTO_REDIGIDO}\n\n{TEXTO_CANAL_EXTERNO}"]
     [botao] = chatwoot.chamadas[-1][3]
     assert botao.valor == politica.link_canal_externo
 

@@ -521,8 +521,14 @@ def _agir(
     deps: Dependencias,
     ids: dict[tuple[BatchJev, str], int],
     agora: datetime,
+    *,
+    validar_no_jev: bool = True,
 ) -> ResultadoTurno:
-    """O backend executa, o LLM redige, o Jev 3 valida e o texto fica gravado para sair (5.3)."""
+    """O backend executa, o LLM redige, o Jev 3 valida e o texto fica gravado para sair (5.3).
+
+    Sem `validar_no_jev` (o botão do Pix no turno de uma chamada, D47), só o `interpolar` valida;
+    o resto, o savepoint e a resposta segura, é o mesmo.
+    """
     cobranca = conversa.cobranca
     # A trava vem antes do savepoint: o rollback dele (texto vazio) soltaria a trava tomada dentro.
     if _cobranca_fechou_no_meio(sessao, conversa):
@@ -547,7 +553,9 @@ def _agir(
         historico,
         deps.politica,
     )
-    redacao = redigir_validado(deps.redator, deps.jev, pedido, numeros, estado)
+    redacao = redigir_validado(
+        deps.redator, deps.jev, pedido, numeros, estado, validar_no_jev=validar_no_jev
+    )
     fechou = _cobranca_fechou_no_meio(sessao, conversa)
     if redacao.texto is None or fechou:
         # O degrau, a objeção, a forma e o Pix pendente voltam atrás.
@@ -1011,6 +1019,9 @@ def _pagar_pix(
     O pedido é inequívoco, então não há leitura nem decisão. O resto é o turno de sempre: o
     backend gera (ou reaproveita) o Pix integral, o LLM redige, o Jev 3 valida e a mensagem conta
     no teto. Em sombra, só a prévia é gravada.
+
+    Com o turno de uma chamada (`llm_turno`, D47), o Jev não existe: o redator redige e só o
+    `interpolar` valida. O texto que reprova desfaz o Pix, como o Jev 3 faria no pipeline.
     """
     avaliacao = Avaliacao(None, None, Acao.GENERATE_PIX, [], None)
     cobranca = conversa.cobranca
@@ -1019,7 +1030,18 @@ def _pagar_pix(
         return _fechar(sessao, turno, ResultadoTurno.SOMBRA, avaliacao, previstos, agora)
     historico = _historico(sessao, conversa.id)
     estado = estado_jev(conversa, cobranca, historico, deps.politica)
-    return _agir(sessao, conversa, turno, avaliacao, estado, historico, deps, {}, agora)
+    return _agir(
+        sessao,
+        conversa,
+        turno,
+        avaliacao,
+        estado,
+        historico,
+        deps,
+        {},
+        agora,
+        validar_no_jev=deps.llm_turno is None,
+    )
 
 
 def _desistir(

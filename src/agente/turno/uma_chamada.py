@@ -297,12 +297,13 @@ Regras de cada campo:
   não é usado.
 - handoff_reply: preencha só quando algum sinal manda a conversa ao humano. Aí são 1 ou 2 frases
   curtas, em tom de conversa, com até 300 caracteres, que nomeiam o assunto do cliente com as
-  palavras dele e dizem que a conversa foi para a equipe, que segue com ele por aqui, sem prometer
-  prazo nem velocidade e sem prometer o que a equipe vai fazer. Não responda à pergunta, não
-  pergunte nada, sem dígito, sem link e sem marcador. Exemplos só de formato, cada um para um
-  assunto: "Entendi, você disse que já pagou essa mensalidade. Passei a conversa para a nossa
-  equipe, que segue com você por aqui." e "Compreendo a situação do desemprego. Passei sua
-  conversa para a nossa equipe, que continua com você por aqui." Nunca repita os exemplos.
+  palavras dele e dizem que a conversa foi para a equipe, sem prometer prazo nem velocidade, sem
+  prometer o que a equipe vai fazer e sem dizer onde ou por onde a equipe vai falar com ele (quem
+  cuida disso é o sistema, que acrescenta a orientação depois do seu texto). Não responda à
+  pergunta, não pergunte nada, sem dígito, sem link e sem marcador. Exemplos só de formato, cada
+  um para um assunto: "Entendi, você disse que já pagou essa mensalidade. Passei a conversa para
+  a nossa equipe." e "Compreendo a situação do desemprego. Passei sua conversa para a nossa
+  equipe." Nunca repita os exemplos.
   Quando nenhum sinal manda ao humano, fica vazio.
 
 Como escrever o reply:

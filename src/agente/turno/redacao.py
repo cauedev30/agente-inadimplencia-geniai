@@ -250,9 +250,19 @@ class Redacao:
 
 
 def redigir_validado(
-    redator: Redator, jev: Jev, pedido: PedidoRedacao, numeros: Numeros, estado: EstadoJev
+    redator: Redator,
+    jev: Jev,
+    pedido: PedidoRedacao,
+    numeros: Numeros,
+    estado: EstadoJev,
+    *,
+    validar_no_jev: bool = True,
 ) -> Redacao:
-    """Redige, interpola e valida no Jev 3, com uma reescrita. Não grava nem envia nada."""
+    """Redige, interpola e valida no Jev 3, com uma reescrita. Não grava nem envia nada.
+
+    Sem `validar_no_jev` (o botão do Pix no turno de uma chamada, D47), o texto que interpola vale:
+    sem dígito, valor por extenso nem link, e com os marcadores obrigatórios. O Jev não é chamado.
+    """
     redacao = Redacao()
     reprovadas: list[str] = []
     for _ in range(TENTATIVAS):
@@ -268,6 +278,10 @@ def redigir_validado(
             reprovadas = erro.motivos
             redacao.tentativas.append(Tentativa(texto, reprovadas))
             continue
+        if not validar_no_jev:
+            redacao.tentativas.append(Tentativa(texto, []))
+            redacao.texto = final
+            return redacao
         try:
             validacao = validar(jev, final, list(numeros.acoes), numeros.como_dict(), estado)
         except JevIndisponivel as erro:
