@@ -3,6 +3,7 @@
 A implementação real depende da T9 (tarefa 6.5). Até lá, o sistema roda com o CTNFalso.
 """
 
+import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -81,6 +82,10 @@ class CTNFalso:
         self.historicos = historicos or {}
         self.hoje = hoje or date.today()
         self.links: dict[str, tuple[str, int | None, int | None]] = {}
+        # O contador volta a 1 a cada processo, e o banco da demo guarda links de rodadas antigas:
+        # sem um lote único, o 1º link depois de reiniciar repetia o `id_externo` e quebrava o
+        # turno (A11, `pagamento.referencia` é única). O CTN real devolve o próprio id.
+        self._lote = secrets.token_hex(3)
         self.baixas: list[tuple[str, int, datetime, str]] = []
         # Liga a falha do CTN: toda chamada levanta CTNIndisponivel.
         self.fora_do_ar = False
@@ -111,7 +116,7 @@ class CTNFalso:
         )
 
     def _novo_link(self, tipo: str, matricula: str, valor: int | None, cobranca: int | None):
-        id_externo = f"{tipo}-{len(self.links) + 1}"
+        id_externo = f"{tipo}-{self._lote}-{len(self.links) + 1}"
         self.links[id_externo] = (matricula, valor, cobranca)
         return LinkPagamento(url=f"https://ctn.invalid/{tipo}/{id_externo}", id_externo=id_externo)
 

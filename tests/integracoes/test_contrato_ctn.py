@@ -126,3 +126,13 @@ def test_a_falsa_aberta_aceita_qualquer_matricula_e_gera_o_link():
 def test_a_falsa_comum_continua_recusando_a_matricula_desconhecida():
     with pytest.raises(ClienteNaoEncontrado):
         CTNFalso().consultar_cliente("DEMO-0001")
+
+
+def test_ctn_falso_novo_nao_repete_o_id_do_link_de_outro_processo():
+    """A11: o contador volta a 1 a cada processo; o banco da demo guarda os links antigos."""
+    um = CTNFalso(aceita_qualquer_matricula=True)
+    outro = CTNFalso(aceita_qualquer_matricula=True)
+    ids_um = {um.gerar_link_pagamento("M1", 7020, 1).id_externo for _ in range(3)}
+    ids_outro = {outro.gerar_link_pagamento("M1", 7020, 1).id_externo for _ in range(3)}
+    assert len(ids_um) == 3
+    assert ids_um.isdisjoint(ids_outro)

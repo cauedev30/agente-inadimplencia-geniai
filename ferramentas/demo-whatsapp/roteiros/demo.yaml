@@ -77,12 +77,32 @@
       espera:
         acao: "HUMAN:CONCILIACAO"
 
+# O texto tem de dizer que não há parcelamento (D23). Só a ação e o ENVIADO não bastam: a resposta
+# segura ("não consegui te responder") também é ENVIADO (A12). Três formas da pergunta, porque uma
+# rodada só não separa o acerto da sorte.
 - nome: fora-da-politica
   passos:
     - cliente: "Posso parcelar em 3 vezes?"
       espera:
         acao: INFORM_DEBT
         resultado: ENVIADO
+        texto_tem: ["parcel", "00020126"]
+
+- nome: parcelar-curto
+  passos:
+    - cliente: "Posso parcelar?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+        texto_tem: ["parcel", "00020126"]
+
+- nome: parcelar-divida
+  passos:
+    - cliente: "Posso parcelar minha dívida?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+        texto_tem: ["parcel", "00020126"]
 
 - nome: irritado
   passos:

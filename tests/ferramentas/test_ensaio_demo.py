@@ -152,7 +152,7 @@ def test_arquivo_que_nao_e_lista_ou_nao_existe_da_erro(tmp_path):
         ensaiar.carregar_roteiros(tmp_path / "nao-existe.yaml")
 
 
-def test_o_demo_yaml_real_carrega_com_os_doze_roteiros():
+def test_o_demo_yaml_real_carrega_com_os_catorze_roteiros():
     roteiros = ensaiar.carregar_roteiros(_PASTA / "roteiros" / "demo.yaml")
     assert [r.nome for r in roteiros] == [
         "divida",
@@ -163,6 +163,8 @@ def test_o_demo_yaml_real_carrega_com_os_doze_roteiros():
         "contestacao",
         "ja-paguei",
         "fora-da-politica",
+        "parcelar-curto",
+        "parcelar-divida",
         "irritado",
         "fora-do-assunto",
         "cumprimento-solto",
@@ -435,7 +437,7 @@ def test_conferir_a_mensagem_enviada_vem_dos_registros_do_chatwoot_falso():
 
 def test_os_roteiros_da_demo_carregam():
     roteiros = ensaiar.carregar_roteiros(_PASTA / "roteiros" / "demo.yaml")
-    assert len(roteiros) == 12
+    assert len(roteiros) == 14
 
 
 def test_conferir_sem_turno_quando_nao_ha_obtido():

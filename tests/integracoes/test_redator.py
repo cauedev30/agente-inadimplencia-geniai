@@ -262,3 +262,18 @@ def test_as_instrucoes_proibem_fato_do_produto_sem_fonte_e_promessa_fora_das_aco
         "Não prometa verificar, retornar, avisar nem fazer qualquer coisa que não esteja nas ações"
         in instrucoes
     )
+
+
+def test_as_instrucoes_dizem_que_nao_ha_parcelamento():
+    """A12 (D23): sem isto o Luna só acerta o parcelamento por sorte e o Jev 3 reprova o resto."""
+    pedido = PedidoRedacao(
+        acoes=("INFORM_DEBT",),
+        marcadores=("divida",),
+        tom_alvo="neutro",
+        estado="INICIADO",
+        historico=(("CLIENTE", "Posso parcelar?"),),
+        nome_cliente="Ana",
+    )
+    sistema = montar_mensagens(pedido)[0]["content"]
+    assert "não existe parcelamento" in sistema
+    assert "não é possível parcelar por aqui" in sistema
