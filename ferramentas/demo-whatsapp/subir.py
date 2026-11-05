@@ -89,8 +89,11 @@ def montar_ambiente(
     kit: Path,
     segredo_webhook: str,
     ambiente_base: Mapping[str, str],
+    turno: str = "pipeline",
 ) -> dict[str, str]:
     """O ambiente dos subprocessos: o do processo, sem nenhuma AGENTE_* herdada, mais as da demo.
+
+    O `turno` é o `AGENTE_TURNO` (D47): `pipeline`, o padrão, ou `uma_chamada`, o experimento.
 
     Os padrões de URL e de modelo do Jev e do Luna vêm do código (config.py): não se repetem aqui.
     """
@@ -100,6 +103,7 @@ def montar_ambiente(
         {
             "PYTHONUTF8": "1",
             "AGENTE_MODO": "ativo",
+            "AGENTE_TURNO": turno,
             "AGENTE_POLITICA_PATH": str(kit / "politica-demo.toml"),
             "AGENTE_DATABASE_URL": f"sqlite:///{(kit / 'demo.db').resolve().as_posix()}",
             "AGENTE_WEBHOOK_SEGREDO": segredo_webhook,
@@ -251,7 +255,7 @@ def preparar_banco(kit: Path, ambiente: Mapping[str, str], carteira: Path) -> No
         )
 
 
-def subir(kit: Path, pasta_segredos: Path, porta: int) -> int:
+def subir(kit: Path, pasta_segredos: Path, porta: int, turno: str = "pipeline") -> int:
     for arquivo in ("politica-demo.toml", "carteira-demo.csv"):
         if not (kit / arquivo).is_file():
             raise ErroDaDemo(f"falta {arquivo} no kit ({kit})")
@@ -266,6 +270,7 @@ def subir(kit: Path, pasta_segredos: Path, porta: int) -> int:
         kit=kit,
         segredo_webhook=segredo,
         ambiente_base=os.environ,
+        turno=turno,
     )
 
     preparar_banco(kit, ambiente, kit / "carteira-demo.csv")
@@ -317,6 +322,7 @@ def subir(kit: Path, pasta_segredos: Path, porta: int) -> int:
         processos.append(servico)
         _esperar(lambda: _servico_responde(porta), "o serviço responder em /saude", servico)
 
+        print(f"turno da demo: {turno}")
         print(f"demo no ar: {mascarar_segredo(url_do_webhook(url_do_tunel, segredo), segredo)}")
         print("Ctrl+C encerra o serviço e o túnel.")
         while all(processo.poll() is None for processo in processos):
@@ -342,9 +348,20 @@ def main(argv: list[str] | None = None) -> int:
         help="pasta dos *.local.json (padrão: ../secrets, ao lado do repo)",
     )
     parser.add_argument("--porta", type=int, default=8000)
+    parser.add_argument(
+        "--turno",
+        choices=("pipeline", "uma_chamada"),
+        default="pipeline",
+        help="o AGENTE_TURNO da demo (D47): o pipeline do Jev ou o turno de uma chamada",
+    )
     argumentos = parser.parse_args(argv)
     try:
-        return subir(argumentos.kit.resolve(), argumentos.segredos.resolve(), argumentos.porta)
+        return subir(
+            argumentos.kit.resolve(),
+            argumentos.segredos.resolve(),
+            argumentos.porta,
+            argumentos.turno,
+        )
     except ErroDaDemo as erro:
         print(f"erro: {erro}", file=sys.stderr)
         return 2

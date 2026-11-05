@@ -778,7 +778,12 @@ def _porta_ocupada(porta: int) -> bool:
 
 
 def ensaiar(
-    kit_demo: Path, segredos: Path, roteiros: list[Roteiro], saida: Path, porta: int
+    kit_demo: Path,
+    segredos: Path,
+    roteiros: list[Roteiro],
+    saida: Path,
+    porta: int,
+    turno: str = "pipeline",
 ) -> int:
     """Sobe o Chatwoot falso e o serviço, roda os roteiros e grava o `relatorio.md` em `saida`.
 
@@ -813,6 +818,7 @@ def ensaiar(
             kit=saida,
             segredo_webhook=segredo,
             ambiente_base=os.environ,
+            turno=turno,
         )
         # Sem buffer: o ERROR do serviço tem de chegar ao log enquanto o passo ainda roda.
         ambiente["PYTHONUNBUFFERED"] = "1"
@@ -881,6 +887,12 @@ def main(argv: list[str] | None = None) -> int:
         help="pasta dos *.local.json (padrão: ../secrets, ao lado do repo)",
     )
     parser.add_argument("--porta", type=int, default=8010)
+    parser.add_argument(
+        "--turno",
+        choices=("pipeline", "uma_chamada"),
+        default="pipeline",
+        help="o AGENTE_TURNO do ensaio (D47): o pipeline do Jev ou o turno de uma chamada",
+    )
     argumentos = parser.parse_args(argv)
     try:
         roteiros = carregar_roteiros(argumentos.roteiros)
@@ -890,7 +902,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ErroDaDemo(f"não há roteiro chamado {argumentos.roteiro}")
         kit = argumentos.kit.resolve()
         saida = kit / f"ensaio-{datetime.now().strftime('%Y%m%d-%H%M')}"
-        return ensaiar(kit, argumentos.segredos.resolve(), roteiros, saida, argumentos.porta)
+        return ensaiar(
+            kit, argumentos.segredos.resolve(), roteiros, saida, argumentos.porta, argumentos.turno
+        )
     except ErroDaDemo as erro:
         print(f"erro: {erro}", file=sys.stderr)
         return 2

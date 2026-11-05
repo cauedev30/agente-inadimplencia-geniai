@@ -48,6 +48,16 @@ def test_o_ambiente_leva_o_modo_ativo_e_a_liberacao_do_jev_so_para_a_demo(tmp_pa
     assert ambiente["AGENTE_POLITICA_PATH"] == str(tmp_path / "politica-demo.toml")
 
 
+def test_o_turno_da_demo_e_o_pipeline_e_so_muda_se_pedirem(tmp_path):
+    assert _ambiente(tmp_path)["AGENTE_TURNO"] == "pipeline"
+    assert _ambiente(tmp_path, turno="uma_chamada")["AGENTE_TURNO"] == "uma_chamada"
+
+
+def test_o_turno_do_ambiente_do_processo_nao_vaza_para_a_demo(tmp_path):
+    ambiente = _ambiente(tmp_path, ambiente_base={"AGENTE_TURNO": "uma_chamada"})
+    assert ambiente["AGENTE_TURNO"] == "pipeline"
+
+
 def test_o_agente_responde_com_o_token_do_bot_e_nao_com_o_do_usuario(tmp_path):
     ambiente = _ambiente(tmp_path)
     assert ambiente["AGENTE_CHATWOOT_TOKEN"] == CHATWOOT["token_bot"]
