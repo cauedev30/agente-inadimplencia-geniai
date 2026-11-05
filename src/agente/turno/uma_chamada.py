@@ -10,8 +10,8 @@ conversa é a exceção, porque traz as mensagens já enviadas, como no redator 
 
 import json
 import re
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
 from agente.db.modelos import Cobranca, Conversa
 from agente.dominio.desconto import proxima_oferta, valor_com_desconto
+from agente.integracoes.llm_turno import LLMTurno, LLMTurnoIndisponivel
 from agente.integracoes.redator import DESCRICAO_ACOES
 from agente.politica import Politica
 from agente.tipos import FormaPagamento, Laudo, MotivoHumano
@@ -26,7 +27,13 @@ from agente.turno.acoes import Acao, anexar
 from agente.turno.executar import Numeros
 from agente.turno.jev1 import GATILHOS, PERGUNTAS_JEV1, LeituraJev1
 from agente.turno.jev2 import _SENSIVEL, CRITERIOS_DA_ACAO
-from agente.turno.redacao import _sem_acento, marcadores_do_turno, motivos_do_texto
+from agente.turno.redacao import (
+    RedacaoInvalida,
+    _sem_acento,
+    interpolar,
+    marcadores_do_turno,
+    motivos_do_texto,
+)
 
 # A origem dos laudos gravados pelo turno novo; `p` e `c` valem 1,0, porque o LLM não dá
 # probabilidade (decisão 8 do plano).
@@ -436,6 +443,11 @@ class Veredito:
     causa: str
 
 
+def _veredito_da_guarda(guarda: tuple[MotivoHumano, str]) -> Veredito:
+    motivo, palavra = guarda
+    return Veredito(motivo, None, (), False, f"palavra_chave:{palavra}")
+
+
 def decidir(
     saida: SaidaTurno,
     permitidas: Sequence[Acao],
@@ -445,8 +457,7 @@ def decidir(
     """A primeira regra que bate vence: a guarda, o sinal de saída, o tom, o pedido de humano, o
     terceiro, a ação fora das permitidas e, por fim, a ação com os anexos da D37."""
     if guarda is not None:
-        motivo, palavra = guarda
-        return Veredito(motivo, None, (), False, f"palavra_chave:{palavra}")
+        return _veredito_da_guarda(guarda)
     for sinal in SINAIS_DE_SAIDA:
         if getattr(saida, sinal):
             return Veredito(MOTIVO_DO_SINAL[sinal], None, (), False, f"sinal:{sinal}")
@@ -476,3 +487,131 @@ def texto_de_handoff(saida: SaidaTurno | None) -> str | None:
     if "{" in texto or "}" in texto or motivos_do_texto(texto):
         return None
     return texto
+
+
+# O laço das tentativas
+
+TENTATIVAS_UMA_CHAMADA = 2
+
+
+@dataclass(frozen=True)
+class TentativaUmaChamada:
+    """Uma chamada ao LLM: a ação e o texto que ele deu e o que reprovou. Sem reprovadas, passou."""
+
+    acao: str | None
+    reply: str | None
+    reprovadas: tuple[str, ...]
+
+
+@dataclass
+class ResolucaoTurno:
+    """O resultado do laço: o texto aprovado na prévia, ou o motivo de ir ao humano, ou nenhum dos
+    dois (as tentativas acabaram sem texto: quem chama manda a resposta segura ou `VALIDACAO`)."""
+
+    # A última saída válida e o veredito dela.
+    saida: SaidaTurno | None = None
+    veredito: Veredito | None = None
+    # O texto com os marcadores, já aprovado na prévia; None no `NONE`, no humano e sem texto.
+    reply: str | None = None
+    texto_handoff: str | None = None
+    # O do veredito, ou `REDATOR_INDISPONIVEL`.
+    motivo: MotivoHumano | None = None
+    tentativas: list[TentativaUmaChamada] = field(default_factory=list)
+    erro: str | None = None
+
+    def como_dict(self, saida: str) -> dict:
+        """Para o `turno.redacao`: as tentativas, a causa, o erro e o que saiu."""
+        dados: dict = {
+            "caminho": "uma_chamada",
+            "tentativas": [
+                {"texto": t.reply, "acao": t.acao, "reprovadas": list(t.reprovadas)}
+                for t in self.tentativas
+            ],
+            "saida": saida,
+        }
+        if self.veredito is not None:
+            dados["causa"] = self.veredito.causa
+        if self.erro is not None:
+            dados["erro"] = self.erro
+        return dados
+
+
+def _conferir_texto(
+    veredito: Veredito,
+    reply: str,
+    previa: Callable[[Sequence[Acao]], Numeros],
+) -> list[str]:
+    """Os motivos de reprovar o texto contra a prévia dos números (decisão 3); vazio, se passou."""
+    if veredito.terceiro:
+        # Ao terceiro não vai marcador: nem a dívida nem o link (decisão 6).
+        if "{" in reply or "}" in reply:
+            return ["marcador_com_terceiro"]
+        acoes: list[Acao] = []
+    else:
+        if not reply.strip():
+            return ["texto_vazio"]
+        acoes = [veredito.acao, *veredito.anexos]
+    try:
+        interpolar(reply, previa(acoes))
+    except RedacaoInvalida as erro:
+        return erro.motivos
+    return []
+
+
+def resolver_turno(
+    llm: LLMTurno,
+    entrada: EntradaTurno,
+    guarda: tuple[MotivoHumano, str] | None,
+    previa: Callable[[Sequence[Acao]], Numeros],
+    cobranca: Cobranca,
+) -> ResolucaoTurno:
+    """Chama o LLM até `TENTATIVAS_UMA_CHAMADA` vezes, até sair um texto aprovado ou um motivo.
+
+    Não toca no banco: a prévia vem de quem chama. A cada tentativa a decisão roda do começo, então
+    um sinal que só aparece na 2ª também leva ao humano. Com a guarda (D44), há uma chamada só, que
+    serve para o texto do handoff (decisão 5).
+    """
+    resolucao = ResolucaoTurno()
+    reprovadas: list[str] = []
+    for _ in range(TENTATIVAS_UMA_CHAMADA):
+        try:
+            saida = ler_saida(llm.completar_json(*montar_mensagens(entrada, reprovadas)))
+        except LLMTurnoIndisponivel as erro:
+            resolucao.erro = str(erro)
+            if guarda is not None:
+                resolucao.veredito = _veredito_da_guarda(guarda)
+                resolucao.motivo = guarda[0]
+            else:
+                resolucao.motivo = MotivoHumano.REDATOR_INDISPONIVEL
+            return resolucao
+        except ValueError:
+            # O JSONInvalido e o ValidationError do `ler_saida` são ValueError.
+            if guarda is not None:
+                resolucao.veredito = _veredito_da_guarda(guarda)
+                resolucao.motivo = guarda[0]
+                return resolucao
+            reprovadas = ["json_invalido"]
+            resolucao.tentativas.append(TentativaUmaChamada(None, None, ("json_invalido",)))
+            continue
+        veredito = decidir(saida, entrada.permitidas, guarda, cobranca)
+        resolucao.saida, resolucao.veredito = saida, veredito
+        if veredito.motivo is not None:
+            resolucao.motivo = veredito.motivo
+            resolucao.texto_handoff = texto_de_handoff(saida)
+            resolucao.tentativas.append(TentativaUmaChamada(saida.acao, saida.reply, ()))
+            return resolucao
+        if veredito.acao is None and not veredito.terceiro:
+            reprovadas = [f"acao_nao_permitida:{saida.acao}"]
+        elif veredito.acao is Acao.NONE or (veredito.terceiro and not saida.reply.strip()):
+            # Nada a enviar. O terceiro sem texto segue como `NONE`, com o rótulo do terceiro.
+            if veredito.terceiro:
+                resolucao.veredito = replace(veredito, acao=Acao.NONE)
+            resolucao.tentativas.append(TentativaUmaChamada(saida.acao, saida.reply, ()))
+            return resolucao
+        else:
+            reprovadas = _conferir_texto(veredito, saida.reply, previa)
+        resolucao.tentativas.append(TentativaUmaChamada(saida.acao, saida.reply, tuple(reprovadas)))
+        if not reprovadas:
+            resolucao.reply = saida.reply
+            return resolucao
+    return resolucao
