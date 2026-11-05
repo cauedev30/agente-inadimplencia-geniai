@@ -330,6 +330,17 @@ def test_o_sistema_deixa_o_none_acolher_sem_marcador_nem_oferecer_o_humano():
     assert "por aqui" not in reply
 
 
+def test_o_formato_do_json_nao_convida_o_handoff_reply_vazio():
+    # No ensaio de 2026-11-05 o Luna deixou o handoff_reply vazio em 6 de 6 handoffs: o formato
+    # dizia só "ou vazio". Agora ele diz quando é obrigatório e quando fica vazio (D47, decisão 18).
+    texto = " ".join(SISTEMA.split())
+    assert (
+        '"handoff_reply": "<o texto do encaminhamento: obrigatório se algum sinal de saída' in texto
+    )
+    assert "senão, vazio>" in texto
+    assert "o acolhimento não vale: o texto vai no handoff_reply" in texto
+
+
 def test_o_sistema_exige_o_handoff_reply_em_todo_sinal_de_humano_com_o_reply_vazio():
     trecho = " ".join(
         SISTEMA.split("- handoff_reply:")[1].split("Como escrever o reply")[0].split()

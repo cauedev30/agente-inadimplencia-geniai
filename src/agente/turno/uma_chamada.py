@@ -259,7 +259,8 @@ def _formato_do_json() -> str:
         f'  "tom": {tons},',
         '  "acao": "<uma das ações permitidas>",',
         '  "reply": "<o texto da mensagem, com marcadores>",',
-        '  "handoff_reply": "<o texto do encaminhamento, ou vazio>"',
+        '  "handoff_reply": "<o texto do encaminhamento: obrigatório se algum sinal de saída ou o '
+        'quer_humano for true; senão, vazio>"',
     ]
     return "{\n" + "\n".join(campos) + "\n}"
 
@@ -301,10 +302,12 @@ Regras de cada campo:
 - reply: a mensagem ao cliente, com os marcadores obrigatórios da ação escolhida e, se ajudar, os
   opcionais. Cubra a ação inteira nesta mensagem. Com a ação NONE, o reply tem dois usos. Fica
   vazio para quem não pede nada (ok, obrigado, um cumprimento solto). Para quem desabafa ou
-  reclama sem pedir nada (chateado, cansado, frustrado, sobrecarregado), são uma ou duas frases que
-  acolhem e perguntam o que houve ou do que ele precisa, sem marcador, sem valor, sem link, sem
-  Pix, sem prometer nada e sem empurrar pagamento; não ofereça o humano por conta própria, e
-  escreva o acolhimento com as palavras do cliente, sem repetir os exemplos de outros assuntos.
+  reclama sem pedir nada (chateado, cansado, frustrado, sobrecarregado) e nenhum sinal de saída
+  é true (se algum for, o acolhimento não vale: o texto vai no handoff_reply), são uma ou duas
+  frases que acolhem e perguntam o que houve ou do que ele precisa, sem marcador, sem valor, sem
+  link, sem Pix, sem prometer nada e sem empurrar pagamento; não ofereça o humano por conta
+  própria, e escreva o acolhimento com as palavras do cliente, sem repetir os exemplos de outros
+  assuntos.
   Se terceiro é true, escreva só uma mensagem curta e gentil, sem marcador e sem falar da dívida.
   Se algum sinal de saída, quer_humano ou um tom irritado ou hostil manda a conversa ao humano, o
   texto da resposta não é usado e o reply fica vazio.
@@ -536,6 +539,9 @@ class TentativaUmaChamada:
     acao: str | None
     reply: str | None
     reprovadas: tuple[str, ...]
+    # O `handoff_reply` como o LLM o deu, só quando o turno vai ao humano (para saber por que a
+    # frase fixa saiu no lugar do texto dele).
+    handoff_reply: object = None
 
 
 @dataclass
@@ -560,6 +566,7 @@ class ResolucaoTurno:
             "caminho": "uma_chamada",
             "tentativas": [
                 {"texto": t.reply, "acao": t.acao, "reprovadas": list(t.reprovadas)}
+                | ({"handoff_reply": t.handoff_reply} if t.handoff_reply is not None else {})
                 for t in self.tentativas
             ],
             "saida": saida,
@@ -634,7 +641,9 @@ def resolver_turno(
         if veredito.motivo is not None:
             resolucao.motivo = veredito.motivo
             resolucao.texto_handoff = texto_de_handoff(saida)
-            resolucao.tentativas.append(TentativaUmaChamada(saida.acao, saida.reply, ()))
+            resolucao.tentativas.append(
+                TentativaUmaChamada(saida.acao, saida.reply, (), saida.handoff_reply)
+            )
             return resolucao
         if veredito.acao is None and not veredito.terceiro:
             reprovadas = [f"acao_nao_permitida:{saida.acao}"]

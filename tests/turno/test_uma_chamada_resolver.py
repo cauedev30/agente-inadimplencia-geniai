@@ -170,6 +170,23 @@ def test_guarda_com_o_json_invalido_sai_o_motivo_da_guarda_em_uma_chamada(conver
     assert len(llm.pedidos) == 1
 
 
+def test_o_handoff_grava_o_handoff_reply_bruto_na_redacao_do_turno(conversa, politica):
+    guarda = palavra_chave(["isso é golpe?"])
+    saida = _bruto(acao="NONE", reply="", handoff_reply="  ")
+
+    resolucao, _, _ = _resolver(conversa, politica, [saida], guarda=guarda)
+
+    # Vazio ou descartado, o que o LLM deu fica gravado: sem isso não se sabe por que a fixa saiu.
+    assert resolucao.texto_handoff is None
+    assert resolucao.como_dict("HANDOFF")["tentativas"][0]["handoff_reply"] == "  "
+
+
+def test_sem_handoff_o_turno_nao_grava_a_chave_handoff_reply(conversa, politica):
+    resolucao, _, _ = _resolver(conversa, politica, [_bruto()])
+
+    assert "handoff_reply" not in resolucao.como_dict("LLM")["tentativas"][0]
+
+
 def test_guarda_com_o_llm_no_ar_leva_o_texto_do_handoff_mesmo_com_a_acao_invalida(
     conversa, politica
 ):
