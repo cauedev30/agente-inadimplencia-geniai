@@ -142,15 +142,16 @@ def test_ultimo_uso_traz_os_tokens_e_zera_quando_a_chamada_falha(luna):
 
 
 @respx.mock
-def test_ultimo_uso_zera_tambem_quando_o_json_e_invalido(luna):
+def test_ultimo_uso_vale_tambem_quando_o_json_e_invalido(luna):
+    # Os tokens foram gastos, então a comparação de custo os conta (D47, M7 da revisão da E1).
     rota = respx.post(f"{URL}/chat/completions")
     rota.mock(return_value=_resposta())
     luna.completar_json("s", "u")
 
-    rota.mock(return_value=_resposta("texto solto"))
+    rota.mock(return_value=_resposta("texto solto", uso=(7, 3)))
     with pytest.raises(JSONInvalido):
         luna.completar_json("s", "u")
-    assert luna.ultimo_uso is None
+    assert luna.ultimo_uso == Uso(7, 3)
 
 
 def test_a_url_padrao_e_a_da_openai():

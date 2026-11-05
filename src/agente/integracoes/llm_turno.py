@@ -117,10 +117,10 @@ class LLMTurnoOpenAI:
             raise LLMTurnoIndisponivel(f"o LLM falhou: {e}") from None
         if not conteudo:
             raise LLMTurnoIndisponivel("o LLM devolveu um conteúdo vazio")
-        objeto = ler_objeto_json(conteudo)
+        # O uso vem antes do JSON: a resposta torta também gastou tokens (M7 da revisão da E1).
         uso = dados.get("usage") or {}
         self.ultimo_uso = Uso(uso.get("prompt_tokens", 0), uso.get("completion_tokens", 0))
-        return objeto
+        return ler_objeto_json(conteudo)
 
 
 @dataclass

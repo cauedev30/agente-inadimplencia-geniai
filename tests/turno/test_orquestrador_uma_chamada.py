@@ -4,7 +4,7 @@ O Jev não existe neste caminho: o que levanta se for chamado prova que o desvio
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 import pytest
@@ -29,6 +29,7 @@ from agente.tipos import (
     OrigemMensagem,
     ResultadoTurno,
 )
+from agente.turno import orquestrador
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, TEXTO_RESPOSTA_SEGURA
 from agente.turno.jev3 import aprovar_tudo
 from agente.turno.liberacao import liberar_tudo
@@ -586,6 +587,9 @@ def test_o_pagamento_durante_a_geracao_do_link_desfaz_a_acao_e_nada_sai(
     turno = _turno(sessao)
     assert turno.acao_principal == "NAO_EXECUTADA:OFFER_DISCOUNT"
     assert turno.numeros == {"executado": False}
+    # O degrau e a forma do savepoint voltaram junto com o Pagamento.
+    assert (ligada.degrau_atual, ligada.forma_enviada) == (0, None)
+    assert ligada.estado is EstadoConversa.INICIADO
 
 
 # A sombra
@@ -702,3 +706,37 @@ def test_o_botao_sem_llm_turno_continua_no_jev_3(sessao, ligada, cliente, politi
 
     assert deps.jev.chamadas
     assert {laudo.batch for laudo in sessao.scalars(select(LaudoGravado))} == {BatchJev.JEV3}
+
+
+# O savepoint quando o `executar` recusa o que a prévia aprovou (M4)
+
+REPLY_DIVERGENTE = "Seu valor é {divida}. Pague no Pix {pix_copia_e_cola} ou pelo link {link_ctn}"
+
+
+def test_o_texto_recusado_depois_do_executar_desfaz_a_acao_e_grava_o_motivo(
+    sessao, ligada, cliente, politica, monkeypatch
+):
+    # A prévia falsa promete um link que o `executar` não gera para INFORM_DEBT + Pix.
+    previa = orquestrador.previa_numeros
+
+    def previa_que_promete_o_link(acoes, conversa, cobranca, politica, agora):
+        return replace(previa(acoes, conversa, cobranca, politica, agora), link_ctn="https://x")
+
+    monkeypatch.setattr(orquestrador, "previa_numeros", previa_que_promete_o_link)
+    deps = _deps(politica, [_bruto(reply=REPLY_DIVERGENTE)])
+
+    assert cliente("quanto eu devo?", deps) is ResultadoTurno.ENVIADO
+
+    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
+    assert sessao.scalars(select(Pagamento)).all() == []
+    assert (ligada.degrau_atual, ligada.forma_enviada) == (0, None)
+    assert ligada.estado is EstadoConversa.INICIADO
+    turno = _turno(sessao)
+    assert turno.redacao["interpolacao_reprovada"] == ["marcador_sem_valor:link_ctn"]
+    assert turno.redacao["saida"] == "RESPOSTA_SEGURA"
+    assert (turno.acao_principal, turno.numeros) == (
+        "NAO_EXECUTADA:INFORM_DEBT",
+        {"executado": False},
+    )
+    [mensagem] = _do_agente(sessao)
+    assert mensagem.texto == TEXTO_RESPOSTA_SEGURA

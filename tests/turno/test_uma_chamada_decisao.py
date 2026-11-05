@@ -291,3 +291,24 @@ def test_o_texto_de_handoff_invalido_da_none(texto):
 def test_o_texto_de_handoff_de_300_caracteres_passa_e_sem_saida_da_none():
     assert texto_de_handoff(_saida(handoff_reply="x" * 300)) == "x" * 300
     assert texto_de_handoff(None) is None
+
+
+@pytest.mark.parametrize("campo", ["acao", "reply"])
+def test_acao_e_reply_nulos_sao_lidos_como_vazios(campo):
+    saida = ler_saida(_bruto(**{campo: None}))
+
+    assert getattr(saida, campo) == ""
+
+
+def test_o_sinal_vale_com_a_acao_e_o_reply_nulos(conversa):
+    veredito = _decidir(conversa.cobranca, alega_pagamento=True, acao=None, reply=None)
+
+    assert veredito.motivo is MotivoHumano.CONCILIACAO
+    assert veredito.causa == "sinal:alega_pagamento"
+
+
+def test_a_acao_nula_sem_sinal_e_acao_fora(conversa):
+    veredito = _decidir(conversa.cobranca, acao=None)
+
+    assert (veredito.motivo, veredito.acao) == (None, None)
+    assert veredito.causa == "acao_fora:"

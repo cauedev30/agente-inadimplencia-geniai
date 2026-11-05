@@ -316,3 +316,24 @@ def test_o_como_dict_com_erro_e_sem_veredito(conversa, politica):
 
     assert dados["erro"] == "fora" and dados["tentativas"] == []
     assert "causa" not in dados and dados["caminho"] == "uma_chamada"
+
+
+def test_guarda_com_o_json_invalido_anexa_a_tentativa_e_o_motivo(conversa, politica):
+    guarda = palavra_chave(["vou no procon"])
+
+    resolucao, _, _ = _resolver(conversa, politica, ["lixo"], guarda=guarda)
+
+    assert resolucao.motivo is MotivoHumano.JURIDICO
+    assert resolucao.tentativas == [TentativaUmaChamada(None, None, ("json_invalido",))]
+
+
+def test_alega_pagamento_com_reply_nulo_vai_a_conciliacao_e_nao_ao_json_invalido(
+    conversa, politica
+):
+    saida = _bruto(alega_pagamento=True, acao=None, reply=None)
+
+    resolucao, llm, _ = _resolver(conversa, politica, [saida])
+
+    assert resolucao.motivo is MotivoHumano.CONCILIACAO
+    assert resolucao.veredito.causa == "sinal:alega_pagamento"
+    assert len(llm.pedidos) == 1

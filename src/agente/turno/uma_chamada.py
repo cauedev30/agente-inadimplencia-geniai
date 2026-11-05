@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 
 from agente.db.modelos import Cobranca, Conversa
 from agente.dominio.desconto import proxima_oferta, valor_com_desconto
@@ -366,10 +366,21 @@ class SaidaTurno(BaseModel):
     # Lido com tolerância, como no agente de atendimento: um valor torto aqui não custa o turno.
     handoff_reply: object = None
 
+    @field_validator("acao", "reply", mode="before")
+    @classmethod
+    def _nulo_vale_vazio(cls, valor: object) -> object:
+        """`null` vale `""`: indo ao humano, o texto da resposta não é usado, e um `null` não pode
+        reprovar a saída inteira e perder os sinais (M1 da revisão da E1)."""
+        return "" if valor is None else valor
+
     def leitura(self, *, golpe_pela_guarda: bool = False) -> LeituraJev1:
         """Os sinais e o tom como laudos, com `p` e `c` iguais a 1,0: o LLM não dá probabilidade.
 
         Com `golpe_pela_guarda`, o `desconfia_golpe` vale sim (D44): a palavra-chave já decidiu.
+
+        Traz só os 11 laudos (os sinais e o tom), sem os da `PERGUNTAS_JEV1` inteira: o
+        `Avaliacao.em_risco`, o `laudo_do_risco` e o `montar_pedido` levantariam `KeyError` com ela.
+        Por isso a `Avaliacao` do turno de uma chamada não a guarda (`leitura=None`).
         """
         laudos = [
             Laudo(
@@ -587,12 +598,12 @@ def resolver_turno(
             return resolucao
         except ValueError:
             # O JSONInvalido e o ValidationError do `ler_saida` são ValueError.
+            reprovadas = ["json_invalido"]
+            resolucao.tentativas.append(TentativaUmaChamada(None, None, ("json_invalido",)))
             if guarda is not None:
                 resolucao.veredito = _veredito_da_guarda(guarda)
                 resolucao.motivo = guarda[0]
                 return resolucao
-            reprovadas = ["json_invalido"]
-            resolucao.tentativas.append(TentativaUmaChamada(None, None, ("json_invalido",)))
             continue
         veredito = decidir(saida, entrada.permitidas, guarda, cobranca)
         resolucao.saida, resolucao.veredito = saida, veredito
