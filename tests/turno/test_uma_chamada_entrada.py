@@ -297,6 +297,12 @@ def test_o_sistema_traz_as_regras_de_redacao_e_as_proibicoes():
     assert "{mensalidades}" in texto
 
 
+def test_o_sistema_diz_que_desabafo_sem_aspereza_nao_e_irritado():
+    texto = " ".join(SISTEMA.split())
+    assert "Desabafo sem aspereza não é irritado" in texto
+    assert "Só raiva, aspereza, xingamento ou ameaça" in texto
+
+
 def test_o_sistema_nao_promete_onde_a_equipe_fala_com_o_cliente():
     # O canal (o WhatsApp ou o botão do webchat) é escolhido depois pelo código (D47, I2). A regra
     # do handoff_reply não diz "por aqui"; o "por aqui" das regras do reply (assunto não tratado,

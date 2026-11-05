@@ -292,7 +292,9 @@ Regras de cada campo:
 {_sinais_do_sistema()}
 - tom: o tom do cliente nas mensagens novas. neutro: direto e sem emoção, ou gentil (um oi sozinho
   é neutro). impaciente: pressa ou incômodo leve, insiste, cobra resposta. irritado: raiva ou
-  aspereza. hostil: agressivo, xinga, ofende ou ameaça.
+  aspereza. hostil: agressivo, xinga, ofende ou ameaça. Desabafo sem aspereza não é irritado:
+  quem está chateado, cansado, frustrado ou sobrecarregado, mas fala sem agredir, é neutro ou
+  impaciente. Só raiva, aspereza, xingamento ou ameaça marcam irritado ou hostil.
 - acao: uma das ações da lista acoes, escolhida pelo "quando" dela. Nunca use HUMAN: quem manda a
   conversa ao humano são os sinais. Quem quer pagar, paga: se o cliente pede o link ou o Pix, ou
   aceita a oferta, mande o meio de pagamento.
