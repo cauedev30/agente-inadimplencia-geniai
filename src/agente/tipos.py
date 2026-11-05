@@ -86,6 +86,8 @@ class MotivoHumano(StrEnum):
     PAGAMENTO_DIVERGENTE = "PAGAMENTO_DIVERGENTE"
     # O cliente só manda áudio que não se lê, e já se pediu a mensagem em texto uma vez (D43).
     AUDIO = "AUDIO"
+    # O cliente pediu um atendente (D47).
+    PEDIU_HUMANO = "PEDIU_HUMANO"
 
 
 class FormaPagamento(StrEnum):

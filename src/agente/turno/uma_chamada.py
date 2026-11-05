@@ -9,20 +9,24 @@ conversa é a exceção, porque traz as mensagens já enviadas, como no redator 
 """
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
 from agente.db.modelos import Cobranca, Conversa
 from agente.dominio.desconto import proxima_oferta, valor_com_desconto
 from agente.integracoes.redator import DESCRICAO_ACOES
 from agente.politica import Politica
-from agente.tipos import FormaPagamento
+from agente.tipos import FormaPagamento, Laudo, MotivoHumano
 from agente.turno.acoes import Acao, anexar
 from agente.turno.executar import Numeros
-from agente.turno.jev1 import GATILHOS, PERGUNTAS_JEV1
+from agente.turno.jev1 import GATILHOS, PERGUNTAS_JEV1, LeituraJev1
 from agente.turno.jev2 import _SENSIVEL, CRITERIOS_DA_ACAO
-from agente.turno.redacao import marcadores_do_turno
+from agente.turno.redacao import _sem_acento, marcadores_do_turno, motivos_do_texto
 
 # A origem dos laudos gravados pelo turno novo; `p` e `c` valem 1,0, porque o LLM não dá
 # probabilidade (decisão 8 do plano).
@@ -327,3 +331,148 @@ def montar_mensagens(
             f"{', '.join(reprovadas_antes)}. Responda de novo, corrigindo isso."
         )
     return SISTEMA, usuario
+
+
+# A saída
+
+
+class SaidaTurno(BaseModel):
+    """O JSON que o LLM devolve. A ação é só texto aqui: a decisão confere se é permitida, para a
+    nova tentativa saber o motivo."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    quer_retencao: StrictBool
+    risco_juridico: StrictBool
+    alega_pagamento: StrictBool
+    contesta_divida: StrictBool
+    desconfia_golpe: StrictBool
+    vulnerabilidade: StrictBool
+    atrito_clinica: StrictBool
+    quer_conta_energia: StrictBool
+    quer_humano: StrictBool
+    terceiro: StrictBool
+    tom: Literal["neutro", "impaciente", "irritado", "hostil"]
+    acao: StrictStr
+    reply: Annotated[StrictStr, Field(max_length=1000)]
+    # Lido com tolerância, como no agente de atendimento: um valor torto aqui não custa o turno.
+    handoff_reply: object = None
+
+    def leitura(self, *, golpe_pela_guarda: bool = False) -> LeituraJev1:
+        """Os sinais e o tom como laudos, com `p` e `c` iguais a 1,0: o LLM não dá probabilidade.
+
+        Com `golpe_pela_guarda`, o `desconfia_golpe` vale sim (D44): a palavra-chave já decidiu.
+        """
+        laudos = [
+            Laudo(
+                sinal,
+                True if sinal == "desconfia_golpe" and golpe_pela_guarda else getattr(self, sinal),
+                1.0,
+                1.0,
+            )
+            for sinal in SINAIS
+        ]
+        laudos.append(Laudo("tom", self.tom, 1.0, 1.0))
+        return LeituraJev1(tuple(laudos))
+
+    def laudo_da_acao(self) -> Laudo:
+        return Laudo("acao", self.acao, 1.0, 1.0)
+
+
+def ler_saida(bruto: dict) -> SaidaTurno:
+    """A saída validada. Levanta `ValueError` (o `ValidationError` é um)."""
+    return SaidaTurno.model_validate(bruto)
+
+
+# A guarda por palavra-chave (D44): vale mesmo com o LLM fora do ar. Sobre o texto em minúsculas e
+# sem acento, com `\b`, nesta ordem: o golpe vence o jurídico, que vence o pedido de humano (decisão
+# 16). "processos?" também pega "o processo de pagamento": o falso positivo vai ao humano, que é o
+# lado seguro (decisão 15).
+PALAVRAS_CHAVE: tuple[tuple[re.Pattern[str], MotivoHumano], ...] = (
+    (re.compile(r"\b(?:golpes?|golpistas?)\b"), MotivoHumano.DESCONFIANCA),
+    (
+        re.compile(r"\b(?:advogad[oa]s?|procon|processos?|processar)\b"),
+        MotivoHumano.JURIDICO,
+    ),
+    (
+        re.compile(r"\b(?:atendentes?|human[oa]s?|falar com alguem)\b"),
+        MotivoHumano.PEDIU_HUMANO,
+    ),
+)
+
+
+def palavra_chave(textos: Sequence[str]) -> tuple[MotivoHumano, str] | None:
+    """O motivo e a palavra achada em algum dos textos, ou None."""
+    simples = [_sem_acento(texto).lower() for texto in textos]
+    for padrao, motivo in PALAVRAS_CHAVE:
+        for texto in simples:
+            achado = padrao.search(texto)
+            if achado:
+                return motivo, achado.group(0)
+    return None
+
+
+# Cada sinal de saída leva ao motivo do `GATILHOS`; o pedido de humano é o motivo novo (D47).
+MOTIVO_DO_SINAL: dict[str, MotivoHumano] = {
+    **{sinal: motivo for motivo, sinal in GATILHOS.items()},
+    "quer_humano": MotivoHumano.PEDIU_HUMANO,
+}
+
+_TONS_DE_SAIDA = ("irritado", "hostil")
+
+
+@dataclass(frozen=True)
+class Veredito:
+    """O que o turno faz: ir ao humano (`motivo`), seguir com o terceiro, ou executar a `acao`.
+
+    A `causa` é para a auditoria: `palavra_chave:<palavra>`, `sinal:<nome>`, `tom:<tom>`,
+    `acao_fora:<valor>` ou `acao`. Sem `motivo`, `acao` nem `terceiro`, a ação saiu das permitidas.
+    """
+
+    motivo: MotivoHumano | None
+    acao: Acao | None
+    anexos: tuple[Acao, ...]
+    terceiro: bool
+    causa: str
+
+
+def decidir(
+    saida: SaidaTurno,
+    permitidas: Sequence[Acao],
+    guarda: tuple[MotivoHumano, str] | None,
+    cobranca: Cobranca,
+) -> Veredito:
+    """A primeira regra que bate vence: a guarda, o sinal de saída, o tom, o pedido de humano, o
+    terceiro, a ação fora das permitidas e, por fim, a ação com os anexos da D37."""
+    if guarda is not None:
+        motivo, palavra = guarda
+        return Veredito(motivo, None, (), False, f"palavra_chave:{palavra}")
+    for sinal in SINAIS_DE_SAIDA:
+        if getattr(saida, sinal):
+            return Veredito(MOTIVO_DO_SINAL[sinal], None, (), False, f"sinal:{sinal}")
+    if saida.tom in _TONS_DE_SAIDA:
+        return Veredito(MotivoHumano.TOM, None, (), False, f"tom:{saida.tom}")
+    if saida.quer_humano:
+        return Veredito(MotivoHumano.PEDIU_HUMANO, None, (), False, "sinal:quer_humano")
+    if saida.terceiro:
+        return Veredito(None, None, (), True, "sinal:terceiro")
+    permitida = next((acao for acao in permitidas if acao.value == saida.acao), None)
+    if permitida is None:
+        return Veredito(None, None, (), False, f"acao_fora:{saida.acao}")
+    return Veredito(None, permitida, tuple(anexar(permitida, cobranca)), False, "acao")
+
+
+# O texto do encaminhamento: 1 ou 2 frases curtas, sem dígito, link nem marcador.
+MAX_HANDOFF_REPLY = 300
+
+
+def texto_de_handoff(saida: SaidaTurno | None) -> str | None:
+    """O `handoff_reply` sem os espaços das pontas, ou None se não servir para o cliente."""
+    if saida is None or not isinstance(saida.handoff_reply, str):
+        return None
+    texto = saida.handoff_reply.strip()
+    if not 1 <= len(texto) <= MAX_HANDOFF_REPLY:
+        return None
+    if "{" in texto or "}" in texto or motivos_do_texto(texto):
+        return None
+    return texto

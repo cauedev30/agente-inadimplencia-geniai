@@ -141,8 +141,12 @@ def _tem_link(texto: str) -> bool:
     return False
 
 
-def interpolar(texto: str, numeros: Numeros) -> str:
-    """Troca os marcadores pelos números do backend, formatados em pt-BR."""
+def motivos_do_texto(texto: str) -> list[str]:
+    """Os motivos de recusa do texto fora dos marcadores, sem olhar os marcadores em si.
+
+    Valor em dígitos, valor por extenso, link e marcador malformado: as checagens que o
+    `interpolar` faz e que o texto do handoff do turno de uma chamada também precisa passar (D47).
+    """
     motivos = []
     fora = _MARCADOR.sub("", texto)
     if _DIGITO.search(fora) or "R$" in fora:
@@ -154,6 +158,12 @@ def interpolar(texto: str, numeros: Numeros) -> str:
         motivos.append("link_nao_autorizado")
     if "{" in fora or "}" in fora:
         motivos.append("marcador_malformado")
+    return motivos
+
+
+def interpolar(texto: str, numeros: Numeros) -> str:
+    """Troca os marcadores pelos números do backend, formatados em pt-BR."""
+    motivos = motivos_do_texto(texto)
     usados = _MARCADOR.findall(texto)
     preenchidos = valores(numeros)
     for nome in dict.fromkeys(usados):

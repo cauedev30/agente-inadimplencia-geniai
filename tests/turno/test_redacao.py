@@ -18,6 +18,7 @@ from agente.turno.redacao import (
     interpolar,
     marcadores_do_turno,
     montar_pedido,
+    motivos_do_texto,
 )
 
 JP = ZoneInfo("America/Fortaleza")
@@ -366,3 +367,28 @@ def test_anexar_recebedor_nao_interpreta_chaves_nem_digitos_do_nome(politica):
     nome = "CDT {Franquia} 12.345.678/0001-90"
     texto = anexar_recebedor("Oi.", numeros, _com_recebedor(politica, nome))
     assert texto.endswith(f"o recebedor é {nome}.")
+
+
+@pytest.mark.parametrize(
+    "texto, esperados",
+    [
+        ("Bom dia, tudo bem?", []),
+        ("Fica R$ 70 pelo link", ["valor_em_digitos"]),
+        ("Fica setenta reais", ["valor_por_extenso"]),
+        ("Veja www.x.com", ["link_nao_autorizado"]),
+        ("Ficou {xpto", ["marcador_malformado"]),
+        (
+            "R$ 70, setenta reais, www.x.com e }",
+            ["valor_em_digitos", "valor_por_extenso", "link_nao_autorizado", "marcador_malformado"],
+        ),
+        ("Seu valor é {divida}, pelo {link_ctn}", []),
+    ],
+)
+def test_motivos_do_texto_sao_os_do_interpolar_fora_dos_marcadores(texto, esperados):
+    assert motivos_do_texto(texto) == esperados
+    numeros = _numeros(Acao.INFORM_DEBT)
+    try:
+        interpolar(texto, numeros)
+    except RedacaoInvalida as erro:
+        # O interpolar soma os motivos dos marcadores depois destes quatro.
+        assert erro.motivos[: len(esperados)] == esperados
