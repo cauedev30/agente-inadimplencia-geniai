@@ -99,6 +99,7 @@ from agente.turno.uma_chamada import (
     palavra_chave,
     previa_numeros,
     resolver_turno,
+    sem_efeito,
 )
 from agente.webchat.link import ConfigWebchat
 
@@ -670,9 +671,18 @@ def _avaliacao_uma_chamada(resolucao: ResolucaoTurno) -> Avaliacao:
 
 
 def _passou(resolucao: ResolucaoTurno) -> bool:
-    """O turno tem o que fazer: um texto aprovado, ou a ação que não envia nada (`NONE`)."""
+    """O turno tem o que fazer: um texto aprovado, ou a ação que não envia nada (`NONE`).
+
+    O `NONE` cujo texto reprovou nas duas tentativas não passou (D47, decisão 18): o último
+    resultado dele é a reprovação, e quem chama manda a resposta segura ou `VALIDACAO`.
+    """
     veredito = resolucao.veredito
-    return veredito is not None and (resolucao.reply is not None or veredito.acao is Acao.NONE)
+    if veredito is None:
+        return False
+    if resolucao.reply is not None:
+        return True
+    reprovou = bool(resolucao.tentativas) and bool(resolucao.tentativas[-1].reprovadas)
+    return veredito.acao is Acao.NONE and not reprovou
 
 
 def _rotulo_uma_chamada(resolucao: ResolucaoTurno) -> str:
@@ -848,8 +858,9 @@ def _seguir_uma_chamada(
         )
     veredito = resolucao.veredito
     laudo_da_acao = ids.get((BatchJev.JEV2, "acao"))
-    if veredito.acao is Acao.NONE:
-        # Não agir (ou o terceiro sem texto): nada é enviado.
+    if veredito.acao is Acao.NONE and resolucao.reply is None:
+        # Não agir (ou o terceiro sem texto): nada é enviado. O `NONE` com texto aprovado (o
+        # acolhimento, D47 decisão 18) segue abaixo, como o terceiro.
         destino = proximo_estado(conversa.estado, None, False)
         _mudar_estado(sessao, conversa, destino, laudo_da_acao, agora)
         return _fechar(
@@ -865,7 +876,7 @@ def _seguir_uma_chamada(
     # A trava da cobrança já foi tomada acima, antes do savepoint (o rollback dele a soltaria). A
     # releitura depois do `executar` confere se o pagamento chegou nesse meio tempo.
     ponto = sessao.begin_nested()
-    acoes = [] if veredito.terceiro else [veredito.acao, *veredito.anexos]
+    acoes = [] if sem_efeito(veredito) else [veredito.acao, *veredito.anexos]
     numeros = executar(acoes, cobranca, conversa, deps, agora, objecao=False)
     interpolacao: list[str] | None = None
     try:

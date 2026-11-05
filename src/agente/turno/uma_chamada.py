@@ -89,8 +89,14 @@ GLOSSARIO_MARCADORES: dict[str, str] = {
     "pix_vencimento": "até quando o Pix vale; vem com GENERATE_PIX",
 }
 
-# A ação sem texto não está no `DESCRICAO_ACOES`, que é o que o texto faz.
-_FAZ_NONE = "não responder nada neste turno; o reply fica vazio"
+# A ação sem efeito não está no `DESCRICAO_ACOES`, que é o que o texto faz. Tem dois usos (D47,
+# decisão 18): o silêncio e o acolhimento, sem marcador, valor, link nem Pix.
+_FAZ_NONE = (
+    "nenhuma ação de cobrança neste turno. Se o cliente não pede nada (ok, obrigado, um "
+    "cumprimento solto), o reply fica vazio. Se desabafa ou reclama sem pedir nada (chateado, "
+    "cansado, frustrado, sobrecarregado), o reply são uma ou duas frases que acolhem e perguntam "
+    "o que houve ou do que ele precisa, sem marcador, valor, link nem Pix"
+)
 
 
 def acoes_permitidas(
@@ -291,12 +297,19 @@ Regras de cada campo:
   conversa ao humano são os sinais. Quem quer pagar, paga: se o cliente pede o link ou o Pix, ou
   aceita a oferta, mande o meio de pagamento.
 - reply: a mensagem ao cliente, com os marcadores obrigatórios da ação escolhida e, se ajudar, os
-  opcionais. Cubra a ação inteira nesta mensagem. Com a ação NONE, fica vazio. Se terceiro é true,
-  escreva só uma mensagem curta e gentil, sem marcador e sem falar da dívida. Se algum sinal de
-  saída, quer_humano ou um tom irritado ou hostil manda a conversa ao humano, o texto da resposta
-  não é usado.
-- handoff_reply: preencha só quando algum sinal manda a conversa ao humano. Aí são 1 ou 2 frases
-  curtas, em tom de conversa, com até 300 caracteres, que nomeiam o assunto do cliente com as
+  opcionais. Cubra a ação inteira nesta mensagem. Com a ação NONE, o reply tem dois usos. Fica
+  vazio para quem não pede nada (ok, obrigado, um cumprimento solto). Para quem desabafa ou
+  reclama sem pedir nada (chateado, cansado, frustrado, sobrecarregado), são uma ou duas frases que
+  acolhem e perguntam o que houve ou do que ele precisa, sem marcador, sem valor, sem link, sem
+  Pix, sem prometer nada e sem empurrar pagamento; não ofereça o humano por conta própria, e
+  escreva o acolhimento com as palavras do cliente, sem repetir os exemplos de outros assuntos.
+  Se terceiro é true, escreva só uma mensagem curta e gentil, sem marcador e sem falar da dívida.
+  Se algum sinal de saída, quer_humano ou um tom irritado ou hostil manda a conversa ao humano, o
+  texto da resposta não é usado e o reply fica vazio.
+- handoff_reply: é obrigatório sempre que algum sinal de saída, o quer_humano ou um tom irritado ou
+  hostil mandar a conversa ao humano, mesmo que uma ação da lista pareça servir (neste caso, use a
+  ação NONE e deixe o reply vazio). Aí são 1 ou 2 frases curtas, em tom de conversa, com até 300
+  caracteres, que nomeiam o assunto do cliente com as
   palavras dele e dizem que a conversa foi para a equipe, sem prometer prazo nem velocidade, sem
   prometer o que a equipe vai fazer e sem dizer onde ou por onde a equipe vai falar com ele (quem
   cuida disso é o sistema, que acrescenta a orientação depois do seu texto). Não responda à
@@ -455,6 +468,14 @@ class Veredito:
     causa: str
 
 
+def sem_efeito(veredito: Veredito) -> bool:
+    """O turno só acolhe ou responde ao terceiro: a ação é `NONE` ou é o terceiro (D47, 6 e 18).
+
+    Nenhum degrau, forma, link, Pix ou `Pagamento`: o texto, se houver, não leva marcador.
+    """
+    return veredito.terceiro or veredito.acao is Acao.NONE
+
+
 def _veredito_da_guarda(guarda: tuple[MotivoHumano, str]) -> Veredito:
     motivo, palavra = guarda
     return Veredito(motivo, None, (), False, f"palavra_chave:{palavra}")
@@ -554,10 +575,11 @@ def _conferir_texto(
     previa: Callable[[Sequence[Acao]], Numeros],
 ) -> list[str]:
     """Os motivos de reprovar o texto contra a prévia dos números (decisão 3); vazio, se passou."""
-    if veredito.terceiro:
-        # Ao terceiro não vai marcador: nem a dívida nem o link (decisão 6).
+    if sem_efeito(veredito):
+        # Ao terceiro e ao acolhimento do `NONE` não vai marcador: nem a dívida nem o link
+        # (decisões 6 e 18). A prévia sem ação reprova dígito, valor por extenso e link.
         if "{" in reply or "}" in reply:
-            return ["marcador_com_terceiro"]
+            return ["marcador_com_terceiro" if veredito.terceiro else "marcador_com_none"]
         acoes: list[Acao] = []
     else:
         if not reply.strip():
@@ -614,8 +636,9 @@ def resolver_turno(
             return resolucao
         if veredito.acao is None and not veredito.terceiro:
             reprovadas = [f"acao_nao_permitida:{saida.acao}"]
-        elif veredito.acao is Acao.NONE or (veredito.terceiro and not saida.reply.strip()):
-            # Nada a enviar. O terceiro sem texto segue como `NONE`, com o rótulo do terceiro.
+        elif sem_efeito(veredito) and not saida.reply.strip():
+            # Nada a enviar. O terceiro sem texto segue como `NONE`, com o rótulo do terceiro. O
+            # `NONE` com texto é conferido abaixo, como o do terceiro (decisão 18).
             if veredito.terceiro:
                 resolucao.veredito = replace(veredito, acao=Acao.NONE)
             resolucao.tentativas.append(TentativaUmaChamada(saida.acao, saida.reply, ()))

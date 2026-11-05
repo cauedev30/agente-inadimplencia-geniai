@@ -264,6 +264,68 @@ def test_none_sai_sem_reply_nem_motivo_e_sem_chamar_a_previa(conversa, politica)
     assert resolucao.tentativas == [TentativaUmaChamada("NONE", "", ())]
 
 
+ACOLHIMENTO = "Poxa, sinto muito que esteja assim. O que aconteceu? Me conta como posso ajudar."
+
+
+def test_none_com_texto_sem_marcador_sai_aprovado_sem_motivo(conversa, politica):
+    resolucao, llm, previa = _resolver(conversa, politica, [_bruto(acao="NONE", reply=ACOLHIMENTO)])
+
+    assert resolucao.reply == ACOLHIMENTO and resolucao.motivo is None
+    assert resolucao.veredito.acao is Acao.NONE and resolucao.veredito.terceiro is False
+    assert resolucao.tentativas == [TentativaUmaChamada("NONE", ACOLHIMENTO, ())]
+    assert len(llm.pedidos) == 1
+    # A prévia roda sem nenhuma ação: não há número nem link para o texto usar.
+    assert previa.chamadas == [()]
+
+
+@pytest.mark.parametrize(
+    ("texto", "motivo"),
+    [
+        ("Sinto muito. Sua dívida é {divida}. O que houve?", "marcador_com_none"),
+        ("Sinto muito. Qual é o problema? Pague aqui: {link_ctn}", "marcador_com_none"),
+        ("Sinto muito. Faz 3 dias que você sumiu?", "valor_em_digitos"),
+        ("Sinto muito. Veja https://exemplo.com.br/x e me conte.", "link_nao_autorizado"),
+    ],
+)
+def test_none_com_marcador_digito_ou_link_e_reprovado_e_vai_a_segunda_tentativa(
+    conversa, politica, texto, motivo
+):
+    reprovada = _bruto(acao="NONE", reply=texto)
+    aprovada = _bruto(acao="NONE", reply=ACOLHIMENTO)
+
+    resolucao, llm, _ = _resolver(conversa, politica, [reprovada, aprovada])
+
+    assert len(llm.pedidos) == 2
+    assert resolucao.tentativas[0].reprovadas[0] == motivo
+    assert motivo in llm.pedidos[1][1]
+    assert resolucao.reply == ACOLHIMENTO and resolucao.tentativas[1].reprovadas == ()
+
+
+def test_none_reprovado_duas_vezes_sai_sem_texto_nem_motivo(conversa, politica):
+    reprovada = _bruto(acao="NONE", reply="Sinto muito. Sua dívida é {divida}.")
+
+    resolucao, _, _ = _resolver(conversa, politica, [reprovada, reprovada])
+
+    assert resolucao.reply is None and resolucao.motivo is None
+    assert resolucao.veredito.acao is Acao.NONE
+    assert all(t.reprovadas for t in resolucao.tentativas)
+
+
+def test_none_com_texto_so_de_espacos_sai_como_o_none_vazio(conversa, politica):
+    resolucao, llm, previa = _resolver(conversa, politica, [_bruto(acao="NONE", reply="  \n")])
+
+    assert resolucao.reply is None and resolucao.motivo is None
+    assert len(llm.pedidos) == 1 and previa.chamadas == []
+
+
+def test_o_tom_impaciente_com_none_e_texto_nao_vai_ao_humano(conversa, politica):
+    resolucao, _, _ = _resolver(
+        conversa, politica, [_bruto(tom="impaciente", acao="NONE", reply=ACOLHIMENTO)]
+    )
+
+    assert resolucao.motivo is None and resolucao.reply == ACOLHIMENTO
+
+
 @pytest.mark.parametrize("vazio", ["", "   \n"])
 def test_reply_vazio_com_inform_debt_e_reprovado(conversa, politica, vazio):
     resolucao, _, _ = _resolver(conversa, politica, [_bruto(reply=vazio), _bruto(reply=vazio)])

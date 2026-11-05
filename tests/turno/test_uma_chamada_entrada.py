@@ -313,6 +313,33 @@ def test_o_sistema_explica_o_handoff_reply():
     assert "vazio" in texto
 
 
+def test_o_sistema_deixa_o_none_acolher_sem_marcador_nem_oferecer_o_humano():
+    # D47, decisão 18: o NONE tem dois usos, o silêncio e o acolhimento.
+    reply = " ".join(SISTEMA.split("- reply:")[1].split("- handoff_reply:")[0].split())
+    assert "Com a ação NONE" in reply
+    assert "acolhem e perguntam o que houve" in reply
+    assert "sem marcador, sem valor, sem link, sem Pix" in reply
+    assert "não ofereça o humano por conta própria" in reply
+    assert "sem repetir os exemplos" in reply
+    assert "por aqui" not in reply
+
+
+def test_o_sistema_exige_o_handoff_reply_em_todo_sinal_de_humano_com_o_reply_vazio():
+    trecho = " ".join(
+        SISTEMA.split("- handoff_reply:")[1].split("Como escrever o reply")[0].split()
+    )
+    assert trecho.startswith("é obrigatório sempre que algum sinal de saída, o quer_humano")
+    assert "mesmo que uma ação da lista pareça servir" in trecho
+    assert "deixe o reply vazio" in trecho
+
+
+def test_a_descricao_da_acao_none_traz_os_dois_usos(conversa, politica):
+    acoes = json.loads(_entrada(conversa, politica).como_json())["acoes"]
+    none = next(a for a in acoes if a["acao"] == "NONE")
+    assert "fica vazio" in none["faz"] and "acolhem" in none["faz"]
+    assert "sem marcador, valor, link nem Pix" in none["faz"]
+
+
 def test_montar_mensagens_devolve_o_sistema_e_o_usuario(conversa, politica):
     entrada = _entrada(conversa, politica)
 

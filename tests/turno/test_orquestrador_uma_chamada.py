@@ -527,6 +527,68 @@ def test_o_terceiro_com_o_reply_vazio_nao_envia(sessao, ligada, cliente, politic
     assert _turno(sessao).acao_principal == "TERCEIRO"
 
 
+# O acolhimento do NONE (D47, decisão 18)
+
+ACOLHIMENTO = "Poxa, sinto muito que esteja assim. O que aconteceu? Me conta como posso ajudar."
+
+
+def test_none_com_texto_acolhe_e_fecha_enviado_com_o_rotulo_none(sessao, ligada, cliente, politica):
+    deps = _deps(politica, [_bruto(tom="impaciente", acao="NONE", reply=ACOLHIMENTO)])
+
+    assert cliente("to chateado", deps) is ResultadoTurno.ENVIADO
+
+    assert deps.chatwoot.enviadas(555) == [ACOLHIMENTO]
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.texto_enviado) == ("NONE", ACOLHIMENTO)
+    assert turno.redacao["saida"] == "LLM" and turno.acoes_anexadas == []
+    assert [m.texto for m in _do_agente(sessao)] == [ACOLHIMENTO]
+
+
+def test_o_acolhimento_nao_grava_pagamento_degrau_forma_nem_link(sessao, ligada, cliente, politica):
+    deps = _deps(politica, [_bruto(acao="NONE", reply=ACOLHIMENTO)])
+
+    cliente("to chateado", deps)
+
+    assert sessao.scalars(select(Pagamento)).all() == []
+    assert deps.pix.cobrancas == {} and deps.ctn.links == {}
+    assert (ligada.degrau_atual, ligada.forma_enviada) == (0, None)
+    assert "R$" not in _turno(sessao).texto_enviado and "http" not in _turno(sessao).texto_enviado
+
+
+def test_o_acolhimento_leva_o_iniciado_a_engajado(sessao, ligada, cliente, politica):
+    deps = _deps(politica, [_bruto(acao="NONE", reply=ACOLHIMENTO)])
+
+    cliente("to chateado", deps)
+
+    assert ligada.estado is EstadoConversa.ENGAJADO
+
+
+def test_o_pagamento_durante_a_chamada_do_acolhimento_leva_a_ignorado(
+    sessao, ligada, cliente, politica
+):
+    llm = LLMQueEspera(respostas=[_bruto(acao="NONE", reply=ACOLHIMENTO)], registrar=True)
+    llm.ao_chamar = lambda: _pagar_por_fora(sessao, ligada)
+    deps = _deps(politica, llm=llm)
+
+    assert cliente("to chateado", deps) is ResultadoTurno.IGNORADO
+
+    assert deps.chatwoot.chamadas == [] and _do_agente(sessao) == []
+    assert _turno(sessao).texto_enviado is None
+
+
+def test_o_acolhimento_reprovado_duas_vezes_da_a_resposta_segura(sessao, ligada, cliente, politica):
+    reprovada = _bruto(acao="NONE", reply="Sinto muito. Sua dívida é {divida}.")
+    deps = _deps(politica, [reprovada, reprovada])
+
+    assert cliente("to chateado", deps) is ResultadoTurno.ENVIADO
+
+    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
+    turno = _turno(sessao)
+    assert turno.acao_principal == "NAO_EXECUTADA:NONE"
+    assert turno.numeros == {"executado": False}
+    assert sessao.scalars(select(Pagamento)).all() == []
+
+
 # O estado
 
 
