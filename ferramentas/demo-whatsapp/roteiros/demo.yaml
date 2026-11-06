@@ -143,6 +143,20 @@
         acao: "NONE"
         resultado: SEM_ENVIO
 
+# Menor 1 da conferência do P2: "ok" e "obrigado" soltos têm reply vazio (`uma_chamada.py`), e o
+# NONE acolhe só desabafo. Se o Luna mandar OUT_OF_SCOPE ou texto, trocar o prompt.
+- nome: ok-solto
+  passos:
+    - cliente: "ok"
+      espera:
+        resultado: SEM_ENVIO
+
+- nome: obrigado-solto
+  passos:
+    - cliente: "obrigado"
+      espera:
+        resultado: SEM_ENVIO
+
 # O /reset e a mensagem que vem 3 s depois caem na mesma rajada. O 2º passo não espera o turno (o 3º
 # tem `intervalo`), então a confirmação do reinício é conferida no 3º, que enxerga as mensagens
 # enviadas desde o /reset; o 3º passo é respondido na conversa nova.
