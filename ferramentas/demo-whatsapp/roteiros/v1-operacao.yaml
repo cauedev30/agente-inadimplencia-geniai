@@ -1,0 +1,81 @@
+# Roteiros tirados dos testes que a operação fez na v1 do outro agente (2026-09-23 e 24).
+# Fonte e análise: `fontes/2026-11-05-testes-v1-thiago-lohanny.md` (no workspace). Mesmo formato do
+# `demo.yaml`; rodar com `--roteiros ferramentas/demo-whatsapp/roteiros/v1-operacao.yaml`.
+#
+# Cada frase do cliente é a que a operação digitou. A régua é a R3, com 3 mensalidades (R$ 100,20) e os
+# degraus de desconto de R$ 30, R$ 60 e R$ 90 (D35), ou seja, R$ 70,20, R$ 40,20 e R$ 10,20 a pagar.
+# `a_decidir: true` mostra o que veio, sem veredito: o "certo" depende de uma pergunta aberta.
+
+# O primeiro contato de 23/09: quem quer regularizar pergunta o valor, o desconto e os meses.
+# Na v1, o "quais meses" foi recusado pela trava de escopo (F4).
+- nome: v1-regularizar
+  passos:
+    - cliente: "Desejo fazer a regularização do meu benefício. Quanto devo?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+        texto_tem: ["100,20"]
+    - cliente: "Algum desconto?"
+      a_decidir: true
+    - cliente: "Quais meses em pendência?"
+      a_decidir: true
+
+# O 24/09: o cliente pergunta as formas de pagamento, tenta o cartão e pede o menor valor no Pix.
+# No Pix o valor é o integral (D34). A v1 gerou o Pix com desconto (F8).
+- nome: v1-pix-menor-valor
+  passos:
+    - cliente: "Quais formas de pagamento?"
+      a_decidir: true
+    - cliente: "Cartão de credito"
+      a_decidir: true
+    - cliente: "Qual menor valor pra pagar no pix agora?"
+      espera:
+        resultado: ENVIADO
+        texto_tem: ["100,20"]
+        texto_nao_tem: ["70,20", "40,20", "10,20"]
+    - cliente: "Quero um desconto melhor"
+      a_decidir: true
+
+# O 23/09 às 17:13: troca de cartão. A v1 mandou ir ao site ou app, gerou um Pix no lugar do link e
+# disse que só tinha Pix (F5). O esperado é o link do CTN (falso na demo: `ctn.invalid`) ou o humano.
+- nome: v1-cartao-novo
+  passos:
+    - cliente: "Desejo adicionar um novo cartão para pagamento"
+      a_decidir: true
+      espera:
+        texto_nao_tem: ["site", "aplicativo"]
+    - cliente: "Quero pagar no link e já fazer a atualização"
+      a_decidir: true
+    - cliente: "Gere o link de pagamento para trocar e pagar"
+      espera:
+        acao: SEND_CTN_LINK
+        texto_tem: ["ctn.invalid"]
+    - cliente: "Seria link crédito"
+      a_decidir: true
+
+# O 23/09 e o 24/09: o cliente cita uma proposta que recebeu (R$ 75 e R$ 60, os tetos da R5 e da R6). A
+# v1 foi direto ao humano, sem saber qual oferta o disparo mandou (F3). Depende da pergunta à operação
+# sobre o que esses números são (valor a pagar ou desconto); por isso tudo é a decidir.
+- nome: v1-cita-oferta
+  passos:
+    - cliente: "Recebi uma mensagem no valor de R$75,00"
+      a_decidir: true
+    - cliente: "Mas a proposta de 75 reais que recebi?"
+      a_decidir: true
+    - cliente: "É possível sim. Recebi já por 60,00"
+      a_decidir: true
+
+# O 24/09 às 12:30 e depois: a v1 encaminhou ao humano e a cliente escreveu mais 3 vezes, sem resposta
+# até 28/09 (F10). O primeiro passo leva ao humano (contestação); os seguintes mostram o que o agente
+# faz com quem escreve de novo: o certo é uma resposta de espera e, depois, silêncio sem repetir.
+- nome: v1-depois-do-handoff
+  passos:
+    - cliente: "Essa dívida não é minha"
+      espera:
+        acao: "HUMAN:CONTESTACAO"
+    - cliente: "Quero resolver"
+      a_decidir: true
+    - cliente: "Ola"
+      a_decidir: true
+    - cliente: "Olá"
+      a_decidir: true
