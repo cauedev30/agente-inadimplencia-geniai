@@ -328,6 +328,45 @@ def test_none_reprovado_duas_vezes_sai_sem_texto_nem_motivo(conversa, politica):
     assert all(t.reprovadas for t in resolucao.tentativas)
 
 
+def test_none_vazio_depois_de_texto_reprovado_conta_como_reprovado_e_nao_como_silencio(
+    conversa, politica
+):
+    # M-a: o acolhimento reprovou e a 2a tentativa devolveu NONE vazio. Sem isto o turno saia
+    # como "nada a enviar" e o cliente ficava sem resposta.
+    reprovada = _bruto(acao="NONE", reply="Sinto muito. Sua dívida é {divida}.")
+    vazia = _bruto(acao="NONE", reply="")
+
+    resolucao, llm, _ = _resolver(conversa, politica, [reprovada, vazia])
+
+    assert len(llm.pedidos) == 2
+    assert resolucao.reply is None and resolucao.motivo is None
+    assert resolucao.veredito.acao is Acao.NONE
+    assert resolucao.tentativas[-1].reprovadas == ("texto_vazio",)
+
+
+def test_none_vazio_depois_de_texto_de_acao_reprovado_tambem_nao_e_silencio(conversa, politica):
+    ruim = _bruto(reply="O valor é R$ 100 e {divida}. Pix: {pix_copia_e_cola}")
+    vazia = _bruto(acao="NONE", reply="")
+
+    resolucao, _, _ = _resolver(conversa, politica, [ruim, vazia])
+
+    assert resolucao.reply is None
+    assert resolucao.tentativas[-1].reprovadas == ("texto_vazio",)
+
+
+def test_none_vazio_depois_de_json_invalido_ou_acao_fora_segue_como_silencio(conversa, politica):
+    resolucao, _, _ = _resolver(
+        conversa, politica, ["isto não é json", _bruto(acao="NONE", reply="")]
+    )
+
+    assert resolucao.tentativas[-1] == TentativaUmaChamada("NONE", "", ())
+
+    fora = _bruto(acao="FOO", reply="algo")
+    resolucao, _, _ = _resolver(conversa, politica, [fora, _bruto(acao="NONE", reply="")])
+
+    assert resolucao.tentativas[-1] == TentativaUmaChamada("NONE", "", ())
+
+
 def test_none_com_texto_so_de_espacos_sai_como_o_none_vazio(conversa, politica):
     resolucao, llm, previa = _resolver(conversa, politica, [_bruto(acao="NONE", reply="  \n")])
 

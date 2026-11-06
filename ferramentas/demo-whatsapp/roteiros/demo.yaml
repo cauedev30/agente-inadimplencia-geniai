@@ -117,6 +117,24 @@
         acao: OUT_OF_SCOPE
         resultado: ENVIADO
 
+# A19 (2026-11-05): a pergunta fora do escopo virou NONE com uma recusa de escopo. O certo é
+# OUT_OF_SCOPE; o NONE acolhe só desabafo.
+- nome: meses-em-aberto
+  passos:
+    - cliente: "so pra eu saber quais meses estao em aberto ?"
+      espera:
+        acao: OUT_OF_SCOPE
+        resultado: ENVIADO
+
+# A21 (2026-11-05): o Luna repetia o valor que o cliente citou ("75 reais", "setenta e cinco") e a
+# prévia reprovava o texto, que caía na resposta segura. O texto sai sem o número do cliente.
+- nome: valor-citado
+  passos:
+    - cliente: "Faço por 75 reais, pode ser?"
+      espera:
+        resultado: ENVIADO
+        texto_nao_tem: ["75 reais", "setenta e cinco", "não consegui te responder"]
+
 # Documenta o A2: o cliente que só cumprimenta fica sem resposta.
 - nome: cumprimento-solto
   passos:

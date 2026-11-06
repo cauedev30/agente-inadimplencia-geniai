@@ -589,6 +589,22 @@ def test_o_acolhimento_reprovado_duas_vezes_da_a_resposta_segura(sessao, ligada,
     assert sessao.scalars(select(Pagamento)).all() == []
 
 
+def test_acolhimento_reprovado_e_none_vazio_depois_da_a_resposta_segura(
+    sessao, ligada, cliente, politica
+):
+    # M-a: antes, o NONE vazio da 2a tentativa fechava em SEM_ENVIO e o cliente ficava sem resposta.
+    reprovada = _bruto(acao="NONE", reply="Sinto muito. Sua dívida é {divida}.")
+    deps = _deps(politica, [reprovada, _bruto(acao="NONE", reply="")])
+
+    assert cliente("to chateado", deps) is ResultadoTurno.ENVIADO
+
+    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
+    turno = _turno(sessao)
+    assert turno.redacao["saida"] == "RESPOSTA_SEGURA"
+    assert turno.acao_principal == "NAO_EXECUTADA:NONE"
+    assert turno.numeros == {"executado": False}
+
+
 # O estado
 
 

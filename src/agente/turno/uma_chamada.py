@@ -95,7 +95,9 @@ _FAZ_NONE = (
     "nenhuma ação de cobrança neste turno. Se o cliente não pede nada (ok, obrigado, um "
     "cumprimento solto), o reply fica vazio. Se desabafa ou reclama sem pedir nada (chateado, "
     "cansado, frustrado, sobrecarregado), o reply são uma ou duas frases que acolhem e perguntam "
-    "o que houve ou do que ele precisa, sem marcador, valor, link nem Pix"
+    "o que houve ou do que ele precisa, sem marcador, valor, link nem Pix. O NONE acolhe só "
+    "desabafo. Pergunta fora do escopo (ex.: quais meses estão em aberto) é OUT_OF_SCOPE, nunca "
+    "NONE"
 )
 
 
@@ -307,7 +309,8 @@ Regras de cada campo:
   frases que acolhem e perguntam o que houve ou do que ele precisa, sem marcador, sem valor, sem
   link, sem Pix, sem prometer nada e sem empurrar pagamento; não ofereça o humano por conta
   própria, e escreva o acolhimento com as palavras do cliente, sem repetir os exemplos de outros
-  assuntos.
+  assuntos. O NONE acolhe só desabafo. Pergunta fora do escopo (ex.: quais meses estão em aberto)
+  é OUT_OF_SCOPE, nunca NONE.
   Se terceiro é true, escreva só uma mensagem curta e gentil, sem marcador e sem falar da dívida.
   Se algum sinal de saída, quer_humano ou um tom irritado ou hostil manda a conversa ao humano, o
   texto da resposta não é usado e o reply fica vazio.
@@ -330,6 +333,7 @@ Como escrever o reply:
 - Nunca escreva números, dígitos, datas, valores, prazos nem o símbolo R$. Use os marcadores entre
   chaves exatamente como vêm, por exemplo {{divida}}: o sistema troca cada um pelo valor certo.
   Use todos os obrigatórios da ação; os opcionais, só se ajudarem; nenhum outro.
+- Não repita valor que o cliente citou, em dígito nem por extenso; diga "o valor que você citou".
 - Não prometa perdão, prazo extra, desconto nem nada que a ação escolhida não faça.
 - Não afirme nada sobre a rede, as clínicas, os serviços ou as coberturas: diga com gentileza que
   esse assunto não é tratado por aqui.
@@ -616,6 +620,8 @@ def resolver_turno(
     """
     resolucao = ResolucaoTurno()
     reprovadas: list[str] = []
+    # Um texto não vazio já reprovou na prévia: o silêncio da tentativa seguinte não vale.
+    texto_reprovado = False
     for _ in range(TENTATIVAS_UMA_CHAMADA):
         try:
             saida = ler_saida(llm.completar_json(*montar_mensagens(entrada, reprovadas)))
@@ -647,6 +653,11 @@ def resolver_turno(
             return resolucao
         if veredito.acao is None and not veredito.terceiro:
             reprovadas = [f"acao_nao_permitida:{saida.acao}"]
+        elif sem_efeito(veredito) and not saida.reply.strip() and texto_reprovado:
+            # M-a: o texto da tentativa anterior reprovou e esta devolve `NONE` vazio. O cliente não
+            # pode ficar sem resposta: conta como reprovada, e o fim das tentativas leva à resposta
+            # segura.
+            reprovadas = ["texto_vazio"]
         elif sem_efeito(veredito) and not saida.reply.strip():
             # Nada a enviar. O terceiro sem texto segue como `NONE`, com o rótulo do terceiro. O
             # `NONE` com texto é conferido abaixo, como o do terceiro (decisão 18).
@@ -656,6 +667,7 @@ def resolver_turno(
             return resolucao
         else:
             reprovadas = _conferir_texto(veredito, saida.reply, previa)
+            texto_reprovado = bool(reprovadas) and bool(saida.reply.strip())
         resolucao.tentativas.append(TentativaUmaChamada(saida.acao, saida.reply, tuple(reprovadas)))
         if not reprovadas:
             resolucao.reply = saida.reply

@@ -330,6 +330,26 @@ def test_o_sistema_deixa_o_none_acolher_sem_marcador_nem_oferecer_o_humano():
     assert "por aqui" not in reply
 
 
+def test_o_sistema_manda_pergunta_fora_do_escopo_ao_out_of_scope_e_nao_ao_none():
+    # A19 (2026-11-05): "quais meses estão em aberto?" saiu NONE com uma recusa de escopo.
+    reply = " ".join(SISTEMA.split("- reply:")[1].split("- handoff_reply:")[0].split())
+    regra = (
+        "O NONE acolhe só desabafo. Pergunta fora do escopo (ex.: quais meses estão em aberto) "
+        "é OUT_OF_SCOPE, nunca NONE."
+    )
+    assert regra in reply
+
+
+def test_o_sistema_nao_deixa_repetir_o_valor_que_o_cliente_citou():
+    # A21 (2026-11-05): "75 reais", "60,00" e "sessenta reais" reprovavam o texto.
+    texto = " ".join(SISTEMA.split("Como escrever o reply")[1].split())
+    regra = (
+        'Não repita valor que o cliente citou, em dígito nem por extenso; diga "o valor que '
+        'você citou".'
+    )
+    assert regra in texto
+
+
 def test_o_formato_do_json_nao_convida_o_handoff_reply_vazio():
     # No ensaio de 2026-11-05 o Luna deixou o handoff_reply vazio em 6 de 6 handoffs: o formato
     # dizia só "ou vazio". Agora ele diz quando é obrigatório e quando fica vazio (D47, decisão 18).
@@ -355,6 +375,7 @@ def test_a_descricao_da_acao_none_traz_os_dois_usos(conversa, politica):
     none = next(a for a in acoes if a["acao"] == "NONE")
     assert "fica vazio" in none["faz"] and "acolhem" in none["faz"]
     assert "sem marcador, valor, link nem Pix" in none["faz"]
+    assert "O NONE acolhe só desabafo" in none["faz"] and "OUT_OF_SCOPE, nunca NONE" in none["faz"]
 
 
 def test_montar_mensagens_devolve_o_sistema_e_o_usuario(conversa, politica):
