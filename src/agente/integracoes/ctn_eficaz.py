@@ -22,6 +22,7 @@ from datetime import UTC, date, datetime, timedelta
 from datetime import time as hora_do_dia
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -50,8 +51,11 @@ STATUS_REJEITADA = "rejeitada"
 # A chave deixa no máximo 500 linhas por resposta; o padrão dela é 50 (spec, seção 2).
 LINHAS_POR_PAGINA = 50
 LINHAS_MAXIMAS = 500
-# A API aceita `pagina` de 0 a 10000.
-PAGINAS_MAXIMAS = 10_001
+# O teto de páginas por consulta (por chamada de `_linhas`): bem abaixo da cota diária de 5.000
+# chamadas. Passar dele é falha (CTNIndisponivel), nunca um resultado cortado que parece inteiro.
+PAGINAS_MAXIMAS_POR_ROTA = 200
+# O "hoje" do histórico e da janela das baixas é o dia de Brasília, não o do UTC.
+FUSO_DO_NEGOCIO = ZoneInfo("America/Sao_Paulo")
 # O período de uma consulta (`de` a `ate`, inclusive) tem no máximo 31 dias.
 DIAS_POR_JANELA = 31
 # 55 de 60: sobra folga para o relógio do servidor e para a chamada recusada que também conta.
@@ -66,6 +70,7 @@ MOTIVO_FORMATO = "resposta do CTN em formato inesperado"
 _FORMAS_DE_CARTAO = {"MASTERCARD", "VISA", "ELO", "HIPERCARD"}
 _MES = re.compile(r"(\d{4})[/-](\d{2})(?!\d)")
 _MES_INVERTIDO = re.compile(r"(\d{2})[/-](\d{4})$")
+_MILHAR_AMBIGUO = re.compile(r"[+-]?\d+[.,]\d{3}")
 
 
 class ConfigCTN(Protocol):
@@ -159,7 +164,14 @@ def _centavos(valor: object) -> int:
     """Reais da API (número ou texto) em centavos, sem erro de ponto flutuante."""
     if isinstance(valor, bool) or not isinstance(valor, int | float | str):
         raise ValueError("valor")
-    reais = Decimal(str(valor).strip().replace(",", "."))
+    texto = str(valor).strip()
+    # "1.234" pode ser mil duzentos e trinta e quatro ou um real e 23 centavos: o texto com um só
+    # separador e 3 dígitos depois não se adivinha. (Um número JSON já vem sem essa dúvida.)
+    if isinstance(valor, str) and _MILHAR_AMBIGUO.fullmatch(texto):
+        raise ValueError("valor")
+    reais = Decimal(texto.replace(",", "."))
+    if reais < 0:
+        raise ValueError("valor")
     return int((reais * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
@@ -295,9 +307,11 @@ class CTNEficaz:
         )
 
     def historico_pagamentos(self, matricula: str, meses: int) -> list[PagamentoHistorico]:
+        """Matrícula desconhecida: lista vazia (a API não distingue "sem baixas" de "sem a
+        matrícula"); só o `consultar_cliente` levanta ClienteNaoEncontrado."""
         mes_atual = self._hoje().year * 12 + self._hoje().month
         pagamentos = []
-        for linha in self._linhas(ROTA_BAIXAS, {"matricula": matricula}, "id", matricula):
+        for linha in self._linhas(ROTA_BAIXAS, {"matricula": matricula}, "id"):
             baixa = _converter(linha, _baixa)
             if mes_atual - (baixa.pago_em.year * 12 + baixa.pago_em.month) < meses:
                 pagamentos.append(
@@ -311,20 +325,21 @@ class CTNEficaz:
             yield _converter(linha, _inadimplente)
 
     def mensalidades_em_aberto(self, matricula: str) -> list[MensalidadeAberta]:
-        """As `rejeitada` menos as pagas depois da recusa: o `lancamentos` não muda no mesmo dia
-        (spec, seção 2), e a baixa nova está no `lancamentos_bx`. Uma baixa do mesmo mês, com
-        data igual ou posterior à do lançamento (ou com o lançamento sem data), tira o mês."""
+        """Matrícula desconhecida: lista vazia (a API não distingue "sem lançamentos" de "sem a
+        matrícula"). As `rejeitada` menos as pagas depois da recusa: o `lancamentos` não muda no
+        mesmo dia (spec, seção 2), e a baixa nova está no `lancamentos_bx`. Uma baixa do mesmo mês,
+        com data igual ou posterior à do lançamento (ou com o lançamento sem data), tira o mês."""
         filtros = {"matricula_titular": matricula, "status_lancamento": STATUS_REJEITADA}
         rejeitadas = [
             _converter(linha, _lancamento)
-            for linha in self._linhas(ROTA_LANCAMENTOS, filtros, "id", matricula)
+            for linha in self._linhas(ROTA_LANCAMENTOS, filtros, "id")
             if linha.get("status_lancamento") == STATUS_REJEITADA
         ]
         if not rejeitadas:
             return []
         baixas = [
             _converter(linha, _baixa)
-            for linha in self._linhas(ROTA_BAIXAS, {"matricula": matricula}, "id", matricula)
+            for linha in self._linhas(ROTA_BAIXAS, {"matricula": matricula}, "id")
         ]
 
         def paga(mensalidade: MensalidadeAberta, recusada_em: date | None) -> bool:
@@ -338,9 +353,10 @@ class CTNEficaz:
         return sorted(abertas, key=lambda mensalidade: mensalidade.mes_ano)
 
     def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
-        """As baixas com `coletado_em` depois do cursor. A API filtra por `dia_relatorio`, e o
-        relatório de um dia pode ser coletado depois da meia-noite: a janela abre um dia antes do
-        cursor e anda de 31 em 31 dias até hoje."""
+        """As baixas com `coletado_em` a partir do cursor, inclusive (uma baixa coletada no mesmo
+        instante do cursor não se perde; o consumidor é idempotente pelo `id_externo`). A API
+        filtra por `dia_relatorio`, e o relatório de um dia pode ser coletado depois da meia-noite:
+        a janela abre um dia antes do cursor e anda de 31 em 31 dias até hoje."""
         cursor = _como_utc(coletado_desde)
         hoje = self._hoje()
         inicio = cursor.date() - timedelta(days=1)
@@ -350,7 +366,7 @@ class CTNEficaz:
             filtros = {"de": inicio.isoformat(), "ate": fim.isoformat()}
             for linha in self._linhas(ROTA_BAIXAS, filtros, "id"):
                 baixa = _converter(linha, _baixa)
-                if baixa.coletado_em > cursor:
+                if baixa.coletado_em >= cursor:
                     achadas[baixa.id_externo] = baixa
             inicio = fim + timedelta(days=1)
         return sorted(achadas.values(), key=lambda b: (b.coletado_em, b.id_externo))
@@ -358,15 +374,18 @@ class CTNEficaz:
     # ---- HTTP ----
 
     def _hoje(self) -> date:
-        return _como_utc(self._agora()).astimezone(UTC).date()
+        return _como_utc(self._agora()).astimezone(FUSO_DO_NEGOCIO).date()
 
     def _linhas(
         self, rota: str, filtros: Mapping[str, str], ordem: str, matricula: str | None = None
     ) -> Iterator[Mapping]:
         """As linhas de uma rota, página a página até `mais = false`. A paginação sem `ordem`
         repete linhas (sondagem de 2026-11-04), então toda consulta manda `ordem`. `matricula` é
-        a pessoa da consulta: o 400/404 dela é "não existe", não falha do CTN."""
-        for pagina in range(PAGINAS_MAXIMAS):
+        a pessoa da consulta do cadastro: o 404 dela é "não existe"; todo 400 é falha do CTN.
+
+        A paginação falha fechada: `mais` tem de ser booleano, uma página vazia com `mais` não pode
+        seguir (laço) e passar de `PAGINAS_MAXIMAS_POR_ROTA` páginas é falha."""
+        for pagina in range(PAGINAS_MAXIMAS_POR_ROTA):
             params = {
                 **filtros,
                 "unidade": self.unidade,
@@ -379,18 +398,27 @@ class CTNEficaz:
             dados = corpo.get("dados") if isinstance(corpo, Mapping) else None
             if not isinstance(dados, list) or not all(isinstance(x, Mapping) for x in dados):
                 raise _invalida()
+            mais = corpo.get("mais")
+            if not isinstance(mais, bool) or (mais and not dados):
+                raise _invalida()
             uso = corpo.get("uso")
             self.ultimo_uso = uso if isinstance(uso, Mapping) else None
             log.debug("CTN %s página %s: %s linhas, uso %s", rota, pagina, len(dados), uso)
             yield from dados
-            if not corpo.get("mais"):
+            if not mais:
                 return
         raise CTNIndisponivel("o CTN passou do limite de páginas")
 
     def _esperar_vaga(self) -> None:
         """Até `limite_minuto` chamadas em qualquer janela de 60 s, seguro entre threads: quem
-        passa do limite dorme, com a trava, até a chamada mais antiga sair da janela."""
-        with self._trava_taxa:
+        passa do limite dorme, com a trava, até a chamada mais antiga sair da janela. A espera
+        tem teto próprio (`JANELA_DO_LIMITE` + o prazo, na hora do `relogio`) e não conta no prazo
+        da requisição: um laço de mais de `limite_minuto` chamadas dorme e termina. Se a espera
+        passar do teto (outras threads encheram a janela), levanta CTNIndisponivel, sem dormir."""
+        teto = self._relogio() + JANELA_DO_LIMITE + self._prazo
+        if not self._trava_taxa.acquire(timeout=max(0.0, teto - self._relogio())):
+            raise CTNIndisponivel(MOTIVO_PRAZO)
+        try:
             while True:
                 agora = self._relogio()
                 while self._chamadas and agora - self._chamadas[0] >= JANELA_DO_LIMITE:
@@ -398,29 +426,35 @@ class CTNEficaz:
                 if len(self._chamadas) < self._limite_minuto:
                     self._chamadas.append(agora)
                     return
-                self._dormir(JANELA_DO_LIMITE - (agora - self._chamadas[0]))
+                espera = JANELA_DO_LIMITE - (agora - self._chamadas[0])
+                if agora + espera > teto:
+                    raise CTNIndisponivel(MOTIVO_PRAZO)
+                self._dormir(espera)
+        finally:
+            self._trava_taxa.release()
 
     def _obter(self, rota: str, params: Mapping[str, Any], matricula: str | None) -> object:
-        """Um GET com o prazo total (a conexão e o corpo juntos).
+        """Um GET: espera a vaga do limite de taxa (teto próprio) e então vale o prazo de
+        `self._prazo` para a requisição (conexão e corpo juntos).
 
         O erro nunca carrega o erro de origem: o `CTNIndisponivel` sai de fora dos `except`, com
         `__context__` e `__cause__` nulos, porque a mensagem do httpx pode ecoar a URL.
         """
         self._esperar_vaga()
-        limite = time.monotonic() + self._prazo
+        limite = self._relogio() + self._prazo
         try:
             with self._cliente.stream("GET", rota, params=params) as resposta:
                 # O status vem antes do corpo: o erro nunca lê o que o servidor ecoou.
-                if matricula is not None and resposta.status_code in (400, 404):
+                if matricula is not None and resposta.status_code == 404:
                     raise ClienteNaoEncontrado(matricula)
                 if not resposta.is_success:
                     raise CTNIndisponivel(f"o CTN respondeu {resposta.status_code}")
                 pedacos = []
                 for pedaco in resposta.iter_bytes():
                     pedacos.append(pedaco)
-                    if time.monotonic() > limite:
+                    if self._relogio() > limite:
                         raise CTNIndisponivel(MOTIVO_PRAZO)
-            if time.monotonic() > limite:
+            if self._relogio() > limite:
                 motivo = MOTIVO_PRAZO
             else:
                 return json.loads(b"".join(pedacos))

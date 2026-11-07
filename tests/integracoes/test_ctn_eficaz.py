@@ -17,7 +17,11 @@ from agente.integracoes.ctn import (
     InadimplenteCTN,
     MensalidadeAberta,
 )
-from agente.integracoes.ctn_eficaz import CTNEficaz, forma_do_historico
+from agente.integracoes.ctn_eficaz import (
+    PAGINAS_MAXIMAS_POR_ROTA,
+    CTNEficaz,
+    forma_do_historico,
+)
 from agente.tipos import FormaHistorico, PagamentoHistorico
 from tests.integracoes.test_contrato_ctn import DATA_REF, ContratoLeituraCTN
 
@@ -353,7 +357,7 @@ def test_o_valor_em_reais_vira_centavos_sem_erro_de_ponto_flutuante(bruto, centa
 
 
 def test_baixas_desde_converte_os_campos_e_filtra_pelo_cursor():
-    desde = datetime(2026, 11, 6, 10, 5, tzinfo=UTC)
+    desde = datetime(2026, 11, 6, 10, 6, tzinfo=UTC)
     baixas = cliente(servidor()).baixas_desde(desde)
     assert [b.id_externo for b in baixas] == ["20"]
     baixa = baixas[0]
@@ -363,6 +367,21 @@ def test_baixas_desde_converte_os_campos_e_filtra_pelo_cursor():
     assert baixa.forma is FormaHistorico.PIX
     assert baixa.pago_em == datetime(2026, 11, 6, tzinfo=UTC)
     assert baixa.coletado_em == datetime(2026, 11, 6, 11, tzinfo=UTC)
+
+
+def test_baixas_desde_inclui_a_coletada_no_instante_do_cursor():
+    # Duas baixas de uma mesma coleta: o cursor guardado e o dessa coleta, e a segunda nao se perde.
+    desde = datetime(2026, 11, 6, 10, 5, tzinfo=UTC)
+    baixas = cliente(servidor()).baixas_desde(desde)
+    assert [b.id_externo for b in baixas] == ["21", "20"]
+    assert baixas[0].coletado_em == desde
+
+
+def test_baixas_desde_nao_repete_a_baixa_que_vem_duas_vezes():
+    tabelas = tabelas_padrao()
+    tabelas["/v1/ctn/lancamentos_bx"].append(dict(tabelas["/v1/ctn/lancamentos_bx"][3]))
+    baixas = cliente(servidor(tabelas)).baixas_desde(datetime(2026, 11, 6, tzinfo=UTC))
+    assert [b.id_externo for b in baixas].count("20") == 1
 
 
 def test_baixas_desde_ordena_pelo_coletado_em_e_inclui_o_dia_anterior_ao_cursor():
@@ -402,6 +421,98 @@ def test_baixa_sem_coletado_em_e_resposta_invalida():
         cliente(servidor(tabelas)).baixas_desde(datetime(2026, 11, 6, tzinfo=UTC))
 
 
+# ---- a paginação falha fechada ----
+
+
+def _resposta_fixa(corpo):
+    return lambda _r: httpx.Response(200, json=corpo)
+
+
+_LINHA_RETRATO = _inad("xx000000001", "Nome", "(83) 91234 5678", 1, 5, "2026-10-01", "2026-11-06")
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{}, {"mais": "false"}, {"mais": "true"}, {"mais": 0}, {"mais": 1}, {"mais": None}],
+    ids=["ausente", "texto_false", "texto_true", "zero", "um", "nulo"],
+)
+def test_mais_que_nao_e_booleano_ou_falta_e_formato_inesperado(extra):
+    ctn = cliente(_resposta_fixa({"dados": [_LINHA_RETRATO], **extra}))
+    with pytest.raises(CTNIndisponivel, match="formato") as info:
+        list(ctn.inadimplentes(DATA_REF))
+    _confere_erro_limpo(info.value)
+    assert "false" not in str(info.value)
+
+
+def test_pagina_vazia_com_mais_verdadeiro_levanta_em_vez_de_laco():
+    chamadas = []
+
+    def tratar(requisicao):
+        chamadas.append(requisicao)
+        return httpx.Response(200, json={"dados": [], "mais": True})
+
+    with pytest.raises(CTNIndisponivel, match="formato"):
+        list(cliente(tratar).inadimplentes(DATA_REF))
+    assert len(chamadas) == 1
+
+
+def test_passar_do_teto_de_paginas_levanta_e_nunca_devolve_o_resultado_cortado():
+    chamadas = []
+
+    def tratar(requisicao):
+        chamadas.append(requisicao)
+        return httpx.Response(200, json={"dados": [_LINHA_RETRATO], "mais": True})
+
+    ctn = cliente(tratar, limite_minuto=100_000)
+    assert PAGINAS_MAXIMAS_POR_ROTA == 200
+    with pytest.raises(CTNIndisponivel, match="limite de páginas"):
+        list(ctn.inadimplentes(DATA_REF))
+    assert len(chamadas) == PAGINAS_MAXIMAS_POR_ROTA
+
+
+# ---- o valor em texto ----
+
+
+@pytest.mark.parametrize(
+    ("bruto", "centavos"), [("1234.56", 123456), ("33.4", 3340), ("33", 3300), ("1234,5", 123450)]
+)
+def test_valores_em_texto_sem_ambiguidade_seguem_validos(bruto, centavos):
+    tabelas = tabelas_padrao()
+    for linha in tabelas["/v1/ctn/lancamentos"]:
+        linha["valor"] = bruto
+    abertas = cliente(servidor(tabelas)).mensalidades_em_aberto(MATRICULA)
+    assert abertas[0].valor_centavos == centavos
+
+
+@pytest.mark.parametrize("bruto", ["1.234", "1,234", "0.001", "-5", "-33.40", -5, -0.01])
+def test_valor_ambiguo_ou_negativo_e_formato_inesperado(bruto):
+    tabelas = tabelas_padrao()
+    for linha in tabelas["/v1/ctn/lancamentos"]:
+        linha["valor"] = bruto
+    with pytest.raises(CTNIndisponivel, match="formato"):
+        cliente(servidor(tabelas)).mensalidades_em_aberto(MATRICULA)
+
+
+# ---- o "hoje" é o de Brasília ----
+
+ULTIMO_DIA_22H_EM_BRASILIA = datetime(2026, 11, 1, 1, 0, tzinfo=UTC)  # 31/10, 22h em Brasília
+
+
+def test_o_historico_usa_o_mes_de_brasilia_as_22h_do_ultimo_dia_do_mes():
+    # Em UTC já é novembro e `meses=1` deixaria outubro de fora.
+    ctn = cliente(servidor(), agora=lambda: ULTIMO_DIA_22H_EM_BRASILIA)
+    datas = [p.data for p in ctn.historico_pagamentos(MATRICULA, meses=1)]
+    assert date(2026, 10, 10) in datas
+    assert date(2026, 9, 10) not in datas
+
+
+def test_a_janela_das_baixas_acaba_no_dia_de_brasilia():
+    chamadas = []
+    ctn = cliente(servidor(chamadas=chamadas), agora=lambda: ULTIMO_DIA_22H_EM_BRASILIA)
+    ctn.baixas_desde(datetime(2026, 10, 30, tzinfo=UTC))
+    assert dict(chamadas[-1].url.params)["ate"] == "2026-10-31"
+
+
 # ---- o mapa de formas ----
 
 
@@ -431,15 +542,45 @@ def test_mapa_de_formas(bruta, esperada):
 # ---- erros ----
 
 
-@pytest.mark.parametrize("status", [400, 404])
-def test_400_ou_404_de_pessoa_e_cliente_nao_encontrado(status):
-    ctn = cliente(lambda _r: httpx.Response(status, json={"erro": "não achei"}))
+def test_404_do_cadastro_e_cliente_nao_encontrado():
+    ctn = cliente(lambda _r: httpx.Response(404, json={"erro": "não achei"}))
     with pytest.raises(ClienteNaoEncontrado):
         ctn.consultar_cliente(MATRICULA)
-    with pytest.raises(ClienteNaoEncontrado):
+
+
+def test_400_nunca_e_cliente_nao_encontrado():
+    """Um 400 é pedido malformado (falta de `ordem`, período inválido...), falha do CTN."""
+    ctn = cliente(lambda _r: httpx.Response(400, json={"erro": "pedido ruim"}))
+    for chamada in (
+        lambda: ctn.consultar_cliente(MATRICULA),
+        lambda: ctn.historico_pagamentos(MATRICULA, meses=12),
+        lambda: ctn.mensalidades_em_aberto(MATRICULA),
+    ):
+        with pytest.raises(CTNIndisponivel, match="400") as info:
+            chamada()
+        assert not isinstance(info.value, ClienteNaoEncontrado)
+
+
+def test_404_do_historico_e_das_mensalidades_e_falha_do_ctn():
+    # Matrícula desconhecida volta como lista vazia (200); um 404 aí é rota ou chave quebrada.
+    ctn = cliente(lambda _r: httpx.Response(404, json={"erro": "x"}))
+    with pytest.raises(CTNIndisponivel):
         ctn.historico_pagamentos(MATRICULA, meses=12)
-    with pytest.raises(ClienteNaoEncontrado):
+    with pytest.raises(CTNIndisponivel):
         ctn.mensalidades_em_aberto(MATRICULA)
+
+
+def test_cadastro_com_lista_vazia_e_cliente_nao_encontrado():
+    tabelas = tabelas_padrao()
+    tabelas["/v1/ctn/filiados_full"] = []
+    with pytest.raises(ClienteNaoEncontrado):
+        cliente(servidor(tabelas)).consultar_cliente(MATRICULA)
+
+
+def test_matricula_desconhecida_vem_vazia_no_historico_e_nas_mensalidades():
+    ctn = cliente(servidor())
+    assert ctn.historico_pagamentos("xx999999999", meses=12) == []
+    assert ctn.mensalidades_em_aberto("xx999999999") == []
 
 
 @pytest.mark.parametrize("status", [400, 404, 401, 403, 429, 500, 502, 504])
@@ -532,7 +673,10 @@ def test_o_limite_por_minuto_faz_esperar_a_janela_passar():
     relogio = RelogioFalso()
     chamadas = []
     ctn = cliente(
-        servidor(chamadas=chamadas), limite_minuto=3, relogio=relogio, dormir=relogio.dormir
+        servidor(chamadas=chamadas),
+        limite_minuto=3,
+        relogio=relogio,
+        dormir=relogio.dormir,
     )
     for _ in range(3):
         ctn.consultar_cliente(MATRICULA)
@@ -581,6 +725,57 @@ def test_cada_pagina_conta_para_o_limite():
     )
     list(ctn.inadimplentes(DATA_REF))
     assert len(relogio.dormiu) == 1
+
+
+def test_a_56a_chamada_no_mesmo_minuto_dorme_o_necessario_e_segue():
+    # O prazo de 12 s é da requisição, não da espera pela vaga: um laço de mais de 55 chamadas
+    # num minuto (retrato paginado, uma consulta por cliente) dorme e termina.
+    relogio = RelogioFalso()
+    chamadas = []
+    ctn = cliente(servidor(chamadas=chamadas), relogio=relogio, dormir=relogio.dormir)
+    for _ in range(56):
+        assert ctn.consultar_cliente(MATRICULA).nome == "Cliente Inventado"
+    assert relogio.dormiu == [pytest.approx(60)]
+    assert len(chamadas) == 56
+
+
+def test_a_espera_que_cabe_na_janela_dorme_so_o_necessario():
+    relogio = RelogioFalso()
+    ctn = cliente(servidor(), limite_minuto=1, relogio=relogio, dormir=relogio.dormir)
+    ctn.consultar_cliente(MATRICULA)
+    relogio.agora += 55  # a janela fecha em 5 s
+    ctn.consultar_cliente(MATRICULA)
+    assert relogio.dormiu == [pytest.approx(5)]
+
+
+def test_a_espera_que_passa_do_teto_proprio_levanta_sem_dormir():
+    # O teto da espera é a janela de 60 s mais o prazo (12 s). Passar dele só acontece quando
+    # outras threads encheram a janela depois de a chamada começar; aqui a vaga mais antiga
+    # é 20 s mais nova que a chamada, então a espera (80 s) estoura o teto (72 s).
+    relogio = RelogioFalso()
+    chamadas = []
+    ctn = cliente(
+        servidor(chamadas=chamadas), limite_minuto=1, relogio=relogio, dormir=relogio.dormir
+    )
+    ctn._chamadas.append(relogio.agora + 20)
+    with pytest.raises(CTNIndisponivel, match="prazo") as info:
+        ctn.consultar_cliente(MATRICULA)
+    assert relogio.dormiu == []
+    assert chamadas == []
+    _confere_erro_limpo(info.value)
+
+
+def test_o_prazo_da_requisicao_vale_depois_da_vaga():
+    relogio = RelogioFalso()
+
+    def lento(_requisicao):
+        relogio.agora += 20  # passa dos 12 s do prazo
+        return servidor()(_requisicao)
+
+    ctn = cliente(lento, relogio=relogio, dormir=relogio.dormir)
+    with pytest.raises(CTNIndisponivel, match="prazo") as info:
+        ctn.consultar_cliente(MATRICULA)
+    _confere_erro_limpo(info.value)
 
 
 def test_limite_por_minuto_invalido_e_recusado():

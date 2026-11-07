@@ -3,6 +3,7 @@
 O evento segue o webhook do Chatwoot (`message_created`). A conta e a inbox reais são da T3.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -14,11 +15,13 @@ from agente.abertura.disparar import BOTAO_PAGAR_PIX
 from agente.config import Config
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Cliente, Cobranca, Conversa
-from agente.dominio.telefone import variantes_telefone
+from agente.dominio.telefone import normalizar_telefone, variantes_telefone
 from agente.politica import Politica
 from agente.tipos import OrigemMensagem, StatusCobranca
 from agente.turno.fila import agendar_turno
 from agente.turno.handoff import devolver_ao_robo
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,31 @@ def _conversa_ligada(sessao: Session, evento: EventoMensagem) -> Conversa | None
     )
 
 
+def _cobranca_ativa_do_telefone(
+    sessao: Session, bruto: str, variantes: frozenset[str]
+) -> Cobranca | None:
+    """A cobrança ativa dona do telefone. Com e sem o 9 podem ser duas pessoas: vale a que guarda o
+    número exatamente como o contato mandou e, se ainda sobrar mais de uma, a de menor id (sempre a
+    mesma). O aviso leva só a contagem e os ids, nunca telefone nem nome."""
+    candidatas = sessao.scalars(
+        select(Cobranca)
+        .join(Cliente)
+        .where(Cliente.telefone.in_(variantes), Cobranca.status == StatusCobranca.ATIVA)
+        .order_by(Cobranca.id)
+    ).all()
+    if not candidatas:
+        return None
+    exato = normalizar_telefone(bruto)
+    restantes = [c for c in candidatas if c.cliente.telefone == exato] or candidatas
+    if len(restantes) > 1:
+        log.warning(
+            "%s cobranças ativas casam com o telefone do contato (ids %s); vale a de menor id",
+            len(restantes),
+            [c.id for c in restantes],
+        )
+    return restantes[0]
+
+
 def _conversa_do_cliente(sessao: Session, evento: EventoMensagem) -> Conversa | None:
     """A conversa já ligada ao Chatwoot ou, na 1ª mensagem (a do cliente ou a do atendente que abriu
     a cobrança), a da cobrança ativa do telefone.
@@ -104,11 +132,7 @@ def _conversa_do_cliente(sessao: Session, evento: EventoMensagem) -> Conversa | 
     telefones = variantes_telefone(evento.telefone or "")
     if not telefones:
         return None
-    cobranca = sessao.scalar(
-        select(Cobranca)
-        .join(Cliente)
-        .where(Cliente.telefone.in_(telefones), Cobranca.status == StatusCobranca.ATIVA)
-    )
+    cobranca = _cobranca_ativa_do_telefone(sessao, evento.telefone or "", telefones)
     if cobranca is None:
         return None
     sem_chatwoot = [c for c in cobranca.conversas if c.chatwoot_conversa_id is None]

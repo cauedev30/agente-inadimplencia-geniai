@@ -36,3 +36,17 @@ def test_entrada_invalida_nao_tem_variante():
 def test_onze_digitos_sem_9_na_frente_nao_inventa_variante():
     # DDD 83 e depois 2 (fixo) com 11 dígitos: não é celular, fica como veio.
     assert variantes_telefone("+5583288887777") == frozenset({"+5583288887777"})
+
+
+@pytest.mark.parametrize("digito", "2345")
+def test_nove_na_frente_de_numero_que_seria_fixo_nao_inventa_variante(digito):
+    # +5511931234567: tirar o 9 daria +551131234567, um fixo de São Paulo, outra pessoa.
+    numero = f"+55119{digito}1234567"
+    assert variantes_telefone(numero) == frozenset({numero})
+
+
+@pytest.mark.parametrize("digito", "6789")
+def test_nove_na_frente_de_celular_de_verdade_continua_com_as_duas_escritas(digito):
+    com_9 = f"+55119{digito}1234567"
+    sem_9 = f"+5511{digito}1234567"
+    assert variantes_telefone(com_9) == frozenset({com_9, sem_9})

@@ -78,7 +78,9 @@ class CTN(Protocol):
     def consultar_cliente(self, matricula: str) -> ClienteCTN: ...
 
     def historico_pagamentos(self, matricula: str, meses: int) -> list[PagamentoHistorico]:
-        """Os pagamentos dos últimos `meses` meses, do mais antigo ao mais novo."""
+        """Os pagamentos dos últimos `meses` meses, do mais antigo ao mais novo. Matrícula
+        desconhecida devolve a lista vazia (o CTN real não distingue "sem baixas" de "sem a
+        matrícula"); só o `consultar_cliente` levanta ClienteNaoEncontrado."""
         ...
 
     def inadimplentes(self, data_ref: date) -> Iterator[InadimplenteCTN]:
@@ -87,12 +89,16 @@ class CTN(Protocol):
         ...
 
     def mensalidades_em_aberto(self, matricula: str) -> list[MensalidadeAberta]:
-        """As mensalidades recusadas e ainda sem baixa, do mês mais antigo ao mais novo."""
+        """As mensalidades recusadas e ainda sem baixa, do mês mais antigo ao mais novo. Matrícula
+        desconhecida devolve a lista vazia, como no `historico_pagamentos`."""
         ...
 
     def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
-        """As baixas coletadas depois de `coletado_desde` (exclusive), da coletada há mais tempo
-        à mais nova."""
+        """As baixas coletadas a partir de `coletado_desde`, INCLUSIVE, da coletada há mais tempo
+        à mais nova, sem `id_externo` repetido. O cursor é inclusivo porque duas baixas podem ter a
+        mesma `coletado_em`: com `>` a que chegasse depois do cursor andar se perderia. Quem guarda
+        o cursor recebe de volta a última baixa já vista e a descarta pelo `id_externo` (a rotina da
+        Etapa 3 é idempotente por ele)."""
         ...
 
     def gerar_link_pagamento(
@@ -162,7 +168,7 @@ class CTNFalso:
             raise ClienteNaoEncontrado(matricula) from None
 
     def historico_pagamentos(self, matricula: str, meses: int) -> list[PagamentoHistorico]:
-        self.consultar_cliente(matricula)
+        self._exigir_no_ar()
         mes_atual = self.hoje.year * 12 + self.hoje.month
         return sorted(
             (
@@ -178,15 +184,17 @@ class CTNFalso:
         return iter([linha for linha in self.retrato if linha.data_ref == data_ref])
 
     def mensalidades_em_aberto(self, matricula: str) -> list[MensalidadeAberta]:
-        self.consultar_cliente(matricula)
+        self._exigir_no_ar()
         return sorted(self.mensalidades_abertas.get(matricula, []), key=lambda m: m.mes_ano)
 
     def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
         self._exigir_no_ar()
-        return sorted(
-            (baixa for baixa in self.baixas_externas if baixa.coletado_em > coletado_desde),
-            key=lambda baixa: (baixa.coletado_em, baixa.id_externo),
-        )
+        unicas = {
+            baixa.id_externo: baixa
+            for baixa in self.baixas_externas
+            if baixa.coletado_em >= coletado_desde
+        }
+        return sorted(unicas.values(), key=lambda baixa: (baixa.coletado_em, baixa.id_externo))
 
     def _novo_link(self, tipo: str, matricula: str, valor: int | None, cobranca: int | None):
         id_externo = f"{tipo}-{self._lote}-{len(self.links) + 1}"

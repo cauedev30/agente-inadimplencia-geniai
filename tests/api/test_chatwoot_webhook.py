@@ -165,6 +165,72 @@ def test_o_contato_casa_com_e_sem_o_9(cliente_http, fabrica, guardado_sem_9):
         assert sessao.scalars(select(Conversa)).one().chatwoot_conversa_id == 555
 
 
+def _outro_cliente_ativo(sessao, matricula, telefone):
+    cliente = Cliente(matricula_ctn=matricula, nome="Outro Fictício", telefone=telefone)
+    cobranca = Cobranca(
+        cliente=cliente,
+        regua=Regua.R3,
+        mensalidades_abertas=3,
+        divida_centavos=10020,
+        propenso_cartao=False,
+        campanha="outubro",
+    )
+    sessao.add(Conversa(cobranca=cobranca))
+    sessao.commit()
+
+
+def _matricula_da_conversa_ligada(fabrica):
+    with fabrica() as sessao:
+        conversa = sessao.scalars(
+            select(Conversa).where(Conversa.chatwoot_conversa_id == 555)
+        ).one()
+        return conversa.cobranca.cliente.matricula_ctn
+
+
+def test_com_duas_cobrancas_casando_o_telefone_exato_vence(cliente_http, fabrica, caplog):
+    """A1: o par com e sem o 9 casa nos dois; o contato é do que guarda o número como ele veio,
+    mesmo com o id maior."""
+    sem_9 = TELEFONE[:5] + TELEFONE[6:]
+    with fabrica() as sessao:
+        _outro_cliente_ativo(sessao, "F-2", sem_9)
+    evento = _evento(sender={"type": "contact", "phone_number": sem_9})
+
+    with caplog.at_level("WARNING"):
+        assert _postar(cliente_http, evento).json() == {"resultado": "agendado"}
+    assert _matricula_da_conversa_ligada(fabrica) == "F-2"
+    assert not caplog.records
+
+
+def test_sem_telefone_exato_a_cobranca_de_menor_id_vence_e_o_aviso_nao_leva_dado(
+    cliente_http, fabrica, caplog
+):
+    sem_9 = TELEFONE[:5] + TELEFONE[6:]
+    with fabrica() as sessao:
+        sessao.scalars(select(Cliente)).one().telefone = sem_9
+        _outro_cliente_ativo(sessao, "F-2", sem_9)
+    evento = _evento(sender={"type": "contact", "phone_number": TELEFONE})
+
+    with caplog.at_level("WARNING"):
+        assert _postar(cliente_http, evento).json() == {"resultado": "agendado"}
+    assert _matricula_da_conversa_ligada(fabrica) == "F-1"
+    avisos = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(avisos) == 1
+    assert "2" in avisos[0] and "[1, 2]" in avisos[0]
+    for dado in (TELEFONE, sem_9, "Cliente Fictício", "Outro Fictício", "F-1", "F-2"):
+        assert dado not in avisos[0]
+
+
+def test_dois_exatos_tambem_escolhem_o_de_menor_id_e_avisam(cliente_http, fabrica, caplog):
+    with fabrica() as sessao:
+        _outro_cliente_ativo(sessao, "F-2", TELEFONE)
+    evento = _evento(sender={"type": "contact", "phone_number": TELEFONE})
+
+    with caplog.at_level("WARNING"):
+        _postar(cliente_http, evento)
+    assert _matricula_da_conversa_ligada(fabrica) == "F-1"
+    assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
+
+
 def test_anexo_e_gravado_com_o_tipo_e_o_endereco(cliente_http, fabrica):
     anexo = {"file_type": "audio", "data_url": "https://chatwoot.invalid/a.ogg", "file_size": 4321}
     _postar(cliente_http, _evento(texto="", attachments=[anexo]))

@@ -27,7 +27,9 @@ def variantes_telefone(bruto: str) -> frozenset[str]:
     if e164 is None:
         return frozenset()
     ddd, numero = e164[3:5], e164[5:]
-    if len(numero) == 9 and numero[0] == "9":
+    # Só o 9 seguido de 6 a 9 sai: sem ele o número ainda seria de celular (o inverso abaixo).
+    # Seguido de 2 a 5 o resto seria um fixo, que é outra pessoa.
+    if len(numero) == 9 and numero[0] == "9" and numero[1] in "6789":
         return frozenset({e164, f"+55{ddd}{numero[1:]}"})
     # Os celulares sem o 9 começam em 6 a 9; o fixo começa em 2 a 5.
     if len(numero) == 8 and numero[0] in "6789":

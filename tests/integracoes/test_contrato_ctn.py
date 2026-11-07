@@ -9,7 +9,7 @@ aberto e presença no retrato e nas baixas de `DATA_REF`, e `ctn_fora_do_ar_e_ma
 """
 
 import re
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -85,13 +85,32 @@ class ContratoLeituraCTN:
             assert isinstance(baixa.forma, FormaHistorico)
             assert baixa.id_externo
             assert baixa.valor_centavos > 0
-            assert baixa.coletado_em > COLETADAS_DEPOIS_DE
+            assert baixa.coletado_em >= COLETADAS_DEPOIS_DE
         assert [b.coletado_em for b in baixas] == sorted(b.coletado_em for b in baixas)
 
-    def test_baixas_desde_o_ultimo_coletado_vem_vazia(self, ctn_e_matricula):
+    def test_o_cursor_de_baixas_e_inclusivo(self, ctn_e_matricula):
+        # Uma baixa coletada no instante do cursor volta (nao se perde a de mesma coleta); so o
+        # consumidor, idempotente pelo `id_externo`, descarta a que ja viu.
         ctn, _ = ctn_e_matricula
         ultimo = ctn.baixas_desde(COLETADAS_DEPOIS_DE)[-1].coletado_em
-        assert ctn.baixas_desde(ultimo) == []
+        no_cursor = ctn.baixas_desde(ultimo)
+        assert no_cursor
+        assert all(baixa.coletado_em == ultimo for baixa in no_cursor)
+        assert len({baixa.id_externo for baixa in no_cursor}) == len(no_cursor)
+
+    def test_baixas_desde_depois_da_ultima_coleta_vem_vazia(self, ctn_e_matricula):
+        ctn, _ = ctn_e_matricula
+        ultimo = ctn.baixas_desde(COLETADAS_DEPOIS_DE)[-1].coletado_em
+        assert ctn.baixas_desde(ultimo + timedelta(seconds=1)) == []
+
+    def test_matricula_desconhecida_vem_vazia_no_historico_e_nas_mensalidades(
+        self, ctn_e_matricula
+    ):
+        # O CTN real nao distingue "sem baixas" de "matricula inexistente": o contrato e a lista
+        # vazia. So o `consultar_cliente` levanta ClienteNaoEncontrado.
+        ctn, _ = ctn_e_matricula
+        assert ctn.historico_pagamentos("NAO-EXISTE", meses=12) == []
+        assert ctn.mensalidades_em_aberto("NAO-EXISTE") == []
 
     # A implementação real define a fixture `ctn_fora_do_ar_e_matricula`: o CTN sem resposta (rede
     # caída, prazo estourado ou 5xx). A falha tem de sair como CTNIndisponivel, que o turno trata.

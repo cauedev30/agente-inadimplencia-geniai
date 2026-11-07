@@ -19,7 +19,7 @@ from agente.db.modelos import Cliente, Cobranca
 from agente.dominio.divida import calcular_divida, classificar_regua
 from agente.dominio.propensao import eh_propenso
 from agente.dominio.telefone import normalizar_telefone
-from agente.integracoes.ctn import CTN, ClienteNaoEncontrado
+from agente.integracoes.ctn import CTN
 from agente.politica import Politica, Regua
 from agente.tipos import StatusCobranca
 
@@ -87,11 +87,9 @@ def _ler_linha(registro: dict[str, str], politica: Politica) -> _Linha:
 
 
 def _propenso(ctn: CTN, matricula: str, politica: Politica) -> bool:
-    # Um mês a mais, porque o mês corrente pode não ter pagamento ainda.
-    try:
-        historico = ctn.historico_pagamentos(matricula, meses=politica.propensao.n_meses + 1)
-    except ClienteNaoEncontrado:
-        return False
+    # Um mês a mais, porque o mês corrente pode não ter pagamento ainda. Matrícula desconhecida
+    # volta como histórico vazio (contrato do CTN), e sem histórico o cliente não é propenso.
+    historico = ctn.historico_pagamentos(matricula, meses=politica.propensao.n_meses + 1)
     return eh_propenso(historico, politica)
 
 
