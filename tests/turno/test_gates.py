@@ -68,6 +68,19 @@ def test_reinicio_so_para_telefone_da_equipe(sessao, conversa, politica):
     assert _avaliar(sessao, conversa, [mensagem], da_equipe) == Reiniciar()
 
 
+def test_reinicio_da_equipe_casa_com_e_sem_o_9(sessao, conversa, politica):
+    """A1: a equipe está na política com o 9 e a carteira guarda sem ele (e vice-versa)."""
+    mensagem = _cliente(sessao, conversa, texto=politica.comando_reinicio)
+    com_9 = "+5583999990001"
+    sem_9 = "+558399990001"
+    for guardado, da_equipe in ((sem_9, com_9), (com_9, sem_9)):
+        conversa.cobranca.cliente.telefone = guardado
+        politica_da_equipe = politica.model_copy(
+            update={"telefones_equipe": frozenset({da_equipe})}
+        )
+        assert _avaliar(sessao, conversa, [mensagem], politica_da_equipe) == Reiniciar()
+
+
 @pytest.mark.parametrize("como", ["human_owned", "estado"])
 def test_reinicio_da_equipe_vale_com_o_humano_na_conversa(sessao, conversa, politica, como):
     if como == "human_owned":

@@ -8,6 +8,7 @@ devolve ninguém para a sombra.
 import hashlib
 
 from agente.db.modelos import Cobranca
+from agente.dominio.telefone import variantes_telefone
 from agente.politica import LiberacaoPercentual, LiberacaoPiloto, Politica
 from agente.tipos import Modo
 
@@ -23,7 +24,8 @@ def _faixa(cobranca_id: int) -> int:
 def modo_da_conversa(cobranca: Cobranca, politica: Politica) -> Modo:
     liberacao = politica.liberacao
     if isinstance(liberacao, LiberacaoPiloto):
-        ativo = cobranca.cliente.telefone in liberacao.telefones
+        # Com ou sem o 9 do celular (A1).
+        ativo = not variantes_telefone(cobranca.cliente.telefone).isdisjoint(liberacao.telefones)
     elif isinstance(liberacao, LiberacaoPercentual):
         ativo = _faixa(cobranca.id) < liberacao.percentual
     else:

@@ -147,6 +147,24 @@ def test_telefone_sem_cobranca_ativa_e_ignorado(cliente_http):
     assert _postar(cliente_http, evento).json() == {"resultado": "sem_cobranca"}
 
 
+@pytest.mark.parametrize("guardado_sem_9", [False, True])
+def test_o_contato_casa_com_e_sem_o_9(cliente_http, fabrica, guardado_sem_9):
+    """A1: a carteira guarda o telefone com o 9 (como o CTN dá) e o Chatwoot pode mandar sem ele,
+    e o contrário também."""
+    sem_9 = TELEFONE[:5] + TELEFONE[6:]
+    with fabrica() as sessao:
+        cliente = sessao.scalars(select(Cliente)).one()
+        cliente.telefone = sem_9 if guardado_sem_9 else TELEFONE
+        sessao.commit()
+    do_contato = TELEFONE if guardado_sem_9 else sem_9
+    evento = _evento(sender={"type": "contact", "phone_number": do_contato})
+
+    assert _postar(cliente_http, evento).json() == {"resultado": "agendado"}
+    with fabrica() as sessao:
+        assert sessao.scalars(select(Cliente)).one().telefone in (TELEFONE, sem_9)
+        assert sessao.scalars(select(Conversa)).one().chatwoot_conversa_id == 555
+
+
 def test_anexo_e_gravado_com_o_tipo_e_o_endereco(cliente_http, fabrica):
     anexo = {"file_type": "audio", "data_url": "https://chatwoot.invalid/a.ogg", "file_size": 4321}
     _postar(cliente_http, _evento(texto="", attachments=[anexo]))
@@ -391,14 +409,14 @@ def test_a_nota_privada_da_transcricao_nao_vira_mensagem_do_cliente(cliente_http
 
 def _outra_entrega_cria_a_conversa(monkeypatch, sessao):
     """Entre o `select` e o `flush` da nossa entrega, a outra (bot e webhook) grava a conversa."""
-    normalizar = chatwoot_webhook.normalizar_telefone
+    normalizar = chatwoot_webhook.variantes_telefone
 
     def com_a_corrida(telefone):
         cobranca = sessao.scalars(select(Cobranca)).one()
         sessao.execute(insert(Conversa).values(cobranca_id=cobranca.id, chatwoot_conversa_id=555))
         return normalizar(telefone)
 
-    monkeypatch.setattr(chatwoot_webhook, "normalizar_telefone", com_a_corrida)
+    monkeypatch.setattr(chatwoot_webhook, "variantes_telefone", com_a_corrida)
 
 
 def test_a_corrida_na_primeira_mensagem_usa_a_conversa_criada_pela_outra_entrega(

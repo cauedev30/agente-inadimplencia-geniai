@@ -17,6 +17,20 @@ VARIAVEIS_DO_JEV = (
     "AGENTE_JEV_DADOS_REAIS_LIBERADOS",
 )
 
+VARIAVEIS_DO_CTN = (
+    "AGENTE_CTN_URL",
+    "AGENTE_CTN_API_KEY",
+    "AGENTE_CTN_UNIDADE",
+    "AGENTE_LLM_DADOS_REAIS_LIBERADOS",
+)
+
+
+@pytest.fixture(autouse=True)
+def _sem_ctn_real_no_ambiente(monkeypatch):
+    """Uma chave do CTN real exportada no shell não pode ligar a EFICAZ nos outros testes."""
+    for variavel in VARIAVEIS_DO_CTN:
+        monkeypatch.delenv(variavel, raising=False)
+
 
 def limpar_ambiente_do_jev(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tira as variáveis do Jev real do ambiente do processo."""

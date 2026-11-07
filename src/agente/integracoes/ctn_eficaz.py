@@ -1,0 +1,435 @@
+"""O CTN real pela API EFICAZ, só de leitura (T9; spec `specs/2026-11-06-integracao-ctn.md`).
+
+Implementa os métodos de leitura do `Protocol CTN`: o cliente, o histórico de pagamentos, o retrato
+diário da inadimplência, as mensalidades em aberto e as baixas. A escrita (link, cadastro do cartão
+e baixa) não existe na API: o `CTNComposto` a delega ao `CTNFalso`.
+
+O cliente cumpre os limites da chave (60 chamadas por minuto, 50 linhas por resposta, 15 s por
+consulta, período de até 31 dias, sempre `ordem`). A mensagem de todo erro leva só o código HTTP ou
+o tipo da falha, nunca a URL, a chave nem o corpo da resposta: ela vai para o log e para o turno, e
+o corpo traz dado de cliente.
+"""
+
+import json
+import logging
+import re
+import threading
+import time
+import unicodedata
+from collections import deque
+from collections.abc import Callable, Iterator, Mapping
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as hora_do_dia
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, Protocol
+
+import httpx
+
+from agente.dominio.telefone import normalizar_telefone
+from agente.integracoes.ctn import (
+    BaixaCTN,
+    ClienteCTN,
+    ClienteNaoEncontrado,
+    CTNIndisponivel,
+    InadimplenteCTN,
+    MensalidadeAberta,
+)
+from agente.tipos import FormaHistorico, PagamentoHistorico
+
+log = logging.getLogger(__name__)
+
+URL_EFICAZ = "https://api.eficaz-group.com"
+UNIDADE_PADRAO = "jp"
+
+ROTA_FILIADOS = "/v1/ctn/filiados_full"
+ROTA_INADIMPLENCIA = "/v1/ctn/inadimplencia"
+ROTA_LANCAMENTOS = "/v1/ctn/lancamentos"
+ROTA_BAIXAS = "/v1/ctn/lancamentos_bx"
+
+STATUS_REJEITADA = "rejeitada"
+# A chave deixa no máximo 500 linhas por resposta; o padrão dela é 50 (spec, seção 2).
+LINHAS_POR_PAGINA = 50
+LINHAS_MAXIMAS = 500
+# A API aceita `pagina` de 0 a 10000.
+PAGINAS_MAXIMAS = 10_001
+# O período de uma consulta (`de` a `ate`, inclusive) tem no máximo 31 dias.
+DIAS_POR_JANELA = 31
+# 55 de 60: sobra folga para o relógio do servidor e para a chamada recusada que também conta.
+LIMITE_POR_MINUTO = 55
+JANELA_DO_LIMITE = 60.0
+# A API corta a consulta em 15 s; o prazo total do cliente fica abaixo disso.
+PRAZO_PADRAO = 12.0
+
+MOTIVO_PRAZO = "o CTN passou do prazo"
+MOTIVO_FORMATO = "resposta do CTN em formato inesperado"
+
+_FORMAS_DE_CARTAO = {"MASTERCARD", "VISA", "ELO", "HIPERCARD"}
+_MES = re.compile(r"(\d{4})[/-](\d{2})(?!\d)")
+_MES_INVERTIDO = re.compile(r"(\d{2})[/-](\d{4})$")
+
+
+class ConfigCTN(Protocol):
+    """O que o `da_config` lê (os campos que a tarefa 1.3 cria na `Config`)."""
+
+    ctn_url: str
+    ctn_api_key: str | None
+    ctn_unidade: str
+
+
+def _sem_acento(texto: str) -> str:
+    decomposto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in decomposto if not unicodedata.combining(c)).upper().strip()
+
+
+def forma_do_historico(bruta: object) -> FormaHistorico:
+    """A `forma` do CTN (spec, seção 2) na `FormaHistorico`. O que não se conhece, e o dinheiro
+    "direto no cartão" (decisão do Cauê, seção 3), vira OUTRO."""
+    texto = _sem_acento(bruta) if isinstance(bruta, str) else ""
+    if "DINHEIRO" in texto:
+        return FormaHistorico.OUTRO
+    if texto == "PIX":
+        return FormaHistorico.PIX
+    if texto.startswith("BOLETO"):
+        return FormaHistorico.BOLETO
+    if "ENERGISA" in texto:
+        return FormaHistorico.ENERGIA
+    if texto in _FORMAS_DE_CARTAO or "CARTAO" in texto:
+        return FormaHistorico.CARTAO
+    return FormaHistorico.OUTRO
+
+
+# ---- a conversão das linhas da API (qualquer falha vira `_invalida`, sem o conteúdo) ----
+
+
+def _invalida() -> CTNIndisponivel:
+    return CTNIndisponivel(MOTIVO_FORMATO)
+
+
+def _texto(valor: object) -> str:
+    if not isinstance(valor, str) or not valor.strip():
+        raise ValueError("texto")
+    return valor.strip()
+
+
+def _inteiro(valor: object) -> int:
+    if isinstance(valor, bool):
+        raise ValueError("inteiro")
+    if isinstance(valor, int):
+        return valor
+    if isinstance(valor, str) and valor.strip().isdigit():
+        return int(valor)
+    raise ValueError("inteiro")
+
+
+def _data(valor: object) -> date:
+    return date.fromisoformat(_texto(valor)[:10])
+
+
+def _data_ou_none(valor: object) -> date | None:
+    return None if valor is None else _data(valor)
+
+
+def _instante(valor: object) -> datetime:
+    """Um instante da API. Só a data vale a meia-noite UTC, e sem fuso vale UTC (o fuso dos dados
+    não consta da documentação)."""
+    texto = _texto(valor)
+    if len(texto) == 10:
+        return datetime.combine(date.fromisoformat(texto), hora_do_dia(), tzinfo=UTC)
+    instante = datetime.fromisoformat(texto.replace("Z", "+00:00"))
+    return instante if instante.tzinfo is not None else instante.replace(tzinfo=UTC)
+
+
+def _mes(valor: object) -> str:
+    """O mês como `AAAA/MM`, venha como `AAAA/MM`, `AAAA-MM[-DD]` ou `MM/AAAA`."""
+    texto = _texto(valor)
+    achado = _MES.match(texto)
+    if achado:
+        ano, mes = achado.group(1), achado.group(2)
+    else:
+        invertido = _MES_INVERTIDO.match(texto)
+        if not invertido:
+            raise ValueError("mês")
+        mes, ano = invertido.group(1), invertido.group(2)
+    if not 1 <= int(mes) <= 12:
+        raise ValueError("mês")
+    return f"{ano}/{mes}"
+
+
+def _centavos(valor: object) -> int:
+    """Reais da API (número ou texto) em centavos, sem erro de ponto flutuante."""
+    if isinstance(valor, bool) or not isinstance(valor, int | float | str):
+        raise ValueError("valor")
+    reais = Decimal(str(valor).strip().replace(",", "."))
+    return int((reais * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+def _cpf(valor: object) -> str | None:
+    digitos = re.sub(r"\D", "", valor) if isinstance(valor, str) else ""
+    return digitos or None
+
+
+def _converter[T](linha: Mapping, fabrica: Callable[[Mapping], T]) -> T:
+    """Converte uma linha; se faltar campo ou vier num formato que não é o da API, levanta
+    CTNIndisponivel sem o conteúdo (nem o erro de origem)."""
+    try:
+        return fabrica(linha)
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        pass
+    raise _invalida()
+
+
+def _inadimplente(linha: Mapping) -> InadimplenteCTN:
+    return InadimplenteCTN(
+        matricula=_texto(linha["matricula"]),
+        nome=_texto(linha["nome"]),
+        telefone=normalizar_telefone(str(linha.get("telefone") or "")) or "",
+        meses_atraso=_inteiro(linha["meses_atraso"]),
+        meses_ate_corte=_inteiro(linha["meses_ate_corte"]),
+        ult_mesref=_data_ou_none(linha.get("ult_mesref")),
+        data_ref=_data(linha["data_ref"]),
+    )
+
+
+def _baixa(linha: Mapping) -> BaixaCTN:
+    return BaixaCTN(
+        id_externo=_texto(str(linha["id"])),
+        matricula=_texto(linha["matricula"]),
+        mes_ref=_mes(linha["mes_ref"]),
+        valor_centavos=_centavos(linha["valor"]),
+        forma=forma_do_historico(linha.get("forma")),
+        pago_em=_instante(linha["dt_baixa"]),
+        coletado_em=_instante(linha["coletado_em"]),
+    )
+
+
+def _lancamento(linha: Mapping) -> tuple[MensalidadeAberta, date | None]:
+    return (
+        MensalidadeAberta(_mes(linha["mes_ano"]), _centavos(linha["valor"])),
+        _data_ou_none(linha.get("data_baixa")),
+    )
+
+
+def _como_utc(instante: datetime) -> datetime:
+    return instante if instante.tzinfo is not None else instante.replace(tzinfo=UTC)
+
+
+class CTNEficaz:
+    """Só leitura. `transporte` serve ao `httpx.MockTransport` dos testes; `relogio` e `dormir`
+    são do limite de taxa, e `agora`, do "hoje" do histórico e da janela das baixas."""
+
+    def __init__(
+        self,
+        url: str,
+        chave: str,
+        unidade: str,
+        transporte: httpx.BaseTransport | None = None,
+        limite_minuto: int = LIMITE_POR_MINUTO,
+        *,
+        linhas_por_pagina: int = LINHAS_POR_PAGINA,
+        prazo: float = PRAZO_PADRAO,
+        relogio: Callable[[], float] = time.monotonic,
+        dormir: Callable[[float], None] = time.sleep,
+        agora: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ):
+        if limite_minuto < 1:
+            raise ValueError("o limite de chamadas por minuto do CTN tem de ser positivo")
+        if not 1 <= linhas_por_pagina <= LINHAS_MAXIMAS:
+            raise ValueError(f"as linhas por página do CTN vão de 1 a {LINHAS_MAXIMAS}")
+        self.unidade = unidade
+        # O total de chamadas usadas hoje, como a API informa no campo `uso` (None sem resposta).
+        self.ultimo_uso: Mapping | None = None
+        self._limite_minuto = limite_minuto
+        self._linhas_por_pagina = linhas_por_pagina
+        self._prazo = prazo
+        self._relogio = relogio
+        self._dormir = dormir
+        self._agora = agora
+        # O laço das rotinas e os turnos chamam de threads diferentes: o limite é um só.
+        self._trava_taxa = threading.Lock()
+        self._chamadas: deque[float] = deque()
+        self._cliente = httpx.Client(
+            base_url=url.rstrip("/"),
+            headers={"Authorization": f"Bearer {chave}", "Accept": "application/json"},
+            timeout=prazo,
+            transport=transporte,
+        )
+
+    @classmethod
+    def da_config(
+        cls, config: ConfigCTN, transporte: httpx.BaseTransport | None = None, **extra: Any
+    ) -> "CTNEficaz":
+        if not config.ctn_api_key:
+            raise ValueError("o CTN real precisa da AGENTE_CTN_API_KEY")
+        return cls(
+            config.ctn_url,
+            config.ctn_api_key,
+            config.ctn_unidade,
+            transporte=transporte,
+            **extra,
+        )
+
+    def __enter__(self) -> "CTNEficaz":
+        return self
+
+    def __exit__(self, *_erro) -> None:
+        self.fechar()
+
+    def fechar(self) -> None:
+        self._cliente.close()
+
+    # ---- leitura: o Protocol CTN ----
+
+    def consultar_cliente(self, matricula: str) -> ClienteCTN:
+        linhas = self._linhas(ROTA_FILIADOS, {"matricula": matricula}, "matricula", matricula)
+        linha = next((x for x in linhas if x.get("matricula") == matricula), None)
+        if linha is None:
+            raise ClienteNaoEncontrado(matricula)
+        return _converter(
+            linha,
+            lambda x: ClienteCTN(
+                matricula=matricula,
+                nome=_texto(x["nome"]),
+                telefone=normalizar_telefone(str(x.get("telefone") or "")) or "",
+                cpf=_cpf(x.get("cpf")),
+            ),
+        )
+
+    def historico_pagamentos(self, matricula: str, meses: int) -> list[PagamentoHistorico]:
+        mes_atual = self._hoje().year * 12 + self._hoje().month
+        pagamentos = []
+        for linha in self._linhas(ROTA_BAIXAS, {"matricula": matricula}, "id", matricula):
+            baixa = _converter(linha, _baixa)
+            if mes_atual - (baixa.pago_em.year * 12 + baixa.pago_em.month) < meses:
+                pagamentos.append(
+                    PagamentoHistorico(baixa.pago_em.date(), baixa.forma, baixa.valor_centavos)
+                )
+        return sorted(pagamentos, key=lambda pagamento: pagamento.data)
+
+    def inadimplentes(self, data_ref: date) -> Iterator[InadimplenteCTN]:
+        dia = data_ref.isoformat()
+        for linha in self._linhas(ROTA_INADIMPLENCIA, {"de": dia, "ate": dia}, "matricula"):
+            yield _converter(linha, _inadimplente)
+
+    def mensalidades_em_aberto(self, matricula: str) -> list[MensalidadeAberta]:
+        """As `rejeitada` menos as pagas depois da recusa: o `lancamentos` não muda no mesmo dia
+        (spec, seção 2), e a baixa nova está no `lancamentos_bx`. Uma baixa do mesmo mês, com
+        data igual ou posterior à do lançamento (ou com o lançamento sem data), tira o mês."""
+        filtros = {"matricula_titular": matricula, "status_lancamento": STATUS_REJEITADA}
+        rejeitadas = [
+            _converter(linha, _lancamento)
+            for linha in self._linhas(ROTA_LANCAMENTOS, filtros, "id", matricula)
+            if linha.get("status_lancamento") == STATUS_REJEITADA
+        ]
+        if not rejeitadas:
+            return []
+        baixas = [
+            _converter(linha, _baixa)
+            for linha in self._linhas(ROTA_BAIXAS, {"matricula": matricula}, "id", matricula)
+        ]
+
+        def paga(mensalidade: MensalidadeAberta, recusada_em: date | None) -> bool:
+            return any(
+                baixa.mes_ref == mensalidade.mes_ano
+                and (recusada_em is None or baixa.pago_em.date() >= recusada_em)
+                for baixa in baixas
+            )
+
+        abertas = [m for m, recusada_em in rejeitadas if not paga(m, recusada_em)]
+        return sorted(abertas, key=lambda mensalidade: mensalidade.mes_ano)
+
+    def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
+        """As baixas com `coletado_em` depois do cursor. A API filtra por `dia_relatorio`, e o
+        relatório de um dia pode ser coletado depois da meia-noite: a janela abre um dia antes do
+        cursor e anda de 31 em 31 dias até hoje."""
+        cursor = _como_utc(coletado_desde)
+        hoje = self._hoje()
+        inicio = cursor.date() - timedelta(days=1)
+        achadas: dict[str, BaixaCTN] = {}
+        while inicio <= hoje:
+            fim = min(inicio + timedelta(days=DIAS_POR_JANELA - 1), hoje)
+            filtros = {"de": inicio.isoformat(), "ate": fim.isoformat()}
+            for linha in self._linhas(ROTA_BAIXAS, filtros, "id"):
+                baixa = _converter(linha, _baixa)
+                if baixa.coletado_em > cursor:
+                    achadas[baixa.id_externo] = baixa
+            inicio = fim + timedelta(days=1)
+        return sorted(achadas.values(), key=lambda b: (b.coletado_em, b.id_externo))
+
+    # ---- HTTP ----
+
+    def _hoje(self) -> date:
+        return _como_utc(self._agora()).astimezone(UTC).date()
+
+    def _linhas(
+        self, rota: str, filtros: Mapping[str, str], ordem: str, matricula: str | None = None
+    ) -> Iterator[Mapping]:
+        """As linhas de uma rota, página a página até `mais = false`. A paginação sem `ordem`
+        repete linhas (sondagem de 2026-11-04), então toda consulta manda `ordem`. `matricula` é
+        a pessoa da consulta: o 400/404 dela é "não existe", não falha do CTN."""
+        for pagina in range(PAGINAS_MAXIMAS):
+            params = {
+                **filtros,
+                "unidade": self.unidade,
+                "ordem": ordem,
+                "direcao": "asc",
+                "pagina": pagina,
+                "limite": self._linhas_por_pagina,
+            }
+            corpo = self._obter(rota, params, matricula)
+            dados = corpo.get("dados") if isinstance(corpo, Mapping) else None
+            if not isinstance(dados, list) or not all(isinstance(x, Mapping) for x in dados):
+                raise _invalida()
+            uso = corpo.get("uso")
+            self.ultimo_uso = uso if isinstance(uso, Mapping) else None
+            log.debug("CTN %s página %s: %s linhas, uso %s", rota, pagina, len(dados), uso)
+            yield from dados
+            if not corpo.get("mais"):
+                return
+        raise CTNIndisponivel("o CTN passou do limite de páginas")
+
+    def _esperar_vaga(self) -> None:
+        """Até `limite_minuto` chamadas em qualquer janela de 60 s, seguro entre threads: quem
+        passa do limite dorme, com a trava, até a chamada mais antiga sair da janela."""
+        with self._trava_taxa:
+            while True:
+                agora = self._relogio()
+                while self._chamadas and agora - self._chamadas[0] >= JANELA_DO_LIMITE:
+                    self._chamadas.popleft()
+                if len(self._chamadas) < self._limite_minuto:
+                    self._chamadas.append(agora)
+                    return
+                self._dormir(JANELA_DO_LIMITE - (agora - self._chamadas[0]))
+
+    def _obter(self, rota: str, params: Mapping[str, Any], matricula: str | None) -> object:
+        """Um GET com o prazo total (a conexão e o corpo juntos).
+
+        O erro nunca carrega o erro de origem: o `CTNIndisponivel` sai de fora dos `except`, com
+        `__context__` e `__cause__` nulos, porque a mensagem do httpx pode ecoar a URL.
+        """
+        self._esperar_vaga()
+        limite = time.monotonic() + self._prazo
+        try:
+            with self._cliente.stream("GET", rota, params=params) as resposta:
+                # O status vem antes do corpo: o erro nunca lê o que o servidor ecoou.
+                if matricula is not None and resposta.status_code in (400, 404):
+                    raise ClienteNaoEncontrado(matricula)
+                if not resposta.is_success:
+                    raise CTNIndisponivel(f"o CTN respondeu {resposta.status_code}")
+                pedacos = []
+                for pedaco in resposta.iter_bytes():
+                    pedacos.append(pedaco)
+                    if time.monotonic() > limite:
+                        raise CTNIndisponivel(MOTIVO_PRAZO)
+            if time.monotonic() > limite:
+                motivo = MOTIVO_PRAZO
+            else:
+                return json.loads(b"".join(pedacos))
+        except (ClienteNaoEncontrado, CTNIndisponivel):
+            raise
+        except httpx.TimeoutException:
+            motivo = MOTIVO_PRAZO
+        except httpx.HTTPError as erro:
+            motivo = f"falha de rede com o CTN ({type(erro).__name__})"
+        except ValueError:
+            motivo = "a resposta do CTN não é JSON"
+        raise CTNIndisponivel(motivo) from None

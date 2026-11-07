@@ -4,7 +4,9 @@ Rodar: `uvicorn agente.api.principal:montar_app --factory`. Sem o Chatwoot confi
 serviço só roda em modo sombra, com a interface falsa. O modo ativo exige o Chatwoot real, o Jev
 real e, enquanto o Pix e o CTN forem os falsos, a liberação em piloto. Sem o AGENTE_JEV_API_KEY, o
 Jev é o falso; com ela, o serviço só sobe com o AGENTE_JEV_DADOS_REAIS_LIBERADOS=true (a ZDR da
-TypeSafe, D12). Sem o AGENTE_LLM_API_KEY, o redator é o falso; sem o AGENTE_TRANSCRICAO_*, o áudio
+TypeSafe, D12). Com o AGENTE_CTN_API_KEY, o CTN lê da EFICAZ (a escrita segue falsa) e o serviço
+só sobe com o Luna real se o AGENTE_LLM_DADOS_REAIS_LIBERADOS=true (M2). Sem o AGENTE_LLM_API_KEY, o
+redator é o falso; sem o AGENTE_TRANSCRICAO_*, o áudio
 não é transcrito. Com AGENTE_TURNO=uma_chamada (D47), o turno é uma chamada só ao Luna: ela exige o
 AGENTE_LLM_API_KEY, e o modo ativo pede essa chave no lugar da do Jev. O Jev falso só existe na
 montagem: o turno e o botão do Pix não o consultam nesse caminho.
@@ -15,10 +17,16 @@ import logging
 from fastapi import FastAPI
 
 from agente.api.app import criar_app
-from agente.config import MENSAGEM_JEV_SEM_LIBERACAO, Config, carregar_config
+from agente.config import (
+    MENSAGEM_JEV_SEM_LIBERACAO,
+    MENSAGEM_LLM_SEM_LIBERACAO,
+    Config,
+    carregar_config,
+)
 from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
-from agente.integracoes.ctn import CTNFalso
+from agente.integracoes.ctn import CTN, CTNComposto, CTNFalso
+from agente.integracoes.ctn_eficaz import CTNEficaz
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import Jev, JevComPrazo, JevFalso
 from agente.integracoes.jev_typesafe import JevTypeSafe
@@ -55,6 +63,26 @@ def _jev(config: Config, politica: Politica) -> Jev:
         )
     log.warning("AGENTE_JEV_API_KEY não configurada: usando o Jev falso (T10)")
     return JevComPrazo(JevFalso(), politica.jev_timeout_ms)
+
+
+def _exigir_o_luna_liberado_com_o_ctn_real(config: Config) -> None:
+    """Com o CTN real, o Luna real só lê conversa de cliente depois da conferência da OpenAI (M2).
+
+    Espelha a trava do Jev: a mensagem do erro não leva nenhuma chave.
+    """
+    if config.ctn_real_ligado and config.llm_api_key and not config.llm_dados_reais_liberados:
+        raise ValueError(MENSAGEM_LLM_SEM_LIBERACAO)
+
+
+def _ctn(config: Config, modo: Modo) -> CTN:
+    """O CTN real só de leitura (EFICAZ) com a escrita falsa; sem a chave, o falso de hoje."""
+    # Até a T9, a escrita (link, cadastro do cartão e baixa) é a falsa: no ativo (só no piloto,
+    # abaixo) ela aceita a matrícula, senão todo turno com link do CTN falha com
+    # ClienteNaoEncontrado.
+    falso = CTNFalso(aceita_qualquer_matricula=modo is Modo.ATIVO)
+    if config.ctn_real_ligado:
+        return CTNComposto(CTNEficaz.da_config(config), falso)
+    return falso
 
 
 def _llm_turno(config: Config) -> LLMTurno | None:
@@ -137,6 +165,7 @@ def montar_dependencias(config: Config) -> Dependencias:
     politica = carregar_politica(config.politica_path)
     try:
         _exigir_o_modo_ativo_seguro(config, politica, modo)
+        _exigir_o_luna_liberado_com_o_ctn_real(config)
         jev = _jev(config, politica)
         llm_turno = _llm_turno(config)
     except ValueError:
@@ -155,9 +184,7 @@ def montar_dependencias(config: Config) -> Dependencias:
         transcritor=_transcritor(config, politica),
         webchat=_webchat(config),
         llm_turno=llm_turno,
-        # Até a T9, o CTN é o falso e não tem a carteira: no ativo (só no piloto, acima) ele aceita
-        # a matrícula, senão todo turno com link do CTN falha com ClienteNaoEncontrado.
-        ctn=CTNFalso(aceita_qualquer_matricula=modo is Modo.ATIVO),
+        ctn=_ctn(config, modo),
     )
 
 

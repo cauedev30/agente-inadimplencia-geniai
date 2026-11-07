@@ -54,6 +54,16 @@ def _fechar_jev(dependencias: DependenciasPagamento | None) -> None:
             log.exception("não foi possível fechar o cliente do Jev")
 
 
+def _fechar_ctn(ctn: object) -> None:
+    """Fecha o cliente HTTP do CTN real no encerramento; o falso não tem o que fechar."""
+    fechar = getattr(ctn, "fechar", None)
+    if callable(fechar):
+        try:
+            fechar()
+        except Exception:
+            log.exception("não foi possível fechar o cliente do CTN")
+
+
 def _rotinas(
     dependencias: DependenciasPagamento | None, politica: Politica, config: Config
 ) -> list[Rotina]:
@@ -103,6 +113,7 @@ def criar_app(
         finally:
             trabalhador.parar()
             _fechar_jev(dependencias)
+            _fechar_ctn(ctn)
 
     app = FastAPI(title="Agente de inadimplência", lifespan=ciclo_de_vida)
     app.state.trabalhador = trabalhador

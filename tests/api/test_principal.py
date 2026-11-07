@@ -5,7 +5,8 @@ import agente.api.app
 from agente.api.principal import montar_app, montar_dependencias
 from agente.config import Config
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
-from agente.integracoes.ctn import ClienteNaoEncontrado
+from agente.integracoes.ctn import ClienteNaoEncontrado, CTNComposto, CTNFalso
+from agente.integracoes.ctn_eficaz import CTNEficaz
 from agente.integracoes.jev import JevComPrazo, JevFalso
 from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.integracoes.llm_turno import LLMTurnoOpenAI
@@ -406,4 +407,83 @@ def test_a_recusa_do_modo_ativo_no_turno_novo_fecha_o_chatwoot_real(monkeypatch,
     monkeypatch.setattr(ChatwootHttp, "fechar", lambda self: fechados.append(self))
     with pytest.raises(ValueError, match="uma_chamada"):
         montar_dependencias(_config_ativo(tmp_path, PILOTO, turno="uma_chamada"))
+    assert len(fechados) == 1
+
+
+# ---- o CTN real (EFICAZ) e a trava do Luna (M2) ----
+
+CHAVE_CTN = "eg_SEGREDO_INVENTADO_123"
+
+
+def test_sem_a_chave_do_ctn_o_falso_de_hoje_serve():
+    deps = montar_dependencias(_config())
+    assert isinstance(deps.ctn, CTNFalso)
+
+
+def test_com_a_chave_do_ctn_o_ctn_e_o_composto_com_a_eficaz_na_leitura_e_o_falso_na_escrita():
+    deps = montar_dependencias(_config(ctn_api_key=CHAVE_CTN, ctn_unidade="jp"))
+    try:
+        assert isinstance(deps.ctn, CTNComposto)
+        assert isinstance(deps.ctn.leitura, CTNEficaz)
+        assert isinstance(deps.ctn.escrita, CTNFalso)
+    finally:
+        deps.ctn.fechar()
+
+
+def test_ctn_real_com_o_luna_real_sem_a_liberacao_o_servico_nao_sobe():
+    config = _config(ctn_api_key=CHAVE_CTN, llm_api_key="chave-do-luna")
+    with pytest.raises(ValueError, match="AGENTE_LLM_DADOS_REAIS_LIBERADOS") as erro:
+        montar_dependencias(config)
+    assert CHAVE_CTN not in str(erro.value) and "chave-do-luna" not in str(erro.value)
+
+
+def test_ctn_real_com_o_luna_real_e_a_liberacao_o_servico_sobe():
+    config = _config(
+        ctn_api_key=CHAVE_CTN, llm_api_key="chave-do-luna", llm_dados_reais_liberados=True
+    )
+    deps = montar_dependencias(config)
+    try:
+        assert isinstance(deps.ctn, CTNComposto)
+        assert isinstance(deps.redator, RedatorOpenAI)
+    finally:
+        deps.ctn.fechar()
+
+
+def test_ctn_real_sem_o_luna_real_sobe_sem_a_liberacao():
+    # O redator é o falso: nenhum dado de cliente sai para o LLM.
+    deps = montar_dependencias(_config(ctn_api_key=CHAVE_CTN))
+    try:
+        assert isinstance(deps.redator, RedatorFalso)
+    finally:
+        deps.ctn.fechar()
+
+
+def test_luna_real_sem_o_ctn_real_sobe_sem_a_liberacao():
+    deps = montar_dependencias(_config(llm_api_key="chave-do-luna"))
+    assert isinstance(deps.redator, RedatorOpenAI)
+
+
+def test_a_recusa_do_luna_fecha_o_chatwoot_e_o_ctn_real(monkeypatch):
+    fechados = []
+    monkeypatch.setattr(ChatwootHttp, "fechar", lambda self: fechados.append("chatwoot"))
+    monkeypatch.setattr(CTNEficaz, "fechar", lambda self: fechados.append("ctn"))
+    config = _config(
+        chatwoot_url="https://chatwoot.invalid",
+        chatwoot_conta=7,
+        chatwoot_token="t",
+        ctn_api_key=CHAVE_CTN,
+        llm_api_key="chave-do-luna",
+    )
+    with pytest.raises(ValueError, match="AGENTE_LLM"):
+        montar_dependencias(config)
+    assert sorted(fechados) == ["chatwoot"]
+
+
+def test_o_encerramento_do_servico_fecha_o_cliente_do_ctn_real(monkeypatch):
+    fechados = []
+    monkeypatch.setattr(CTNEficaz, "fechar", lambda self: fechados.append(self))
+
+    with TestClient(montar_app(_config(ctn_api_key=CHAVE_CTN), iniciar_trabalhador=False)):
+        assert fechados == []
+
     assert len(fechados) == 1

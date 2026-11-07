@@ -47,6 +47,16 @@ def test_no_piloto_so_os_telefones_da_lista_ficam_ativos(politica):
     assert modo_da_conversa(_cobranca(telefone="+5583900000002"), piloto) is Modo.SOMBRA
 
 
+@pytest.mark.parametrize(
+    ("guardado", "da_lista"),
+    [("+5583999990001", "+558399990001"), ("+558399990001", "+5583999990001")],
+)
+def test_no_piloto_o_telefone_casa_com_e_sem_o_9(politica, guardado, da_lista):
+    """A1: o CTN dá o telefone com o 9 e a lista do piloto pode ter sido escrita sem ele."""
+    piloto = _com(politica, LiberacaoPiloto(modo="piloto", telefones=frozenset({da_lista})))
+    assert modo_da_conversa(_cobranca(telefone=guardado), piloto) is Modo.ATIVO
+
+
 def test_o_percentual_e_estavel_para_a_mesma_cobranca(politica):
     parte = _com(politica, LiberacaoPercentual(modo="percentual", percentual=30))
     modos = {modo_da_conversa(_cobranca(id_=7), parte) for _ in range(20)}

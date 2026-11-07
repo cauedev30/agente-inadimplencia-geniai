@@ -1,20 +1,37 @@
-"""Contrato do CTN. Toda implementação (a falsa agora, a real na tarefa 6.5) passa por estes testes.
+"""Contrato do CTN. Toda implementação (a falsa, o `CTNEficaz` e o composto) passa por estes testes.
 
-Para testar outra implementação, herde de ContratoCTN e defina a fixture `ctn_e_matricula`, que
-devolve a implementação e uma matrícula existente com histórico de pagamentos.
+Há dois contratos. O `ContratoLeituraCTN` vale para quem só lê (o `CTNEficaz`); o `ContratoCTN`
+acrescenta a escrita (link, cadastro do cartão e baixa) e vale para o `Protocol CTN` inteiro.
+
+Para testar outra implementação, herde de um deles e defina as fixtures `ctn_e_matricula`, que
+devolve a implementação e uma matrícula existente com histórico de pagamentos, mensalidades em
+aberto e presença no retrato e nas baixas de `DATA_REF`, e `ctn_fora_do_ar_e_matricula`.
 """
 
+import re
 from datetime import UTC, date, datetime
 
 import pytest
 
-from agente.integracoes.ctn import ClienteCTN, ClienteNaoEncontrado, CTNFalso, CTNIndisponivel
+from agente.integracoes.ctn import (
+    BaixaCTN,
+    ClienteCTN,
+    ClienteNaoEncontrado,
+    CTNComposto,
+    CTNFalso,
+    CTNIndisponivel,
+    InadimplenteCTN,
+    MensalidadeAberta,
+)
 from agente.tipos import FormaHistorico, PagamentoHistorico
 
 PAGO_EM = datetime(2026, 10, 22, 15, tzinfo=UTC)
+DATA_REF = date(2026, 11, 6)
+# As baixas do contrato foram coletadas depois deste instante.
+COLETADAS_DEPOIS_DE = datetime(2026, 11, 6, 0, 0, tzinfo=UTC)
 
 
-class ContratoCTN:
+class ContratoLeituraCTN:
     def test_consulta_o_cliente(self, ctn_e_matricula):
         ctn, matricula = ctn_e_matricula
         cliente = ctn.consultar_cliente(matricula)
@@ -34,6 +51,70 @@ class ContratoCTN:
         assert all(isinstance(p, PagamentoHistorico) for p in historico)
         assert [p.data for p in historico] == sorted(p.data for p in historico)
 
+    def test_o_retrato_do_dia_vem_tipado(self, ctn_e_matricula):
+        ctn, matricula = ctn_e_matricula
+        retrato = list(ctn.inadimplentes(DATA_REF))
+        assert matricula in {i.matricula for i in retrato}
+        for item in retrato:
+            assert isinstance(item, InadimplenteCTN)
+            assert item.data_ref == DATA_REF
+            assert item.nome
+            assert isinstance(item.meses_atraso, int)
+            assert isinstance(item.meses_ate_corte, int)
+            assert item.ult_mesref is None or isinstance(item.ult_mesref, date)
+
+    def test_o_retrato_de_um_dia_sem_dados_vem_vazio(self, ctn_e_matricula):
+        ctn, _ = ctn_e_matricula
+        assert list(ctn.inadimplentes(date(2020, 1, 1))) == []
+
+    def test_mensalidades_em_aberto_vem_tipada(self, ctn_e_matricula):
+        ctn, matricula = ctn_e_matricula
+        abertas = ctn.mensalidades_em_aberto(matricula)
+        assert abertas
+        for aberta in abertas:
+            assert isinstance(aberta, MensalidadeAberta)
+            assert re.fullmatch(r"\d{4}/\d{2}", aberta.mes_ano)
+            assert aberta.valor_centavos > 0
+
+    def test_baixas_desde_o_cursor_vem_em_ordem_e_tipadas(self, ctn_e_matricula):
+        ctn, _ = ctn_e_matricula
+        baixas = ctn.baixas_desde(COLETADAS_DEPOIS_DE)
+        assert baixas
+        for baixa in baixas:
+            assert isinstance(baixa, BaixaCTN)
+            assert isinstance(baixa.forma, FormaHistorico)
+            assert baixa.id_externo
+            assert baixa.valor_centavos > 0
+            assert baixa.coletado_em > COLETADAS_DEPOIS_DE
+        assert [b.coletado_em for b in baixas] == sorted(b.coletado_em for b in baixas)
+
+    def test_baixas_desde_o_ultimo_coletado_vem_vazia(self, ctn_e_matricula):
+        ctn, _ = ctn_e_matricula
+        ultimo = ctn.baixas_desde(COLETADAS_DEPOIS_DE)[-1].coletado_em
+        assert ctn.baixas_desde(ultimo) == []
+
+    # A implementação real define a fixture `ctn_fora_do_ar_e_matricula`: o CTN sem resposta (rede
+    # caída, prazo estourado ou 5xx). A falha tem de sair como CTNIndisponivel, que o turno trata.
+    @pytest.mark.parametrize(
+        "chamada",
+        [
+            lambda ctn, m: ctn.consultar_cliente(m),
+            lambda ctn, m: ctn.historico_pagamentos(m, meses=12),
+            lambda ctn, m: list(ctn.inadimplentes(DATA_REF)),
+            lambda ctn, m: ctn.mensalidades_em_aberto(m),
+            lambda ctn, m: ctn.baixas_desde(COLETADAS_DEPOIS_DE),
+        ],
+        ids=["cliente", "historico", "retrato", "mensalidades", "baixas_desde"],
+    )
+    def test_com_o_ctn_fora_do_ar_a_leitura_sai_como_indisponivel(
+        self, ctn_fora_do_ar_e_matricula, chamada
+    ):
+        ctn, matricula = ctn_fora_do_ar_e_matricula
+        with pytest.raises(CTNIndisponivel):
+            chamada(ctn, matricula)
+
+
+class ContratoCTN(ContratoLeituraCTN):
     def test_link_de_pagamento_leva_o_valor(self, ctn_e_matricula):
         ctn, matricula = ctn_e_matricula
         link = ctn.gerar_link_pagamento(matricula, valor_centavos=7020, cobranca_id=1)
@@ -56,25 +137,132 @@ class ContratoCTN:
         assert primeira is True
         assert repetida is False
 
-    # A implementação real define a fixture `ctn_fora_do_ar_e_matricula`: o CTN sem resposta (rede
-    # caída, prazo estourado ou 5xx). A falha tem de sair como CTNIndisponivel, que o turno trata.
     @pytest.mark.parametrize(
         "chamada",
         [
-            lambda ctn, m: ctn.consultar_cliente(m),
-            lambda ctn, m: ctn.historico_pagamentos(m, meses=12),
             lambda ctn, m: ctn.gerar_link_pagamento(m, valor_centavos=7020, cobranca_id=1),
             lambda ctn, m: ctn.gerar_link_cadastro_cartao(m),
             lambda ctn, m: ctn.registrar_baixa(m, 10020, PAGO_EM, referencia="ref-1"),
         ],
-        ids=["cliente", "historico", "link", "cartao", "baixa"],
+        ids=["link", "cartao", "baixa"],
     )
-    def test_com_o_ctn_fora_do_ar_a_falha_sai_como_indisponivel(
+    def test_com_o_ctn_fora_do_ar_a_escrita_sai_como_indisponivel(
         self, ctn_fora_do_ar_e_matricula, chamada
     ):
         ctn, matricula = ctn_fora_do_ar_e_matricula
         with pytest.raises(CTNIndisponivel):
             chamada(ctn, matricula)
+
+
+def _falso_com_dados() -> tuple[CTNFalso, str]:
+    cliente = ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", cpf=None)
+    historico = [
+        PagamentoHistorico(date(2026, 9, 10), FormaHistorico.PIX, 3340),
+        PagamentoHistorico(date(2026, 7, 10), FormaHistorico.PIX, 3340),
+        PagamentoHistorico(date(2026, 8, 11), FormaHistorico.PIX, 3340),
+    ]
+    retrato = [
+        InadimplenteCTN(
+            "M-0001", "Cliente Fictício", "+5583900000001", 2, 4, date(2026, 9, 1), DATA_REF
+        ),
+        InadimplenteCTN(
+            "M-0002", "Outro Fictício", "+5583900000002", 1, 5, date(2026, 10, 1), DATA_REF
+        ),
+        InadimplenteCTN(
+            "M-0001",
+            "Cliente Fictício",
+            "+5583900000001",
+            1,
+            5,
+            date(2026, 10, 1),
+            date(2026, 11, 5),
+        ),
+    ]
+    abertas = {"M-0001": [MensalidadeAberta("2026/09", 3340), MensalidadeAberta("2026/10", 3340)]}
+    baixas = [
+        BaixaCTN(
+            "bx-2",
+            "M-0002",
+            "2026/10",
+            3340,
+            FormaHistorico.BOLETO,
+            datetime(2026, 11, 6, 11, tzinfo=UTC),
+            datetime(2026, 11, 6, 12, tzinfo=UTC),
+        ),
+        BaixaCTN(
+            "bx-1",
+            "M-0001",
+            "2026/08",
+            3340,
+            FormaHistorico.PIX,
+            datetime(2026, 11, 6, 10, tzinfo=UTC),
+            datetime(2026, 11, 6, 10, 5, tzinfo=UTC),
+        ),
+        BaixaCTN(
+            "bx-0",
+            "M-0001",
+            "2026/07",
+            3340,
+            FormaHistorico.PIX,
+            datetime(2026, 11, 5, 10, tzinfo=UTC),
+            datetime(2026, 11, 5, 10, 5, tzinfo=UTC),
+        ),
+    ]
+    ctn = CTNFalso(
+        clientes=[cliente],
+        historicos={"M-0001": historico},
+        hoje=date(2026, 10, 22),
+        retrato=retrato,
+        mensalidades_abertas=abertas,
+        baixas_externas=baixas,
+    )
+    return ctn, "M-0001"
+
+
+class TestCTNComposto(ContratoCTN):
+    """Leitura de um lado e escrita do outro, e o contrato inteiro continua valendo."""
+
+    @pytest.fixture
+    def ctn_e_matricula(self):
+        leitura, matricula = _falso_com_dados()
+        escrita = CTNFalso(clientes=[leitura.consultar_cliente(matricula)])
+        return CTNComposto(leitura, escrita), matricula
+
+    @pytest.fixture
+    def ctn_fora_do_ar_e_matricula(self, ctn_e_matricula):
+        ctn, matricula = ctn_e_matricula
+        ctn.leitura.fora_do_ar = True
+        ctn.escrita.fora_do_ar = True
+        return ctn, matricula
+
+    def test_as_leituras_vao_a_leitura_e_as_escritas_a_escrita(self, ctn_e_matricula):
+        ctn, matricula = ctn_e_matricula
+        ctn.consultar_cliente(matricula)
+        ctn.historico_pagamentos(matricula, meses=12)
+        list(ctn.inadimplentes(DATA_REF))
+        ctn.mensalidades_em_aberto(matricula)
+        ctn.baixas_desde(COLETADAS_DEPOIS_DE)
+        link = ctn.gerar_link_pagamento(matricula, valor_centavos=7020, cobranca_id=3)
+        cartao = ctn.gerar_link_cadastro_cartao(matricula)
+        ctn.registrar_baixa(matricula, 7020, PAGO_EM, referencia="ref-9")
+
+        assert ctn.leitura.links == {} and ctn.leitura.baixas == []
+        assert set(ctn.escrita.links) == {link.id_externo, cartao.id_externo}
+        assert ctn.escrita.baixas == [(matricula, 7020, PAGO_EM, "ref-9")]
+
+    def test_fechar_fecha_a_leitura_que_tem_cliente_http(self, ctn_e_matricula):
+        class Leitura:
+            fechada = False
+
+            def fechar(self):
+                self.fechada = True
+
+        leitura = Leitura()
+        CTNComposto(leitura, ctn_e_matricula[0].escrita).fechar()
+        assert leitura.fechada
+
+    def test_fechar_com_a_leitura_falsa_nao_faz_nada(self, ctn_e_matricula):
+        ctn_e_matricula[0].fechar()
 
 
 class TestCTNFalso(ContratoCTN):
@@ -86,16 +274,7 @@ class TestCTNFalso(ContratoCTN):
 
     @pytest.fixture
     def ctn_e_matricula(self):
-        cliente = ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", cpf=None)
-        historico = [
-            PagamentoHistorico(date(2026, 9, 10), FormaHistorico.PIX, 3340),
-            PagamentoHistorico(date(2026, 7, 10), FormaHistorico.PIX, 3340),
-            PagamentoHistorico(date(2026, 8, 11), FormaHistorico.PIX, 3340),
-        ]
-        ctn = CTNFalso(
-            clientes=[cliente], historicos={"M-0001": historico}, hoje=date(2026, 10, 22)
-        )
-        return ctn, "M-0001"
+        return _falso_com_dados()
 
     def test_falsa_grava_as_baixas(self, ctn_e_matricula):
         ctn, matricula = ctn_e_matricula
@@ -111,6 +290,17 @@ class TestCTNFalso(ContratoCTN):
         ctn, matricula = ctn_e_matricula
         datas = [p.data for p in ctn.historico_pagamentos(matricula, meses=3)]
         assert datas == [date(2026, 8, 11), date(2026, 9, 10)]
+
+    def test_falsa_filtra_o_retrato_pela_data(self, ctn_e_matricula):
+        ctn, _ = ctn_e_matricula
+        ontem = list(ctn.inadimplentes(date(2026, 11, 5)))
+        assert [(i.matricula, i.meses_atraso) for i in ontem] == [("M-0001", 1)]
+
+    def test_falsa_sem_dados_novos_responde_vazio(self):
+        ctn = CTNFalso(aceita_qualquer_matricula=True)
+        assert list(ctn.inadimplentes(DATA_REF)) == []
+        assert ctn.mensalidades_em_aberto("DEMO-0001") == []
+        assert ctn.baixas_desde(COLETADAS_DEPOIS_DE) == []
 
 
 def test_a_falsa_aberta_aceita_qualquer_matricula_e_gera_o_link():

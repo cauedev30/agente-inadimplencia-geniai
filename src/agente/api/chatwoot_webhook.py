@@ -14,7 +14,7 @@ from agente.abertura.disparar import BOTAO_PAGAR_PIX
 from agente.config import Config
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Cliente, Cobranca, Conversa
-from agente.dominio.telefone import normalizar_telefone
+from agente.dominio.telefone import variantes_telefone
 from agente.politica import Politica
 from agente.tipos import OrigemMensagem, StatusCobranca
 from agente.turno.fila import agendar_turno
@@ -100,13 +100,14 @@ def _conversa_do_cliente(sessao: Session, evento: EventoMensagem) -> Conversa | 
     conversa = _conversa_ligada(sessao, evento)
     if conversa is not None:
         return conversa
-    telefone = normalizar_telefone(evento.telefone or "")
-    if telefone is None:
+    # O contato pode vir com ou sem o 9 do celular, e a carteira guarda como o CTN deu (A1).
+    telefones = variantes_telefone(evento.telefone or "")
+    if not telefones:
         return None
     cobranca = sessao.scalar(
         select(Cobranca)
         .join(Cliente)
-        .where(Cliente.telefone == telefone, Cobranca.status == StatusCobranca.ATIVA)
+        .where(Cliente.telefone.in_(telefones), Cobranca.status == StatusCobranca.ATIVA)
     )
     if cobranca is None:
         return None

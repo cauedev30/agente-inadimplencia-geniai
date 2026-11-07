@@ -266,6 +266,7 @@ def test_o_env_example_copiado_como_esta_sobe_com_tudo_desligado(monkeypatch):
 
     assert not config.transcricao_ligada and not config.webchat_ligado
     assert config.jev_api_key is None and config.jev_dados_reais_liberados is False
+    assert config.ctn_api_key is None and config.llm_dados_reais_liberados is False
     assert config.chatwoot_conta is None and config.chatwoot_inbox is None
     assert config.chatwoot_time_humano is None and config.webchat_inbox is None
 
@@ -336,3 +337,65 @@ def test_a_suite_roda_sem_as_variaveis_do_jev_no_ambiente(monkeypatch):
         monkeypatch.setenv(variavel, "true")
     limpar_ambiente_do_jev(monkeypatch)
     assert not [v for v in VARIAVEIS_DO_JEV if v in os.environ]
+
+
+def test_sem_variavel_do_ctn_ele_fica_desligado_e_a_liberacao_do_llm_fechada(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+
+    config = carregar_config(_env_file=None)
+
+    assert config.ctn_api_key is None
+    assert config.ctn_url == "https://api.eficaz-group.com"
+    assert config.ctn_unidade == "jp"
+    assert config.llm_dados_reais_liberados is False
+    assert config.ctn_real_ligado is False
+
+
+def test_config_le_as_variaveis_do_ctn(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_CTN_API_KEY", "  chave-ficticia  ")
+    monkeypatch.setenv("AGENTE_CTN_URL", "https://eficaz.invalid")
+    monkeypatch.setenv("AGENTE_CTN_UNIDADE", "sul")
+    monkeypatch.setenv("AGENTE_LLM_DADOS_REAIS_LIBERADOS", "true")
+
+    config = carregar_config(_env_file=None)
+
+    assert config.ctn_api_key == "chave-ficticia"
+    assert config.ctn_url == "https://eficaz.invalid"
+    assert config.ctn_unidade == "sul"
+    assert config.llm_dados_reais_liberados is True
+    assert config.ctn_real_ligado is True
+
+
+@pytest.mark.parametrize("vazio", ["", "  "])
+def test_variaveis_do_ctn_vazias_valem_como_ausentes(monkeypatch, vazio):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    for variavel in ("API_KEY", "URL", "UNIDADE"):
+        monkeypatch.setenv(f"AGENTE_CTN_{variavel}", vazio)
+    monkeypatch.setenv("AGENTE_LLM_DADOS_REAIS_LIBERADOS", vazio)
+
+    config = carregar_config(_env_file=None)
+
+    assert config.ctn_api_key is None
+    assert config.ctn_url == "https://api.eficaz-group.com"
+    assert config.ctn_unidade == "jp"
+    assert config.llm_dados_reais_liberados is False
+
+
+def test_a_chave_do_ctn_nao_aparece_no_repr_da_config(monkeypatch):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_CTN_API_KEY", "eg_SEGREDO_INVENTADO")
+
+    config = carregar_config(_env_file=None)
+
+    assert "eg_SEGREDO_INVENTADO" not in repr(config)
+    assert "eg_SEGREDO_INVENTADO" not in str(config)
+
+
+@pytest.mark.parametrize("valor", ["talvez", " true "])
+def test_liberacao_do_llm_ambigua_falha_fechada(monkeypatch, valor):
+    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
+    monkeypatch.setenv("AGENTE_LLM_DADOS_REAIS_LIBERADOS", valor)
+
+    with pytest.raises(ValidationError):
+        carregar_config(_env_file=None)

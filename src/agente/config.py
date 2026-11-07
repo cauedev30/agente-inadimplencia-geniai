@@ -3,9 +3,10 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agente.integracoes.ctn_eficaz import UNIDADE_PADRAO, URL_EFICAZ
 from agente.integracoes.jev_typesafe import MODELO_PADRAO, URL_TYPESAFE
 from agente.integracoes.redator import URL_OPENAI
 from agente.integracoes.transcritor import MODELO_TRANSCRICAO
@@ -19,6 +20,15 @@ MENSAGEM_JEV_SEM_LIBERACAO = (
     "ainda não confirmou por escrito Zero Data Retention e No Training (D12), então conversa real "
     "não pode ir ao Jev real. Tire a chave do ambiente para usar o Jev falso, ou libere depois da "
     "confirmação."
+)
+
+# Por que o serviço não sobe com o CTN real e o Luna real juntos sem a liberação (M2). Vai ao erro
+# do serviço; não leva nenhuma chave.
+MENSAGEM_LLM_SEM_LIBERACAO = (
+    "AGENTE_CTN_API_KEY e AGENTE_LLM_API_KEY estão definidas, mas AGENTE_LLM_DADOS_REAIS_LIBERADOS "
+    "não é true: com o CTN real, o texto das conversas de clientes de verdade iria ao Luna, e a "
+    "retenção de dados da OpenAI ainda não foi conferida (T6, D42). Tire uma das duas chaves do "
+    "ambiente, ou libere depois da conferência."
 )
 
 
@@ -43,6 +53,14 @@ class ConfigRedator(ConfigPolitica):
     # Entra no corpo de todo pedido. O Luna recusa a temperatura (HTTP 400) sem o reasoning_effort
     # "none". Em variável de ambiente, vai como JSON.
     llm_corpo_extra: dict = {"reasoning_effort": "none"}
+    # Enquanto a retenção da OpenAI não for conferida, o Luna real não lê conversa de cliente do CTN
+    # real (M2). Só vale junto com a chave do CTN.
+    llm_dados_reais_liberados: bool = False
+
+    @field_validator("llm_dados_reais_liberados", mode="before")
+    @classmethod
+    def _liberacao_do_llm_vazia_e_fechada(cls, valor):
+        return False if isinstance(valor, str) and not valor.strip() else valor
 
 
 class ConfigJev(ConfigPolitica):
@@ -79,7 +97,32 @@ class ConfigJev(ConfigPolitica):
         return self.jev_api_key is not None and not self.jev_dados_reais_liberados
 
 
-class Config(ConfigRedator, ConfigJev):
+class ConfigCTN(ConfigPolitica):
+    """O CTN real, pela API EFICAZ (T9; só leitura)."""
+
+    # Sem a chave, o serviço usa o CTN falso. A chave não pode aparecer em repr nem em log.
+    ctn_api_key: str | None = Field(default=None, repr=False)
+    ctn_url: str = URL_EFICAZ
+    ctn_unidade: str = UNIDADE_PADRAO
+
+    @field_validator("ctn_api_key", mode="before")
+    @classmethod
+    def _chave_do_ctn_vazia_e_desligada(cls, valor):
+        # Sem a quebra de linha ou o espaço que vem da colagem: no cabeçalho, ela dá 401 sem pista.
+        return valor.strip() if isinstance(valor, str) and valor.strip() else None
+
+    @field_validator("ctn_url", "ctn_unidade", mode="before")
+    @classmethod
+    def _vazio_volta_ao_padrao_do_ctn(cls, valor, info):
+        padrao = {"ctn_url": URL_EFICAZ, "ctn_unidade": UNIDADE_PADRAO}[info.field_name]
+        return valor.strip() if isinstance(valor, str) and valor.strip() else padrao
+
+    @property
+    def ctn_real_ligado(self) -> bool:
+        return self.ctn_api_key is not None
+
+
+class Config(ConfigRedator, ConfigJev, ConfigCTN):
     database_url: str
     modo: Literal["sombra", "ativo"] = "sombra"
     log_level: str = "INFO"

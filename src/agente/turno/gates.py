@@ -16,6 +16,7 @@ from agente.abertura.disparar import BOTAO_PAGAR_PIX
 from agente.db.historico import mensagens_no_teto
 from agente.db.modelos import Conversa, Mensagem
 from agente.dominio.janela import dentro_da_janela, proxima_abertura
+from agente.dominio.telefone import variantes_telefone
 from agente.politica import Politica
 from agente.tipos import EstadoConversa, OrigemMensagem, StatusCobranca, TipoFixa
 
@@ -101,9 +102,11 @@ def avaliar_gates(
         return Ignorar("sem_cobranca_ativa")
     # O reinício vem antes do humano: o telefone da equipe recomeça a conversa de teste mesmo
     # depois de um handoff, sem precisar devolvê-la ao robô no Chatwoot.
-    if conversa.cobranca.cliente.telefone in politica.telefones_equipe and any(
-        e_comando_de_reinicio(mensagem, politica) for mensagem in mensagens
-    ):
+    # A equipe casa com ou sem o 9 do celular (A1).
+    da_equipe = not variantes_telefone(conversa.cobranca.cliente.telefone).isdisjoint(
+        politica.telefones_equipe
+    )
+    if da_equipe and any(e_comando_de_reinicio(mensagem, politica) for mensagem in mensagens):
         return Reiniciar()
     if barrar_humano and humano_na_conversa(conversa):
         return Ignorar("humano_na_conversa")
