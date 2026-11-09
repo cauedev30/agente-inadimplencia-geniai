@@ -119,6 +119,12 @@ def montar_ambiente(
             # decisions/2026-11-04-demo-whatsapp-jev-real-dado-inventado.md
             "AGENTE_JEV_DADOS_REAIS_LIBERADOS": "true",
             "AGENTE_LLM_API_KEY": str(openai["api_key"]),
+            # Mesma razão: o Chatwoot é o de teste e o dado é inventado; a trava da OpenAI (M2)
+            # barra o Chatwoot real com o Luna real sem esta liberação.
+            "AGENTE_LLM_DADOS_REAIS_LIBERADOS": "true",
+            # O Config também lê o `.env` do cwd (repo/): vazio desliga o CTN real mesmo que o
+            # `.env` traga a chave, para a demo nunca juntar o CTN real à liberação forçada acima.
+            "AGENTE_CTN_API_KEY": "",
         }
     )
     return ambiente

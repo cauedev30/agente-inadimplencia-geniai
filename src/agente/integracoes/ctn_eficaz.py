@@ -67,7 +67,9 @@ PRAZO_PADRAO = 12.0
 MOTIVO_PRAZO = "o CTN passou do prazo"
 MOTIVO_FORMATO = "resposta do CTN em formato inesperado"
 
-_FORMAS_DE_CARTAO = {"MASTERCARD", "VISA", "ELO", "HIPERCARD"}
+# "CAIXA ECONOMICA FEDERAL" fica de fora de propósito: não se sabe se é boleto (pergunta ao dev),
+# então cai em OUTRO até haver confirmação.
+_FORMAS_DE_CARTAO = {"MASTERCARD", "MASTER", "VISA", "ELO", "HIPERCARD", "DISCOVER"}
 _MES = re.compile(r"(\d{4})[/-](\d{2})(?!\d)")
 _MES_INVERTIDO = re.compile(r"(\d{2})[/-](\d{4})$")
 _MILHAR_AMBIGUO = re.compile(r"[+-]?\d+[.,]\d{3}")
@@ -327,8 +329,9 @@ class CTNEficaz:
     def mensalidades_em_aberto(self, matricula: str) -> list[MensalidadeAberta]:
         """Matrícula desconhecida: lista vazia (a API não distingue "sem lançamentos" de "sem a
         matrícula"). As `rejeitada` menos as pagas depois da recusa: o `lancamentos` não muda no
-        mesmo dia (spec, seção 2), e a baixa nova está no `lancamentos_bx`. Uma baixa do mesmo mês,
-        com data igual ou posterior à do lançamento (ou com o lançamento sem data), tira o mês."""
+        mesmo dia (spec, seção 2), e a baixa nova está no `lancamentos_bx`. Cada baixa paga um
+        lançamento só: a do mesmo mês, de data igual ou posterior à do lançamento e de valor igual
+        ou maior (a parcial não tira o mês). Os lançamentos mais antigos casam primeiro."""
         filtros = {"matricula_titular": matricula, "status_lancamento": STATUS_REJEITADA}
         rejeitadas = [
             _converter(linha, _lancamento)
@@ -342,14 +345,39 @@ class CTNEficaz:
             for linha in self._linhas(ROTA_BAIXAS, {"matricula": matricula}, "id")
         ]
 
-        def paga(mensalidade: MensalidadeAberta, recusada_em: date | None) -> bool:
-            return any(
+        # Na API real todo lançamento rejeitado traz a `data_baixa`; sem ela (só nos testes e em
+        # dado malformado), qualquer baixa do mês vale, e o lançamento casa primeiro.
+        pendentes = sorted(rejeitadas, key=lambda r: (r[1] or date.min, r[0].mes_ano))
+
+        def serve(
+            baixa: BaixaCTN, mensalidade: MensalidadeAberta, recusada_em: date | None
+        ) -> bool:
+            return (
                 baixa.mes_ref == mensalidade.mes_ano
+                and baixa.valor_centavos >= mensalidade.valor_centavos
                 and (recusada_em is None or baixa.pago_em.date() >= recusada_em)
-                for baixa in baixas
             )
 
-        abertas = [m for m, recusada_em in rejeitadas if not paga(m, recusada_em)]
+        # Casamento máximo entre lançamentos e baixas (caminhos de aumento): um pareamento guloso
+        # deixaria em aberto quem já pagou. Um lançamento casado nunca perde a baixa; só troca de
+        # baixa, então os mais antigos, que entram primeiro, são os que ficam pagos se faltar baixa.
+        dono_da_baixa: dict[int, int] = {}
+
+        def casar(indice: int, vistas: set[int]) -> bool:
+            mensalidade, recusada_em = pendentes[indice]
+            for b, baixa in enumerate(baixas):
+                if b in vistas or not serve(baixa, mensalidade, recusada_em):
+                    continue
+                vistas.add(b)
+                if b not in dono_da_baixa or casar(dono_da_baixa[b], vistas):
+                    dono_da_baixa[b] = indice
+                    return True
+            return False
+
+        for indice in range(len(pendentes)):
+            casar(indice, set())
+        pagas = set(dono_da_baixa.values())
+        abertas = [m for i, (m, _) in enumerate(pendentes) if i not in pagas]
         return sorted(abertas, key=lambda mensalidade: mensalidade.mes_ano)
 
     def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:

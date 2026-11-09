@@ -344,6 +344,98 @@ def test_baixa_de_outro_mes_nao_tira_nada_e_lancamento_sem_data_cai_com_qualquer
     assert [a.mes_ano for a in abertas] == ["2026/09"]
 
 
+def _abertas_com(lancamentos, baixas):
+    tabelas = tabelas_padrao()
+    tabelas["/v1/ctn/lancamentos"] = lancamentos
+    tabelas["/v1/ctn/lancamentos_bx"] = baixas
+    return cliente(servidor(tabelas)).mensalidades_em_aberto(MATRICULA)
+
+
+def test_uma_baixa_tira_so_um_dos_lancamentos_rejeitados_do_mesmo_mes():
+    lancamentos = [
+        _lanc(1, "2026/10", "rejeitada", valor="99.99", data_baixa="2026-10-05"),
+        _lanc(2, "2026/10", "rejeitada", valor="99.99", data_baixa="2026-10-12"),
+    ]
+    baixas = [_bx(30, MATRICULA, "PIX", "2026/10", "2026-11-06", "99.99", "2026-11-06T09:00:00Z")]
+    assert _abertas_com(lancamentos, baixas) == [MensalidadeAberta("2026/10", 9999)]
+
+
+def test_com_uma_baixa_so_o_lancamento_mais_antigo_do_mes_e_pago():
+    # Os dois cabem na baixa; os lançamentos vêm do mais novo ao mais velho, e o mais antigo casa
+    # primeiro: sobra o de R$ 80, o mais novo. Sem a ordenação por data, sobraria o de R$ 50.
+    lancamentos = [
+        _lanc(1, "2026/10", "rejeitada", valor="80.00", data_baixa="2026-10-12"),
+        _lanc(2, "2026/10", "rejeitada", valor="50.00", data_baixa="2026-10-05"),
+    ]
+    baixas = [_bx(30, MATRICULA, "PIX", "2026/10", "2026-11-06", "80.00", "2026-11-06T09:00:00Z")]
+    assert _abertas_com(lancamentos, baixas) == [MensalidadeAberta("2026/10", 8000)]
+
+
+def test_o_pareamento_fecha_os_dois_lancamentos_quando_o_guloso_deixaria_um_aberto():
+    # A (R$ 50, 10-05) e B (R$ 50, 10-12); X de R$ 60 entre as duas datas só serve a A, e Y de
+    # R$ 50 depois de B serve aos dois: X-A e Y-B pagam tudo. Y-A deixaria B em aberto.
+    lancamentos = [
+        _lanc(1, "2026/10", "rejeitada", valor="50.00", data_baixa="2026-10-05"),
+        _lanc(2, "2026/10", "rejeitada", valor="50.00", data_baixa="2026-10-12"),
+    ]
+    baixas = [
+        _bx(30, MATRICULA, "PIX", "2026/10", "2026-10-08", "60.00", "2026-10-08T09:00:00Z"),
+        _bx(31, MATRICULA, "PIX", "2026/10", "2026-11-06", "50.00", "2026-11-06T09:00:00Z"),
+    ]
+    assert _abertas_com(lancamentos, baixas) == []
+
+
+def test_o_pareamento_fecha_os_dois_quando_a_baixa_menor_chega_antes_da_maior():
+    # A de R$ 80 e B de R$ 50; a de R$ 50 só cobre B e a de R$ 80 cobre os dois: A pede a de 80.
+    lancamentos = [
+        _lanc(1, "2026/10", "rejeitada", valor="80.00", data_baixa="2026-10-05"),
+        _lanc(2, "2026/10", "rejeitada", valor="50.00", data_baixa="2026-10-12"),
+    ]
+    baixas = [
+        _bx(30, MATRICULA, "PIX", "2026/10", "2026-10-20", "80.00", "2026-10-20T09:00:00Z"),
+        _bx(31, MATRICULA, "PIX", "2026/10", "2026-10-25", "50.00", "2026-10-25T09:00:00Z"),
+    ]
+    assert _abertas_com(lancamentos, baixas) == []
+
+
+def test_duas_baixas_tiram_os_dois_lancamentos_do_mesmo_mes():
+    lancamentos = [
+        _lanc(1, "2026/10", "rejeitada", valor="99.99", data_baixa="2026-10-05"),
+        _lanc(2, "2026/10", "rejeitada", valor="99.99", data_baixa="2026-10-12"),
+    ]
+    baixas = [
+        _bx(30, MATRICULA, "PIX", "2026/10", "2026-11-05", "99.99", "2026-11-05T09:00:00Z"),
+        _bx(31, MATRICULA, "PIX", "2026/10", "2026-11-06", "99.99", "2026-11-06T09:00:00Z"),
+    ]
+    assert _abertas_com(lancamentos, baixas) == []
+
+
+def test_baixa_parcial_nao_tira_o_mes():
+    lancamentos = [_lanc(1, "2026/10", "rejeitada", valor="99.99", data_baixa="2026-10-12")]
+    baixas = [_bx(30, MATRICULA, "PIX", "2026/10", "2026-11-06", "50.00", "2026-11-06T09:00:00Z")]
+    assert _abertas_com(lancamentos, baixas) == [MensalidadeAberta("2026/10", 9999)]
+
+
+def test_baixa_de_valor_maior_tira_o_mes():
+    lancamentos = [_lanc(1, "2026/10", "rejeitada", valor="99.99", data_baixa="2026-10-12")]
+    baixas = [_bx(30, MATRICULA, "PIX", "2026/10", "2026-11-06", "120.00", "2026-11-06T09:00:00Z")]
+    assert _abertas_com(lancamentos, baixas) == []
+
+
+def test_baixa_anterior_ao_lancamento_nao_tira_o_mes_e_do_mesmo_dia_tira():
+    lancamentos = [_lanc(1, "2026/10", "rejeitada", valor="99.99", data_baixa="2026-10-12")]
+    antes = [_bx(30, MATRICULA, "PIX", "2026/10", "2026-10-11", "99.99", "2026-10-11T09:00:00Z")]
+    no_dia = [_bx(31, MATRICULA, "PIX", "2026/10", "2026-10-12", "99.99", "2026-10-12T09:00:00Z")]
+    assert _abertas_com(lancamentos, antes) == [MensalidadeAberta("2026/10", 9999)]
+    assert _abertas_com(lancamentos, no_dia) == []
+
+
+def test_baixa_de_outro_mes_nao_mexe_nos_lancamentos():
+    lancamentos = [_lanc(1, "2026/10", "rejeitada", valor="99.99", data_baixa="2026-10-12")]
+    baixas = [_bx(30, MATRICULA, "PIX", "2026/09", "2026-11-06", "99.99", "2026-11-06T09:00:00Z")]
+    assert _abertas_com(lancamentos, baixas) == [MensalidadeAberta("2026/10", 9999)]
+
+
 @pytest.mark.parametrize(
     ("bruto", "centavos"),
     [(33.4, 3340), (33, 3300), ("33.40", 3340), ("33,40", 3340), (0.1 + 0.2, 30), (33.405, 3341)],
@@ -527,6 +619,10 @@ def test_a_janela_das_baixas_acaba_no_dia_de_brasilia():
         ("VISA", FormaHistorico.CARTAO),
         ("ELO", FormaHistorico.CARTAO),
         ("HIPERCARD", FormaHistorico.CARTAO),
+        ("MASTER", FormaHistorico.CARTAO),
+        ("DISCOVER", FormaHistorico.CARTAO),
+        # Os textos brutos da leitura real da rota de baixas (2026-11-07).
+        ("CAIXA ECONOMICA FEDERAL", FormaHistorico.OUTRO),
         ("DIRETO NO CARTAO - CORPORATIVO", FormaHistorico.CARTAO),
         ("DIRETO NO CARTÃO - DINHEIRO", FormaHistorico.OUTRO),
         ("DIRETO NO CARTAO - DINHEIRO", FormaHistorico.OUTRO),
@@ -537,6 +633,23 @@ def test_a_janela_das_baixas_acaba_no_dia_de_brasilia():
 )
 def test_mapa_de_formas(bruta, esperada):
     assert forma_do_historico(bruta) is esperada
+
+
+def test_todos_os_textos_de_forma_da_leitura_real_tem_destino():
+    esperado = {
+        # Não confirmado se é boleto (pergunta ao dev): fica OUTRO até a resposta.
+        "CAIXA ECONOMICA FEDERAL": FormaHistorico.OUTRO,
+        "DIRETO NO CARTAO - CORPORATIVO": FormaHistorico.CARTAO,
+        "DIRETO NO CARTÃO - DINHEIRO": FormaHistorico.OUTRO,
+        "DISCOVER": FormaHistorico.CARTAO,
+        "ELO": FormaHistorico.CARTAO,
+        "ENERGISA": FormaHistorico.ENERGIA,
+        "MASTER": FormaHistorico.CARTAO,
+        "MASTERCARD": FormaHistorico.CARTAO,
+        "PIX": FormaHistorico.PIX,
+        "VISA": FormaHistorico.CARTAO,
+    }
+    assert {texto: forma_do_historico(texto) for texto in esperado} == esperado
 
 
 # ---- erros ----

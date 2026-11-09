@@ -1,6 +1,7 @@
 """O script da demo no WhatsApp: só as funções puras, sem rede, subprocesso nem segredo real."""
 
 import importlib.util
+import os
 
 import pytest
 
@@ -40,6 +41,7 @@ def test_o_ambiente_leva_o_modo_ativo_e_a_liberacao_do_jev_so_para_a_demo(tmp_pa
     ambiente = _ambiente(tmp_path)
     assert ambiente["AGENTE_MODO"] == "ativo"
     assert ambiente["AGENTE_JEV_DADOS_REAIS_LIBERADOS"] == "true"
+    assert ambiente["AGENTE_LLM_DADOS_REAIS_LIBERADOS"] == "true"
     assert ambiente["AGENTE_JEV_API_KEY"] == TYPESAFE["api_key"]
     assert ambiente["AGENTE_LLM_API_KEY"] == OPENAI["api_key"]
     assert ambiente["AGENTE_WEBHOOK_SEGREDO"] == SEGREDO
@@ -163,3 +165,18 @@ def test_os_corpos_dos_patch():
         }
     }
     assert subir.corpo_do_patch_do_bot(url) == {"outgoing_url": url}
+
+
+def test_o_ambiente_desliga_o_ctn_real_mesmo_com_a_chave_no_env_do_cwd(tmp_path, monkeypatch):
+    from agente.config import Config
+
+    (tmp_path / ".env").write_text("AGENTE_CTN_API_KEY=chave-ficticia-do-ctn\n", encoding="utf-8")
+    ambiente = _ambiente(tmp_path, ambiente_base={"AGENTE_CTN_API_KEY": "chave-herdada"})
+    assert ambiente["AGENTE_CTN_API_KEY"] == ""
+    monkeypatch.chdir(tmp_path)
+    for variavel in [v for v in os.environ if v.startswith("AGENTE_")]:
+        monkeypatch.delenv(variavel)
+    for variavel, valor in ambiente.items():
+        if variavel.startswith("AGENTE_"):
+            monkeypatch.setenv(variavel, valor)
+    assert Config().ctn_real_ligado is False

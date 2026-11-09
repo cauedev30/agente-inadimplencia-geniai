@@ -371,7 +371,14 @@ def test_uma_chamada_usa_a_url_e_o_modelo_da_configuracao():
 
 
 def test_uma_chamada_com_o_modo_ativo_sobe_com_a_chave_do_luna_sem_a_do_jev_no_piloto(tmp_path):
-    config = _config_ativo(tmp_path, PILOTO, turno="uma_chamada", llm_api_key="chave-ficticia")
+    # O Chatwoot real com o Luna real pede a liberação da OpenAI (M2).
+    config = _config_ativo(
+        tmp_path,
+        PILOTO,
+        turno="uma_chamada",
+        llm_api_key="chave-ficticia",
+        llm_dados_reais_liberados=True,
+    )
     deps = montar_dependencias(config)
     try:
         assert deps.modo is Modo.ATIVO
@@ -428,6 +435,101 @@ def test_com_a_chave_do_ctn_o_ctn_e_o_composto_com_a_eficaz_na_leitura_e_o_falso
         assert isinstance(deps.ctn.escrita, CTNFalso)
     finally:
         deps.ctn.fechar()
+
+
+CHATWOOT_REAL = {
+    "chatwoot_url": "https://chatwoot.invalid",
+    "chatwoot_conta": 7,
+    "chatwoot_token": "token-do-chatwoot",
+}
+LUNA = {"llm_api_key": "chave-do-luna"}
+TRANSCRICAO = {
+    "transcricao_url": "https://transcricao.invalid/v1",
+    "transcricao_api_key": "chave-da-transcricao",
+}
+CTN_REAL = {"ctn_api_key": CHAVE_CTN}
+
+
+def _fecha(deps):
+    if isinstance(deps.chatwoot, ChatwootHttp):
+        deps.chatwoot.fechar()
+    if hasattr(deps.ctn, "fechar"):
+        deps.ctn.fechar()
+
+
+# (fonte real, destino externo, o que a mensagem de recusa tem de nomear)
+RECUSADAS = {
+    "ctn+luna": (CTN_REAL, LUNA, ["AGENTE_CTN_API_KEY", "AGENTE_LLM_API_KEY"]),
+    "chatwoot+luna": (CHATWOOT_REAL, LUNA, ["AGENTE_CHATWOOT_*", "AGENTE_LLM_API_KEY"]),
+    "ctn+transcricao": (CTN_REAL, TRANSCRICAO, ["AGENTE_CTN_API_KEY", "AGENTE_TRANSCRICAO_*"]),
+    "chatwoot+transcricao": (
+        CHATWOOT_REAL,
+        TRANSCRICAO,
+        ["AGENTE_CHATWOOT_*", "AGENTE_TRANSCRICAO_*"],
+    ),
+}
+
+
+@pytest.mark.parametrize("combinacao", RECUSADAS)
+def test_fonte_real_com_destino_externo_sem_a_liberacao_o_servico_nao_sobe(combinacao):
+    fonte, destino, nomes = RECUSADAS[combinacao]
+    with pytest.raises(ValueError, match="AGENTE_LLM_DADOS_REAIS_LIBERADOS") as erro:
+        montar_dependencias(_config(**fonte, **destino))
+    mensagem = str(erro.value)
+    assert all(nome in mensagem for nome in nomes)
+    for segredo in (
+        CHAVE_CTN,
+        "chave-do-luna",
+        "chave-da-transcricao",
+        "token-do-chatwoot",
+        "chatwoot.invalid",
+        "transcricao.invalid",
+    ):
+        assert segredo not in mensagem
+
+
+def test_a_mensagem_da_recusa_so_nomeia_a_combinacao_que_disparou():
+    with pytest.raises(ValueError) as erro:
+        montar_dependencias(_config(**CTN_REAL, **TRANSCRICAO))
+    assert "AGENTE_CHATWOOT" not in str(erro.value) and "AGENTE_LLM_API_KEY" not in str(erro.value)
+
+
+def test_a_mensagem_nomeia_todas_as_fontes_e_todos_os_destinos_que_dispararam():
+    with pytest.raises(ValueError) as erro:
+        montar_dependencias(_config(**CTN_REAL, **CHATWOOT_REAL, **LUNA, **TRANSCRICAO))
+    for nome in ("AGENTE_CTN_API_KEY", "AGENTE_CHATWOOT_*", "AGENTE_LLM_API_KEY"):
+        assert nome in str(erro.value)
+    assert "AGENTE_TRANSCRICAO_*" in str(erro.value)
+
+
+@pytest.mark.parametrize("combinacao", RECUSADAS)
+def test_fonte_real_com_destino_externo_e_a_liberacao_o_servico_sobe(combinacao):
+    fonte, destino, _ = RECUSADAS[combinacao]
+    deps = montar_dependencias(_config(**fonte, **destino, llm_dados_reais_liberados=True))
+    _fecha(deps)
+
+
+@pytest.mark.parametrize(
+    "campos",
+    [
+        pytest.param({}, id="nada"),
+        pytest.param(CTN_REAL, id="so-ctn-real"),
+        pytest.param(CHATWOOT_REAL, id="so-chatwoot-real"),
+        pytest.param({**CTN_REAL, **CHATWOOT_REAL}, id="so-fontes-reais"),
+        pytest.param(LUNA, id="so-luna"),
+        pytest.param(TRANSCRICAO, id="so-transcricao"),
+        pytest.param({**LUNA, **TRANSCRICAO}, id="so-destinos"),
+    ],
+)
+def test_sem_fonte_real_ou_sem_destino_externo_sobe_sem_a_liberacao(campos):
+    deps = montar_dependencias(_config(**campos))
+    _fecha(deps)
+
+
+def test_chatwoot_pela_metade_nao_e_fonte_real():
+    # O serviço só usa o Chatwoot real com a URL, a conta e o token (montar_dependencias).
+    deps = montar_dependencias(_config(chatwoot_url="https://chatwoot.invalid", **LUNA))
+    assert isinstance(deps.chatwoot, ChatwootFalso)
 
 
 def test_ctn_real_com_o_luna_real_sem_a_liberacao_o_servico_nao_sobe():

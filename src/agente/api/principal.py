@@ -4,8 +4,9 @@ Rodar: `uvicorn agente.api.principal:montar_app --factory`. Sem o Chatwoot confi
 serviço só roda em modo sombra, com a interface falsa. O modo ativo exige o Chatwoot real, o Jev
 real e, enquanto o Pix e o CTN forem os falsos, a liberação em piloto. Sem o AGENTE_JEV_API_KEY, o
 Jev é o falso; com ela, o serviço só sobe com o AGENTE_JEV_DADOS_REAIS_LIBERADOS=true (a ZDR da
-TypeSafe, D12). Com o AGENTE_CTN_API_KEY, o CTN lê da EFICAZ (a escrita segue falsa) e o serviço
-só sobe com o Luna real se o AGENTE_LLM_DADOS_REAIS_LIBERADOS=true (M2). Sem o AGENTE_LLM_API_KEY, o
+TypeSafe, D12). Com o AGENTE_CTN_API_KEY, o CTN lê da EFICAZ (a escrita segue falsa). Com qualquer
+dado real (CTN real ou Chatwoot real) e qualquer destino na OpenAI (o Luna ou a transcrição), o
+serviço só sobe com o AGENTE_LLM_DADOS_REAIS_LIBERADOS=true (M2). Sem o AGENTE_LLM_API_KEY, o
 redator é o falso; sem o AGENTE_TRANSCRICAO_*, o áudio
 não é transcrito. Com AGENTE_TURNO=uma_chamada (D47), o turno é uma chamada só ao Luna: ela exige o
 AGENTE_LLM_API_KEY, e o modo ativo pede essa chave no lugar da do Jev. O Jev falso só existe na
@@ -19,9 +20,9 @@ from fastapi import FastAPI
 from agente.api.app import criar_app
 from agente.config import (
     MENSAGEM_JEV_SEM_LIBERACAO,
-    MENSAGEM_LLM_SEM_LIBERACAO,
     Config,
     carregar_config,
+    mensagem_llm_sem_liberacao,
 )
 from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
@@ -65,13 +66,16 @@ def _jev(config: Config, politica: Politica) -> Jev:
     return JevComPrazo(JevFalso(), politica.jev_timeout_ms)
 
 
-def _exigir_o_luna_liberado_com_o_ctn_real(config: Config) -> None:
-    """Com o CTN real, o Luna real só lê conversa de cliente depois da conferência da OpenAI (M2).
+def _exigir_a_openai_liberada_com_dado_real(config: Config) -> None:
+    """Com dado real de cliente (CTN real ou Chatwoot real), o texto e o áudio só vão à OpenAI
+    (o Luna e a transcrição) depois da conferência da retenção (M2).
 
-    Espelha a trava do Jev: a mensagem do erro não leva nenhuma chave.
+    Espelha a trava do Jev, que também olha o destino: a mensagem do erro não leva nenhum valor.
     """
-    if config.ctn_real_ligado and config.llm_api_key and not config.llm_dados_reais_liberados:
-        raise ValueError(MENSAGEM_LLM_SEM_LIBERACAO)
+    fontes = config.fontes_de_dado_real
+    destinos = config.destinos_externos_do_cliente
+    if fontes and destinos and not config.llm_dados_reais_liberados:
+        raise ValueError(mensagem_llm_sem_liberacao(fontes, destinos))
 
 
 def _ctn(config: Config, modo: Modo) -> CTN:
@@ -155,7 +159,7 @@ def _exigir_o_modo_ativo_seguro(config: Config, politica: Politica, modo: Modo) 
 
 def montar_dependencias(config: Config) -> Dependencias:
     modo = Modo.ATIVO if config.modo == "ativo" else Modo.SOMBRA
-    if config.chatwoot_url and config.chatwoot_conta and config.chatwoot_token:
+    if config.chatwoot_real_ligado:
         chatwoot = ChatwootHttp(config.chatwoot_url, config.chatwoot_conta, config.chatwoot_token)
     elif modo is Modo.ATIVO:
         raise ValueError("o modo ativo exige o Chatwoot configurado (T3)")
@@ -165,7 +169,7 @@ def montar_dependencias(config: Config) -> Dependencias:
     politica = carregar_politica(config.politica_path)
     try:
         _exigir_o_modo_ativo_seguro(config, politica, modo)
-        _exigir_o_luna_liberado_com_o_ctn_real(config)
+        _exigir_a_openai_liberada_com_dado_real(config)
         jev = _jev(config, politica)
         llm_turno = _llm_turno(config)
     except ValueError:

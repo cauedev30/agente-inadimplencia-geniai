@@ -1,5 +1,6 @@
 """Configuração do serviço, lida das variáveis de ambiente com o prefixo AGENTE_."""
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -22,14 +23,18 @@ MENSAGEM_JEV_SEM_LIBERACAO = (
     "confirmação."
 )
 
-# Por que o serviço não sobe com o CTN real e o Luna real juntos sem a liberação (M2). Vai ao erro
-# do serviço; não leva nenhuma chave.
-MENSAGEM_LLM_SEM_LIBERACAO = (
-    "AGENTE_CTN_API_KEY e AGENTE_LLM_API_KEY estão definidas, mas AGENTE_LLM_DADOS_REAIS_LIBERADOS "
-    "não é true: com o CTN real, o texto das conversas de clientes de verdade iria ao Luna, e a "
-    "retenção de dados da OpenAI ainda não foi conferida (T6, D42). Tire uma das duas chaves do "
-    "ambiente, ou libere depois da conferência."
-)
+
+def mensagem_llm_sem_liberacao(fontes: Sequence[str], destinos: Sequence[str]) -> str:
+    """Por que o serviço não sobe com dado real de cliente indo à OpenAI sem a liberação (M2).
+
+    Vai ao erro do serviço; só nomeia as variáveis que dispararam, nunca os valores.
+    """
+    return (
+        f"{' e '.join(fontes)} (dado real de cliente) e {' e '.join(destinos)} (a OpenAI recebe o "
+        "texto ou o áudio do cliente) estão definidas, mas AGENTE_LLM_DADOS_REAIS_LIBERADOS não é "
+        "true: a retenção de dados da OpenAI ainda não foi conferida (T6, D42). Tire as variáveis "
+        "de uma das pontas do ambiente, ou libere depois da conferência."
+    )
 
 
 class ConfigPolitica(BaseSettings):
@@ -53,8 +58,8 @@ class ConfigRedator(ConfigPolitica):
     # Entra no corpo de todo pedido. O Luna recusa a temperatura (HTTP 400) sem o reasoning_effort
     # "none". Em variável de ambiente, vai como JSON.
     llm_corpo_extra: dict = {"reasoning_effort": "none"}
-    # Enquanto a retenção da OpenAI não for conferida, o Luna real não lê conversa de cliente do CTN
-    # real (M2). Só vale junto com a chave do CTN.
+    # Enquanto a retenção da OpenAI não for conferida, nada de cliente de verdade (CTN real,
+    # Chatwoot real) vai à OpenAI, nem ao Luna nem à transcrição (M2).
     llm_dados_reais_liberados: bool = False
 
     @field_validator("llm_dados_reais_liberados", mode="before")
@@ -213,6 +218,34 @@ class Config(ConfigRedator, ConfigJev, ConfigCTN):
         if faltam and (len(faltam) == 1 or so_o_modelo):
             raise ValueError(f"transcrição configurada pela metade: faltam {', '.join(faltam)}")
         return self
+
+    @property
+    def chatwoot_real_ligado(self) -> bool:
+        return bool(self.chatwoot_url and self.chatwoot_conta and self.chatwoot_token)
+
+    @property
+    def fontes_de_dado_real(self) -> list[str]:
+        """As variáveis que trazem conversa ou carteira de cliente de verdade ao serviço."""
+        return [
+            variavel
+            for variavel, ligada in (
+                ("AGENTE_CTN_API_KEY", self.ctn_real_ligado),
+                ("AGENTE_CHATWOOT_*", self.chatwoot_real_ligado),
+            )
+            if ligada
+        ]
+
+    @property
+    def destinos_externos_do_cliente(self) -> list[str]:
+        """As variáveis que mandam texto ou áudio do cliente à OpenAI (o Luna e a transcrição)."""
+        return [
+            variavel
+            for variavel, ligado in (
+                ("AGENTE_LLM_API_KEY", bool(self.llm_api_key)),
+                ("AGENTE_TRANSCRICAO_*", self.transcricao_ligada),
+            )
+            if ligado
+        ]
 
     @property
     def transcricao_ligada(self) -> bool:
