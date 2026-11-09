@@ -93,8 +93,14 @@ def _propenso(ctn: CTN, matricula: str, politica: Politica) -> bool:
     return eh_propenso(historico, politica)
 
 
-def _gravar(sessao: Session, linha: _Linha, politica: Politica, ctn: CTN, campanha: str) -> bool:
-    """Grava a linha. Devolve True se criou a cobrança e False se atualizou a ativa."""
+def _gravar(
+    sessao: Session, linha: _Linha, politica: Politica, ctn: CTN | None, campanha: str
+) -> bool:
+    """Grava a linha. Devolve True se criou a cobrança e False se atualizou a ativa.
+
+    Com `ctn=None` a propensão não é calculada: a cobrança nova nasce com `propenso_cartao` falso
+    e a ativa mantém o valor que tinha (a importação do CTN deixa a propensão para a conferência).
+    """
     cliente = sessao.scalar(select(Cliente).where(Cliente.matricula_ctn == linha.matricula))
     if cliente is None:
         cliente = Cliente(matricula_ctn=linha.matricula, nome=linha.nome, telefone=linha.telefone)
@@ -107,9 +113,10 @@ def _gravar(sessao: Session, linha: _Linha, politica: Politica, ctn: CTN, campan
         "regua": classificar_regua(linha.mensalidades_abertas, linha.regua, politica),
         "mensalidades_abertas": linha.mensalidades_abertas,
         "divida_centavos": calcular_divida(linha.mensalidades_abertas, politica),
-        "propenso_cartao": _propenso(ctn, linha.matricula, politica),
         "campanha": campanha,
     }
+    if ctn is not None:
+        valores["propenso_cartao"] = _propenso(ctn, linha.matricula, politica)
     ativa = None
     if cliente.id is not None:
         ativa = sessao.scalar(
@@ -118,6 +125,7 @@ def _gravar(sessao: Session, linha: _Linha, politica: Politica, ctn: CTN, campan
             )
         )
     if ativa is None:
+        valores.setdefault("propenso_cartao", False)
         sessao.add(Cobranca(cliente=cliente, **valores))
         sessao.flush()
         return True

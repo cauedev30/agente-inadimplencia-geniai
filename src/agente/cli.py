@@ -1,20 +1,22 @@
 """Comandos do agente: `agente importar` (a carteira), `agente disparar` (as aberturas),
 `agente simular` (as conversas simuladas), `agente comparar-redatores` (a escolha do LLM, T6) e
 `agente reproduzir` (a pré-sombra: as conversas reais do Chatwoot, só lidas, pelo turno em sombra) e
-`agente estimar-carteira` (a carteira estimada das conversas, para a reprodução).
+`agente estimar-carteira` (a carteira estimada das conversas, para a reprodução) e
+`agente importar-ctn` (a carteira do dia pelo retrato da inadimplência do CTN real).
 """
 
 import argparse
 import functools
 import sys
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import httpx
 
 from agente.abertura.disparar import disparar_aberturas
 from agente.carteira.importar import importar_carteira
+from agente.carteira.importar_ctn import SEM_ENCERRAR_INCOMPLETO, importar_do_ctn
 from agente.comparacao import (
     Candidato,
     comparar_redatores,
@@ -31,6 +33,7 @@ from agente.config import (
 )
 from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso
+from agente.integracoes.ctn_eficaz import CTNEficaz
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevComPrazo
 from agente.integracoes.jev_typesafe import JevTypeSafe
@@ -315,6 +318,50 @@ def _estimar_carteira(argumentos: argparse.Namespace) -> int:
     return 0
 
 
+def _abrir_ctn(config: Config) -> CTNEficaz:
+    """O CTN real só de leitura, com as variáveis `AGENTE_CTN_*` (o teste troca esta função)."""
+    return CTNEficaz.da_config(config)
+
+
+@_sem_detalhe_de_erro("O que já foi gravado fica; rode de novo, a importação é idempotente.")
+def _importar_ctn(argumentos: argparse.Namespace) -> int:
+    config = carregar_config()
+    if not config.ctn_real_ligado:
+        print("Defina o AGENTE_CTN_API_KEY para ler o retrato do CTN real.")
+        return 2
+    politica = carregar_politica(config.politica_path)
+    # O retrato sai uma vez por dia, de manhã: "hoje" é o dia do negócio, não o do servidor.
+    data_ref = argumentos.data or _agora().astimezone(politica.janela.zona).date()
+    print(
+        f"Retrato de {data_ref.isoformat()}"
+        + (" (simulação: nada é gravado)" if argumentos.simular else "")
+        + ". Só lê o CTN (GET); a saída traz só contagens."
+    )
+    # ocultar_parametros: o SQL de um erro não pode levar nome nem telefone para a tela.
+    with (
+        criar_sessao(config.database_url, ocultar_parametros=True)() as sessao,
+        _abrir_ctn(config) as ctn,
+    ):
+        resumo = importar_do_ctn(
+            sessao, ctn, politica, data_ref, argumentos.campanha, argumentos.simular
+        )
+    print(f"criadas: {resumo.criadas}")
+    print(f"atualizadas: {resumo.atualizadas}")
+    print(f"encerradas: {resumo.encerradas}")
+    print(f"ignoradas Energisa: {resumo.ignoradas_energisa}")
+    print(f"sem telefone: {resumo.sem_telefone}")
+    print(f"mantidas por Pix pendente: {resumo.preservadas}")
+    print(f"total do retrato: {resumo.total_retrato}")
+    if resumo.motivo_sem_encerrar == SEM_ENCERRAR_INCOMPLETO:
+        print("retrato incompleto: nada foi encerrado. O que veio foi gravado; rode de novo.")
+        return 1
+    if resumo.motivo_sem_encerrar:
+        print(
+            "retrato sem inadimplentes: nada foi encerrado (o retrato do dia pode não ter saído)."
+        )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # O console do Windows não usa UTF-8 por padrão e quebra os acentos.
     if hasattr(sys.stdout, "reconfigure"):
@@ -375,6 +422,19 @@ def main(argv: list[str] | None = None) -> int:
     fonte.add_argument("--da-pasta", type=Path, help="pasta de JSONs salvos, com subpastas")
     fonte.add_argument("--dias", type=int, default=30, help="ou lê o Chatwoot, N dias atrás (30)")
     estimar.set_defaults(rodar=_estimar_carteira)
+    importar_ctn = comandos.add_parser(
+        "importar-ctn", help="importa a carteira do dia pelo retrato da inadimplência do CTN"
+    )
+    importar_ctn.add_argument(
+        "--data",
+        type=date.fromisoformat,
+        help="dia do retrato, AAAA-MM-DD (padrão: hoje, no fuso da janela)",
+    )
+    importar_ctn.add_argument("--campanha", default="ctn", help="nome da campanha (ctn)")
+    importar_ctn.add_argument(
+        "--simular", action="store_true", help="mostra os totais sem gravar nada"
+    )
+    importar_ctn.set_defaults(rodar=_importar_ctn)
     argumentos = parser.parse_args(argv)
     return argumentos.rodar(argumentos)
 

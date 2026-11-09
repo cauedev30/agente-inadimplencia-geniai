@@ -94,6 +94,13 @@ class Cobranca(Base):
     webchat_verificado_em: Mapped[datetime | None]
     # A conversa do webchat já amarrada a esta cobrança (a amarração repetida não duplica a nota).
     webchat_conversa_id: Mapped[int | None]
+    # Quando o CTN foi consultado para este cliente antes do 1º envio do dia (a conferência);
+    # nulo = nunca conferida, e os valores são os do retrato diário.
+    conferida_em: Mapped[datetime | None]
+    # Os meses em aberto que a conferência leu, como `AAAA/MM`; nulo até conferir.
+    meses_em_aberto: Mapped[list[Any] | None] = mapped_column(JSON(none_as_null=True))
+    # Por que a cobrança deixou de ser ATIVA sem pagamento nosso (ex.: "saiu_do_retrato").
+    encerrada_motivo: Mapped[str | None] = mapped_column(String(40))
 
     cliente: Mapped[Cliente] = relationship(back_populates="cobrancas")
     conversas: Mapped[list["Conversa"]] = relationship(back_populates="cobranca")
@@ -253,3 +260,12 @@ class AmarracaoWebchat(Base):
     # As notas privadas que já saíram: a tentativa seguinte não as repete.
     nota_webchat_enviada: Mapped[bool] = mapped_column(default=False)
     nota_origem_enviada: Mapped[bool] = mapped_column(default=False)
+
+
+class CursorCTN(Base):
+    """Um marcador de leitura do CTN (ex.: a `coletado_em` da última baixa lida), por nome."""
+
+    __tablename__ = "cursor_ctn"
+
+    nome: Mapped[str] = mapped_column(String(64), primary_key=True)
+    valor: Mapped[str] = mapped_column(String(100))
