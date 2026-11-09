@@ -217,3 +217,17 @@ def test_o_teto_no_whatsapp_e_recusado(tmp_path):
     )
     with pytest.raises(PoliticaInvalida, match="motivos_humano_no_whatsapp.*TETO"):
         carregar_politica(caminho)
+
+
+def test_o_aviso_da_baixa_externa_tem_texto_curto_sem_valor_nem_nome(politica):
+    texto = politica.texto_baixa_externa
+    assert texto.strip()
+    assert len(texto) <= 200
+    assert "R$" not in texto
+    assert "{" not in texto
+
+
+def test_o_aviso_da_baixa_externa_nao_pode_ser_vazio(tmp_path):
+    caminho = _arquivo_com(tmp_path, 'texto_baixa_externa = "', 'texto_baixa_externa = ""  # "')
+    with pytest.raises(PoliticaInvalida, match="texto_baixa_externa"):
+        carregar_politica(caminho)

@@ -88,6 +88,14 @@ class ConfigCTN(Protocol):
     ctn_unidade: str
 
 
+class CTNRecusou(CTNIndisponivel):
+    """O CTN respondeu com erro HTTP. A mensagem é só o código (nunca a URL nem o corpo)."""
+
+    def __init__(self, status: int):
+        super().__init__(f"o CTN respondeu {status}")
+        self.status = status
+
+
 def _sem_acento(texto: str) -> str:
     decomposto = unicodedata.normalize("NFKD", texto)
     return "".join(c for c in decomposto if not unicodedata.combining(c)).upper().strip()
@@ -237,6 +245,16 @@ def _lancamento(linha: Mapping) -> tuple[MensalidadeAberta, date | None]:
 
 def _como_utc(instante: datetime) -> datetime:
     return instante if instante.tzinfo is not None else instante.replace(tzinfo=UTC)
+
+
+def _decrescente_provado(baixas: list[BaixaCTN]) -> bool:
+    """A página está em `coletado_em` decrescente: nenhum par sobe e ao menos um desce. Uma página
+    toda do mesmo instante (ou de uma baixa só) não prova nada: a API pode ter devolvido a ordem
+    crescente, e a página, a dos mais antigos."""
+    pares = list(zip(baixas, baixas[1:], strict=False))
+    return all(a.coletado_em >= b.coletado_em for a, b in pares) and any(
+        a.coletado_em > b.coletado_em for a, b in pares
+    )
 
 
 class CTNEficaz:
@@ -415,22 +433,58 @@ class CTNEficaz:
 
     def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
         """As baixas com `coletado_em` a partir do cursor, inclusive (uma baixa coletada no mesmo
-        instante do cursor não se perde; o consumidor é idempotente pelo `id_externo`). A API
-        filtra por `dia_relatorio`, e o relatório de um dia pode ser coletado depois da meia-noite:
-        a janela abre um dia antes do cursor e anda de 31 em 31 dias até hoje."""
+        instante do cursor não se perde; o consumidor é idempotente pelo `id_externo`).
+
+        A API filtra por `dia_relatorio`, e o relatório de um dia pode ser coletado depois da
+        meia-noite: a janela abre um dia antes do dia do cursor (em Brasília) e anda de 31 em 31
+        dias até hoje. Dentro de cada janela a leitura é incremental (`_baixas_da_janela`): no caso
+        comum, uma chamada, em vez de reler os dias inteiros a cada 10 minutos (a cota é de 20.000
+        linhas por dia)."""
         cursor = _como_utc(coletado_desde)
         hoje = self._hoje()
-        inicio = cursor.date() - timedelta(days=1)
+        inicio = cursor.astimezone(FUSO_DO_NEGOCIO).date() - timedelta(days=1)
         achadas: dict[str, BaixaCTN] = {}
         while inicio <= hoje:
             fim = min(inicio + timedelta(days=DIAS_POR_JANELA - 1), hoje)
             filtros = {"de": inicio.isoformat(), "ate": fim.isoformat()}
-            for linha in self._linhas(ROTA_BAIXAS, filtros, "id"):
-                baixa = _converter(linha, _baixa)
-                if baixa.coletado_em >= cursor:
-                    achadas[baixa.id_externo] = baixa
+            for baixa in self._baixas_da_janela(filtros, cursor):
+                achadas[baixa.id_externo] = baixa
             inicio = fim + timedelta(days=1)
         return sorted(achadas.values(), key=lambda b: (b.coletado_em, b.id_externo))
+
+    def _baixas_da_janela(self, filtros: Mapping[str, str], cursor: datetime) -> list[BaixaCTN]:
+        """As baixas da janela coletadas a partir do cursor.
+
+        Caminho curto: pede a 1ª página por `coletado_em` decrescente, e as mais novas vêm
+        primeiro. Ela basta quando (a) é a janela inteira (`mais = false`), ou (b) traz uma baixa
+        anterior ao cursor e a ordem decrescente está PROVADA na própria página: tudo o que não veio
+        é mais antigo ainda. Só uma página de 50 aguenta a ordem por `coletado_em`: a paginação por
+        uma chave com repetição (uma coleta grava muitas linhas no mesmo instante) pode pular ou
+        repetir linhas de uma página a outra, e uma baixa pulada é uma cobrança que não para.
+
+        Caminho longo: a página toda é nova (50 ou mais baixas desde o cursor), a ordem não está
+        provada (a API ignorou o `desc`, ou a página inteira é do mesmo instante) ou a API recusou
+        o `desc`. Relê a janela inteira pelo `id`, que é único e pagina sem falha, e filtra pelo
+        cursor."""
+        try:
+            pagina, mais = next(self._paginas(ROTA_BAIXAS, filtros, "coletado_em", "desc"))
+            baixas = [_converter(linha, _baixa) for linha in pagina]
+        except CTNRecusou as erro:
+            if erro.status != 400:
+                raise
+            log.warning("o CTN recusou a ordem decrescente das baixas; lendo a janela inteira")
+            return self._janela_inteira_das_baixas(filtros, cursor)
+        if not mais:
+            return [baixa for baixa in baixas if baixa.coletado_em >= cursor]
+        if baixas and baixas[-1].coletado_em < cursor and _decrescente_provado(baixas):
+            return [baixa for baixa in baixas if baixa.coletado_em >= cursor]
+        return self._janela_inteira_das_baixas(filtros, cursor)
+
+    def _janela_inteira_das_baixas(
+        self, filtros: Mapping[str, str], cursor: datetime
+    ) -> list[BaixaCTN]:
+        baixas = (_converter(linha, _baixa) for linha in self._linhas(ROTA_BAIXAS, filtros, "id"))
+        return [baixa for baixa in baixas if baixa.coletado_em >= cursor]
 
     # ---- HTTP ----
 
@@ -464,20 +518,39 @@ class CTNEficaz:
         return _como_utc(self._agora()).astimezone(FUSO_DO_NEGOCIO).date()
 
     def _linhas(
-        self, rota: str, filtros: Mapping[str, str], ordem: str, matricula: str | None = None
+        self,
+        rota: str,
+        filtros: Mapping[str, str],
+        ordem: str,
+        matricula: str | None = None,
+        direcao: str = "asc",
     ) -> Iterator[Mapping]:
-        """As linhas de uma rota, página a página até `mais = false`. A paginação sem `ordem`
-        repete linhas (sondagem de 2026-11-04), então toda consulta manda `ordem`. `matricula` é
-        a pessoa da consulta do cadastro: o 404 dela é "não existe"; todo 400 é falha do CTN.
+        """As linhas de uma rota, página a página até `mais = false` (ver `_paginas`)."""
+        for dados, _mais in self._paginas(rota, filtros, ordem, direcao, matricula):
+            yield from dados
+
+    def _paginas(
+        self,
+        rota: str,
+        filtros: Mapping[str, str],
+        ordem: str,
+        direcao: str = "asc",
+        matricula: str | None = None,
+    ) -> Iterator[tuple[list[Mapping], bool]]:
+        """As páginas de uma rota, cada uma como `(linhas, mais)`, até `mais = false`. A paginação
+        sem `ordem` repete linhas (sondagem de 2026-11-04), então toda consulta manda `ordem`.
+        `matricula` é a pessoa da consulta do cadastro: o 404 dela é "não existe"; todo 400 é falha
+        do CTN.
 
         A paginação falha fechada: `mais` tem de ser booleano, uma página vazia com `mais` não pode
-        seguir (laço) e passar de `PAGINAS_MAXIMAS_POR_ROTA` páginas é falha."""
+        seguir (laço) e passar de `PAGINAS_MAXIMAS_POR_ROTA` páginas é falha. Quem só quer a 1ª
+        página pede a próxima e fecha o gerador: as demais não são chamadas."""
         for pagina in range(PAGINAS_MAXIMAS_POR_ROTA):
             params = {
                 **filtros,
                 "unidade": self.unidade,
                 "ordem": ordem,
-                "direcao": "asc",
+                "direcao": direcao,
                 "pagina": pagina,
                 "limite": self._linhas_por_pagina,
             }
@@ -491,7 +564,7 @@ class CTNEficaz:
             uso = corpo.get("uso")
             self.ultimo_uso = uso if isinstance(uso, Mapping) else None
             log.debug("CTN %s página %s: %s linhas, uso %s", rota, pagina, len(dados), uso)
-            yield from dados
+            yield dados, mais
             if not mais:
                 return
         raise CTNIndisponivel("o CTN passou do limite de páginas")
@@ -535,7 +608,7 @@ class CTNEficaz:
                 if matricula is not None and resposta.status_code == 404:
                     raise ClienteNaoEncontrado(matricula)
                 if not resposta.is_success:
-                    raise CTNIndisponivel(f"o CTN respondeu {resposta.status_code}")
+                    raise CTNRecusou(resposta.status_code)
                 pedacos = []
                 for pedaco in resposta.iter_bytes():
                     pedacos.append(pedaco)

@@ -17,6 +17,7 @@ from agente.api.pix_webhook import criar_rota_pix
 from agente.api.webchat import criar_rota_webchat
 from agente.config import Config
 from agente.integracoes.ctn import CTN
+from agente.pagamento.baixas_ctn import DependenciasDasBaixas, ler_baixas
 from agente.pagamento.concluir import (
     DependenciasPagamento,
     concluir_pagamentos,
@@ -24,6 +25,7 @@ from agente.pagamento.concluir import (
 )
 from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
+from agente.tipos import Modo
 from agente.turno.fila import Processar, Rotina, Trabalhador, a_cada, processar_sem_acao
 from agente.webchat.amarrar import (
     contar_amarracoes_sem_concluir,
@@ -38,6 +40,8 @@ log = logging.getLogger(__name__)
 INTERVALO_EXPIRAR_PIX = timedelta(minutes=1)
 # A amarração do webchat pendente já espera por `espera_integracao`; a varredura é só a checagem.
 INTERVALO_AMARRACOES = timedelta(seconds=10)
+# O CTN coleta as baixas a cada 10 minutos (spec do CTN real, seção 2): ler mais só gasta cota.
+INTERVALO_BAIXAS = timedelta(minutes=10)
 
 
 def _agora() -> datetime:
@@ -65,7 +69,10 @@ def _fechar_ctn(ctn: object) -> None:
 
 
 def _rotinas(
-    dependencias: DependenciasPagamento | None, politica: Politica, config: Config
+    dependencias: DependenciasPagamento | None,
+    politica: Politica,
+    config: Config,
+    ctn: CTN | None = None,
 ) -> list[Rotina]:
     rotinas: list[Rotina] = [a_cada(INTERVALO_EXPIRAR_PIX, expirar_pix)]
     if dependencias is not None:
@@ -74,6 +81,22 @@ def _rotinas(
             return concluir_pagamentos(sessao, dependencias, agora)
 
         rotinas.append(concluir)
+        if config.ctn_real_ligado and ctn is not None:
+            # As baixas que o cliente fez por fora do agente (boleto, cartão, balcão). Só o CTN
+            # real tem o `lancamentos_bx`; o falso não tem o que ler.
+            deps_baixas = DependenciasDasBaixas(
+                politica=politica,
+                chatwoot=dependencias.chatwoot,
+                time_humano=dependencias.time_humano,
+                # Sem o modo (dependências de teste), o seguro é a sombra: nada é enviado.
+                modo=getattr(dependencias, "modo", Modo.SOMBRA),
+                ctn=ctn,
+            )
+
+            def baixas(sessao: Session, agora: datetime) -> object:
+                return ler_baixas(sessao, deps_baixas, agora)
+
+            rotinas.append(a_cada(INTERVALO_BAIXAS, baixas))
         if config.webchat_inbox is not None:
             # A amarração do webchat que o Chatwoot não deixou terminar (tarefa 7.3).
             def refazer(sessao: Session, agora: datetime) -> int:
@@ -101,7 +124,7 @@ def criar_app(
     `ctn` confere o CPF da página do webchat; sem ele (ou sem os segredos), a página fica desligada.
     """
     trabalhador = Trabalhador(
-        fabrica, processar, relogio, rotinas=_rotinas(dependencias, politica, config)
+        fabrica, processar, relogio, rotinas=_rotinas(dependencias, politica, config, ctn)
     )
 
     @asynccontextmanager

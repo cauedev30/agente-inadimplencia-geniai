@@ -177,6 +177,9 @@ class Politica(_Imutavel):
     template_abertura: str = Field(min_length=1)
     template_retomada: str = Field(min_length=1)
     template_confirmacao: str = Field(min_length=1)
+    # O aviso único quando o cliente quitou por fora e a baixa chegou pelo CTN (spec do CTN real,
+    # decisão 3): texto fixo, sem valor nem nome, só dentro das 24h e fora do teto de mensagens.
+    texto_baixa_externa: str = Field(min_length=1)
     # true: o agente registra no CTN a baixa do pagamento pelo link (o link não baixa, T9.6).
     # false: o link já baixa no CTN e o agente não dá a segunda baixa. A do Pix é sempre do agente.
     agente_da_baixa_no_link: bool

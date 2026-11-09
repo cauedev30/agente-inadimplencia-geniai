@@ -4,12 +4,19 @@ import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.exc import IntegrityError
 
-from agente.db.modelos import Base, Cliente, Cobranca, CursorCTN, Mensagem
+from agente.db.modelos import (
+    BaixaCTNRegistro,
+    Base,
+    Cliente,
+    Cobranca,
+    CursorCTN,
+    Mensagem,
+)
 from agente.politica import Regua
-from agente.tipos import EstadoConversa, OrigemMensagem, StatusCobranca
+from agente.tipos import EstadoConversa, FormaHistorico, OrigemMensagem, StatusCobranca
 
 from ..conftest import alembic_config
 
@@ -180,3 +187,66 @@ def test_cobranca_nova_nasce_sem_conferencia(sessao, conversa):
     assert cobranca.conferida_em is None
     assert cobranca.meses_em_aberto is None
     assert cobranca.encerrada_motivo is None
+
+
+def test_migracao_0014_cria_a_tabela_das_baixas_do_ctn(tmp_path):
+    url = f"sqlite:///{(tmp_path / 'm14.db').as_posix()}"
+    config = alembic_config(url)
+
+    command.upgrade(config, "0013")
+    motor = create_engine(url)
+    assert "baixa_ctn" not in inspect(motor).get_table_names()
+
+    command.upgrade(config, "0014")
+    colunas = {c["name"]: c for c in inspect(motor).get_columns("baixa_ctn")}
+    assert set(colunas) == {
+        "id",
+        "id_externo",
+        "matricula",
+        "mes_ref",
+        "valor_centavos",
+        "forma",
+        "pago_em",
+        "coletado_em",
+        "cobranca_id",
+        "aplicada_em",
+        "efeito",
+    }
+    for nome in ("cobranca_id", "aplicada_em", "efeito"):
+        assert colunas[nome]["nullable"] is True
+    for nome in ("id_externo", "matricula", "mes_ref", "valor_centavos", "forma", "coletado_em"):
+        assert colunas[nome]["nullable"] is False
+    unicos = [u["column_names"] for u in inspect(motor).get_unique_constraints("baixa_ctn")]
+    indices = [i for i in inspect(motor).get_indexes("baixa_ctn") if i["unique"]]
+    assert ["id_externo"] in unicos or ["id_externo"] in [i["column_names"] for i in indices]
+
+    command.downgrade(config, "0013")
+    assert "baixa_ctn" not in inspect(motor).get_table_names()
+    motor.dispose()
+
+
+def test_baixa_do_ctn_e_unica_pelo_id_da_api(sessao, conversa):
+    def baixa(id_externo):
+        return BaixaCTNRegistro(
+            id_externo=id_externo,
+            matricula="M-0001",
+            mes_ref="2026/10",
+            valor_centavos=3340,
+            forma=FormaHistorico.PIX,
+            pago_em=datetime(2026, 11, 9, 12, tzinfo=UTC),
+            coletado_em=datetime(2026, 11, 9, 12, 30, tzinfo=UTC),
+        )
+
+    sessao.add(baixa("77"))
+    sessao.commit()
+    registro = sessao.scalars(select(BaixaCTNRegistro)).one()
+    assert registro.forma is FormaHistorico.PIX
+    assert registro.cobranca_id is None
+    assert registro.aplicada_em is None
+    assert registro.efeito is None
+    assert registro.coletado_em == datetime(2026, 11, 9, 12, 30, tzinfo=UTC)
+
+    sessao.add(baixa("77"))
+    with pytest.raises(IntegrityError):
+        sessao.commit()
+    sessao.rollback()

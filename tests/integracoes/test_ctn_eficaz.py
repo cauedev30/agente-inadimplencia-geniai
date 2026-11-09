@@ -139,9 +139,12 @@ def tabelas_padrao():
     }
 
 
-def servidor(tabelas=None, chamadas=None, chave=CHAVE):
+def servidor(tabelas=None, chamadas=None, chave=CHAVE, direcao="honra"):
     """Um servidor com a regra da API: igualdade por coluna, `de`/`ate` na coluna de data da rota,
-    `ordem` e `pagina`/`limite` (o corpo traz `dados`, `mais` e `uso`)."""
+    `ordem` e `pagina`/`limite` (o corpo traz `dados`, `mais` e `uso`).
+
+    `direcao`: "honra" ordena como pedido (asc ou desc); "ignora" devolve sempre crescente (a API
+    que não respeita o `desc`); "recusa" responde 400 ao `desc`."""
     tabelas = tabelas_padrao() if tabelas is None else tabelas
     chamadas = [] if chamadas is None else chamadas
 
@@ -166,7 +169,10 @@ def servidor(tabelas=None, chamadas=None, chave=CHAVE):
             linhas = [x for x in linhas if (x.get(coluna_data) or "")[:10] <= params["ate"]]
         elif "de" in params:
             return httpx.Response(400, json={"erro": "de sem ate"})
-        linhas.sort(key=lambda x: str(x.get(params["ordem"])))
+        if direcao == "recusa" and params.get("direcao") == "desc":
+            return httpx.Response(400, json={"erro": "direcao inválida"})
+        decrescente = direcao == "honra" and params.get("direcao") == "desc"
+        linhas.sort(key=lambda x: str(x.get(params["ordem"])), reverse=decrescente)
         limite = int(params.get("limite", 50))
         pagina = int(params.get("pagina", 0))
         trecho = linhas[pagina * limite : (pagina + 1) * limite]
@@ -554,6 +560,149 @@ def test_baixas_desde_um_cursor_antigo_consulta_em_janelas_de_ate_31_dias():
     for (_, fim), (inicio, _) in zip(janelas, janelas[1:], strict=False):
         assert inicio == fim + timedelta(days=1)
     assert janelas[-1][1] == AGORA.date()
+
+
+# ---- a leitura incremental das baixas: custa o que mudou, não os dias inteiros ----
+
+
+def _baixas_do_dia(antigas, novas, dia="2026-11-06"):
+    """`antigas` + `novas` baixas, a primeira coletada às 03:00 UTC e uma a cada minuto; ids de
+    1000 em diante."""
+    linhas = []
+    base = datetime(2026, 11, 6, 3, 0, tzinfo=UTC)
+    for n in range(antigas + novas):
+        coletado = (base + timedelta(minutes=n)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        linhas.append(_bx(1000 + n, f"xx{n:09d}", "PIX", "2026/10", dia, 33.4, coletado))
+    return {"/v1/ctn/lancamentos_bx": linhas}
+
+
+def _cursor_depois_das_antigas(antigas):
+    return datetime(2026, 11, 6, 3, 0, tzinfo=UTC) + timedelta(minutes=antigas)
+
+
+def test_baixas_desde_sem_baixa_nova_custa_uma_chamada():
+    chamadas = []
+    tabelas = _baixas_do_dia(antigas=120, novas=0)
+    ctn = cliente(servidor(tabelas, chamadas))
+    assert ctn.baixas_desde(_cursor_depois_das_antigas(120)) == []
+    assert len(chamadas) == 1
+    params = dict(chamadas[0].url.params)
+    assert params["ordem"] == "coletado_em"
+    assert params["direcao"] == "desc"
+    assert params["pagina"] == "0"
+
+
+def test_baixas_desde_para_na_pagina_em_que_acabam_as_novas():
+    chamadas = []
+    tabelas = _baixas_do_dia(antigas=117, novas=3)
+    ctn = cliente(servidor(tabelas, chamadas))
+    baixas = ctn.baixas_desde(_cursor_depois_das_antigas(117))
+    assert [b.id_externo for b in baixas] == ["1117", "1118", "1119"]
+    # A janela tem 3 páginas de 50; a das mais novas já tem uma antiga e basta.
+    assert len(chamadas) == 1
+
+
+def test_baixas_desde_com_mais_novas_que_uma_pagina_le_a_janela_sem_perder_nenhuma():
+    chamadas = []
+    tabelas = _baixas_do_dia(antigas=40, novas=70)
+    ctn = cliente(servidor(tabelas, chamadas))
+    baixas = ctn.baixas_desde(_cursor_depois_das_antigas(40))
+    assert [b.id_externo for b in baixas] == [str(1040 + n) for n in range(70)]
+    # A 1ª página (as 50 mais novas) é toda nova: a janela é relida por uma chave única (`id`), que
+    # pagina sem repetir nem pular linha mesmo com `coletado_em` repetido.
+    assert [dict(c.url.params)["ordem"] for c in chamadas][1:] == ["id"] * (len(chamadas) - 1)
+    assert len(chamadas) == 1 + 3
+
+
+def test_baixas_desde_com_a_janela_numa_pagina_so_nao_depende_da_ordem():
+    chamadas = []
+    tabelas = _baixas_do_dia(antigas=10, novas=5)
+    baixas = cliente(servidor(tabelas, chamadas, direcao="ignora")).baixas_desde(
+        _cursor_depois_das_antigas(10)
+    )
+    assert len(baixas) == 5
+    assert len(chamadas) == 1
+
+
+def test_baixas_desde_com_a_api_que_ignora_o_desc_nao_perde_baixa():
+    # A página 0, crescente, só tem as mais antigas: parar nela perderia as novas.
+    tabelas = _baixas_do_dia(antigas=117, novas=3)
+    baixas = cliente(servidor(tabelas, direcao="ignora")).baixas_desde(
+        _cursor_depois_das_antigas(117)
+    )
+    assert [b.id_externo for b in baixas] == ["1117", "1118", "1119"]
+
+
+def test_baixas_desde_com_a_pagina_toda_no_mesmo_instante_nao_confia_na_ordem():
+    # 60 baixas de uma mesma coleta: nenhum par prova que a ordem é decrescente.
+    mesma = "2026-11-06T05:00:00.000Z"
+    ultima = "2026-11-06T06:00:00.000Z"
+    tabelas = {
+        "/v1/ctn/lancamentos_bx": [
+            _bx(2000 + n, f"xx{n:09d}", "PIX", "2026/10", "2026-11-06", 33.4, mesma)
+            for n in range(60)
+        ]
+        + [_bx(3000, "xx000009999", "PIX", "2026/10", "2026-11-06", 33.4, ultima)]
+    }
+    baixas = cliente(servidor(tabelas, direcao="ignora")).baixas_desde(
+        datetime(2026, 11, 6, 5, 30, tzinfo=UTC)
+    )
+    assert [b.id_externo for b in baixas] == ["3000"]
+
+
+def test_baixas_desde_se_a_api_recusa_o_desc_le_a_janela_inteira():
+    chamadas = []
+    tabelas = _baixas_do_dia(antigas=117, novas=3)
+    baixas = cliente(servidor(tabelas, chamadas, direcao="recusa")).baixas_desde(
+        _cursor_depois_das_antigas(117)
+    )
+    assert [b.id_externo for b in baixas] == ["1117", "1118", "1119"]
+    assert dict(chamadas[0].url.params)["direcao"] == "desc"
+    assert all(dict(c.url.params)["direcao"] == "asc" for c in chamadas[1:])
+
+
+def test_baixas_desde_nao_repete_a_chamada_quando_o_erro_nao_e_o_desc_recusado():
+    chamadas = []
+
+    def tratar(requisicao):
+        chamadas.append(requisicao)
+        return httpx.Response(503)
+
+    with pytest.raises(CTNIndisponivel):
+        cliente(tratar).baixas_desde(AGORA)
+    assert len(chamadas) == 1
+
+
+def test_baixas_desde_com_o_cursor_depois_da_meia_noite_de_brasilia_acha_o_relatorio_de_ontem():
+    # 00:10 de 06/11 em Brasília (03:10 UTC). O relatório do dia 05, coletado às 00:20, tem
+    # `dia_relatorio` 05/11 e `coletado_em` depois do cursor.
+    tabelas = {
+        "/v1/ctn/lancamentos_bx": [
+            _bx(1, "xx000000001", "PIX", "2026/10", "2026-11-05", 33.4, "2026-11-06T03:20:00.000Z"),
+            _bx(2, "xx000000002", "PIX", "2026/10", "2026-11-05", 33.4, "2026-11-06T02:00:00.000Z"),
+        ]
+    }
+    chamadas = []
+    agora = datetime(2026, 11, 6, 3, 30, tzinfo=UTC)
+    ctn = cliente(servidor(tabelas, chamadas), agora=lambda: agora)
+    baixas = ctn.baixas_desde(datetime(2026, 11, 6, 3, 10, tzinfo=UTC))
+    assert [b.id_externo for b in baixas] == ["1"]
+    assert dict(chamadas[0].url.params)["de"] == "2026-11-05"
+
+
+def test_baixas_desde_conta_o_dia_do_cursor_em_brasilia_e_nao_no_utc():
+    # 23:50 de 05/11 em Brasília (02:50 UTC de 06/11): o dia do cursor é o 05; a janela abre no 04.
+    tabelas = {
+        "/v1/ctn/lancamentos_bx": [
+            _bx(1, "xx000000001", "PIX", "2026/10", "2026-11-04", 33.4, "2026-11-06T03:00:00.000Z"),
+        ]
+    }
+    chamadas = []
+    agora = datetime(2026, 11, 6, 3, 30, tzinfo=UTC)
+    ctn = cliente(servidor(tabelas, chamadas), agora=lambda: agora)
+    baixas = ctn.baixas_desde(datetime(2026, 11, 6, 2, 50, tzinfo=UTC))
+    assert [b.id_externo for b in baixas] == ["1"]
+    assert dict(chamadas[0].url.params)["de"] == "2026-11-04"
 
 
 def test_baixa_sem_coletado_em_e_resposta_invalida():

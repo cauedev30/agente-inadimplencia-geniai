@@ -11,6 +11,7 @@ from agente.tipos import (
     BatchJev,
     EstadoConversa,
     EstadoEnvio,
+    FormaHistorico,
     FormaPagamento,
     Modo,
     MotivoHumano,
@@ -271,3 +272,28 @@ class CursorCTN(Base):
 
     nome: Mapped[str] = mapped_column(String(64), primary_key=True)
     valor: Mapped[str] = mapped_column(String(100))
+
+
+class BaixaCTNRegistro(Base):
+    """Uma baixa que o CTN registrou, lida pela rotina das baixas (spec do CTN real, decisão 3).
+
+    O `id_externo` é o `id` da API e torna a leitura idempotente: a baixa que volta no cursor
+    inclusivo não é gravada nem aplicada duas vezes. `aplicada_em` nulo = ainda por tratar (a
+    conferência não pôde rodar); `efeito` diz o que a rotina fez (`quitou`, `abateu`, `ignorada`,
+    `sem_cobranca`, ...). Não é o `BaixaCTN` de `integracoes/ctn.py`, que é o dado em trânsito.
+    """
+
+    __tablename__ = "baixa_ctn"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    id_externo: Mapped[str] = mapped_column(String(64), unique=True)
+    matricula: Mapped[str] = mapped_column(String(64), index=True)
+    # AAAA/MM, como o CTN a dá.
+    mes_ref: Mapped[str] = mapped_column(String(7))
+    valor_centavos: Mapped[int]
+    forma: Mapped[FormaHistorico] = mapped_column(_enum(FormaHistorico))
+    pago_em: Mapped[datetime]
+    coletado_em: Mapped[datetime]
+    cobranca_id: Mapped[int | None] = mapped_column(ForeignKey("cobranca.id"))
+    aplicada_em: Mapped[datetime | None]
+    efeito: Mapped[str | None] = mapped_column(String(40))
