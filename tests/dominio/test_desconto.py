@@ -69,3 +69,12 @@ def test_degrau_fora_da_regua_e_erro(politica, degrau):
 def test_oferta_no_degrau_e_a_que_ja_foi_feita(politica):
     assert oferta_no_degrau(Regua.R3, 10020, 2, politica) == Oferta(2, 6000, 4020)
     assert oferta_no_degrau(Regua.R3, 10020, 0, politica) is None
+
+
+@pytest.mark.parametrize("divida", [0, -500])
+def test_divida_sem_valor_nao_gera_desconto_negativo(politica, divida):
+    oferta = oferta_no_degrau(Regua.R3, divida, 1, politica)
+
+    assert oferta is not None
+    assert oferta.desconto_centavos == 0
+    assert valor_com_desconto(Regua.R3, divida, 1, politica) == divida

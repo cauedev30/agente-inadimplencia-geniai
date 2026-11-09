@@ -16,12 +16,21 @@ from agente.turno.catalogo import DadosFixa, mensagem_fixa
 from agente.webchat.link import ConfigWebchat, link_canal_externo
 
 NOTA_TETO_REPETIDO = "O teto já foi atingido; o cliente escreveu de novo."
+NOTA_CONCILIACAO_REPETIDA = (
+    "A conferência no CTN segue mostrando a cobrança quitada; o cliente escreveu de novo."
+)
+NOTA_REPETIDA = "A conversa já saiu por este motivo; o cliente escreveu de novo."
 
 
 def _nota(motivo: MotivoHumano, laudos: list[Laudo], *, repetido: bool = False) -> str:
     linhas = [f"Saída para o humano: {motivo.value}"]
     if repetido:
-        linhas.append(NOTA_TETO_REPETIDO)
+        linhas.append(
+            {
+                MotivoHumano.TETO: NOTA_TETO_REPETIDO,
+                MotivoHumano.CONCILIACAO: NOTA_CONCILIACAO_REPETIDA,
+            }.get(motivo, NOTA_REPETIDA)
+        )
     linhas += [
         f"- {laudo.pergunta}: {laudo.valor} (p={laudo.probabilidade:.2f}, c={laudo.confianca:.2f})"
         for laudo in laudos
@@ -68,6 +77,12 @@ def ja_saiu_pelo_teto(sessao: Session, conversa: Conversa) -> bool:
     return _saiu_para_o_humano(sessao, conversa, MotivoHumano.TETO)
 
 
+def ja_saiu_por_conciliacao(sessao: Session, conversa: Conversa) -> bool:
+    """A conversa já saiu para o humano conferir o pagamento (CONCILIACAO): a cobrança quitada no
+    CTN só leva essa mensagem uma vez."""
+    return _saiu_para_o_humano(sessao, conversa, MotivoHumano.CONCILIACAO)
+
+
 def fazer_handoff(
     sessao: Session,
     chatwoot: Chatwoot,
@@ -89,7 +104,8 @@ def fazer_handoff(
     A mensagem do canal leva o link do webchat com o token da cobrança; sem `webchat` (sem o
     domínio, G7), leva o link provisório do politica.toml. Com `sem_link` (D44), ou nos motivos de
     `motivos_humano_no_whatsapp`, vai a fixa sem link e nenhum token é gerado. Sem
-    `enviar_mensagem`, o cliente não recebe nada: é a volta ao humano de quem já recebeu a 6ª.
+    `enviar_mensagem`, o cliente não recebe nada: é a volta ao humano de quem já recebeu a 6ª, ou
+    de quem já recebeu a mensagem da cobrança quitada (CONCILIACAO).
     Com `texto` (o turno de uma chamada, D47), ele troca o texto fixo da mensagem no WhatsApp (D44)
     e abre a mensagem do canal externo, que fecha com a frase fixa da D19 e leva o botão.
     """

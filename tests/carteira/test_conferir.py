@@ -3,8 +3,14 @@
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from agente.carteira.conferir import (
+    MOTIVO_DADO_SUSPEITO,
+    MOTIVO_SEM_LANCAMENTOS,
+    TETO_SANITARIO_MENSALIDADE_CENTAVOS,
     Conferencia,
+    ResultadoConferencia,
     conferir_antes_do_envio,
     conferir_cobranca,
     precisa_conferir,
@@ -54,11 +60,13 @@ def _abertas(*itens):
     return [MensalidadeAberta(mes, valor) for mes, valor in itens]
 
 
-def _ctn(abertas, historico=None, matricula=MATRICULA, cls=CTNEspiao):
+def _ctn(abertas, historico=None, matricula=MATRICULA, cls=CTNEspiao, rejeitadas=None):
+    # `rejeitadas`: quantos lançamentos rejeitados o CTN devolveu (sem ele, são as abertas).
     return cls(
         mensalidades_abertas={matricula: abertas},
         historicos={matricula: historico or []},
         hoje=date(2026, 11, 9),
+        rejeitadas_lidas={matricula: rejeitadas} if rejeitadas is not None else None,
     )
 
 
@@ -113,6 +121,7 @@ def test_ctn_fora_mantem_o_retrato_e_nao_marca_conferida(sessao, politica):
     conferencia = conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA)
 
     assert conferencia.conferida is False
+    assert conferencia.motivo is None
     assert conferencia.divida_centavos == 10020
     assert cobranca.conferida_em is None
     assert cobranca.meses_em_aberto is None
@@ -142,15 +151,16 @@ def test_propenso_some_se_o_historico_nao_sustenta(sessao, politica):
     assert cobranca.propenso_cartao is False
 
 
-def test_zero_meses_em_aberto_nao_encerra_e_nao_mexe_na_divida(sessao, politica):
+def test_rejeitadas_todas_pagas_e_quitada_e_nao_mexe_na_divida(sessao, politica):
     cobranca = _cobranca(sessao)
-    ctn = _ctn([])
+    ctn = _ctn([], rejeitadas=3)
 
     conferencia = conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA)
 
     assert conferencia.conferida is True
     assert conferencia.meses_em_aberto == []
     assert conferencia.quitada_no_ctn is True
+    assert conferencia.motivo is None
     assert cobranca.status is StatusCobranca.ATIVA
     assert cobranca.encerrada_motivo is None
     assert cobranca.meses_em_aberto == []
@@ -162,14 +172,74 @@ def test_zero_meses_em_aberto_nao_encerra_e_nao_mexe_na_divida(sessao, politica)
     assert ctn.chamadas == ["mensalidades"]
 
 
-def test_matricula_desconhecida_e_tratada_como_zero_meses(sessao, politica):
+def test_matricula_desconhecida_nao_e_quitada_e_nao_marca_conferida(sessao, politica):
+    # Nenhuma rejeitada veio (o CTN não conhece a matrícula, ou ela não casa com a dos lançamentos)
+    # e o retrato diz que há 3 meses em atraso: contradição, não "quitada".
     cobranca = _cobranca(sessao, matricula="M-9999")
     ctn = CTNEspiao(hoje=date(2026, 11, 9))
 
     conferencia = conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA)
 
-    assert conferencia.quitada_no_ctn is True
+    assert conferencia.conferida is False
+    assert conferencia.quitada_no_ctn is False
+    assert conferencia.motivo == MOTIVO_SEM_LANCAMENTOS
+    assert conferencia.divida_centavos == 10020
     assert cobranca.status is StatusCobranca.ATIVA
+    assert cobranca.conferida_em is None
+    assert cobranca.meses_em_aberto is None
+    assert cobranca.divida_centavos == 10020
+    # O histórico não é lido quando não há dívida a cobrar.
+    assert ctn.chamadas == ["mensalidades"]
+
+
+@pytest.mark.parametrize(
+    ("abertas", "motivo_esperado"),
+    [
+        # mês repetido entre as abertas
+        ([("2026/09", 3340), ("2026/09", 3340)], MOTIVO_DADO_SUSPEITO),
+        # valor zero e valor negativo
+        ([("2026/09", 0), ("2026/10", 3340)], MOTIVO_DADO_SUSPEITO),
+        ([("2026/09", -3340)], MOTIVO_DADO_SUSPEITO),
+        # acima do teto sanitário
+        ([("2026/10", TETO_SANITARIO_MENSALIDADE_CENTAVOS + 1)], MOTIVO_DADO_SUSPEITO),
+        # mais meses abertos que o retrato (3) + 1
+        ([(f"2026/0{n}", 3340) for n in range(1, 6)], MOTIVO_DADO_SUSPEITO),
+    ],
+)
+def test_dado_suspeito_nao_marca_conferida_nem_grava(sessao, politica, abertas, motivo_esperado):
+    cobranca = _cobranca(sessao, meses=3)
+    ctn = _ctn(_abertas(*abertas))
+
+    conferencia = conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA)
+
+    assert conferencia.conferida is False
+    assert conferencia.motivo == motivo_esperado
+    assert conferencia.divida_centavos == 10020
+    assert cobranca.conferida_em is None
+    assert cobranca.meses_em_aberto is None
+    assert cobranca.divida_centavos == 10020
+    assert cobranca.mensalidades_abertas == 3
+
+
+def test_um_mes_a_mais_que_o_retrato_e_o_teto_exato_ainda_conferem(sessao, politica):
+    cobranca = _cobranca(sessao, meses=1, divida=3340, regua=Regua.R1)
+    ctn = _ctn(_abertas(("2026/09", TETO_SANITARIO_MENSALIDADE_CENTAVOS), ("2026/10", 1000)))
+
+    conferencia = conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA)
+
+    assert conferencia.conferida is True
+    assert conferencia.divida_centavos == TETO_SANITARIO_MENSALIDADE_CENTAVOS + 1000
+
+
+def test_mensalidade_de_dez_a_noventa_e_nove_reais_confere(sessao, politica):
+    # As mensalidades reais vão de R$ 10 a R$ 99: o valor fixo da política é só uma estimativa.
+    cobranca = _cobranca(sessao, meses=2, divida=6680, regua=Regua.R2)
+    ctn = _ctn(_abertas(("2026/09", 1000), ("2026/10", 9900)))
+
+    conferencia = conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA)
+
+    assert conferencia.conferida is True
+    assert cobranca.divida_centavos == 10900
 
 
 def test_idempotente(sessao, politica):
@@ -222,8 +292,9 @@ def test_antes_do_envio_confere_grava_e_libera(sessao, politica):
     cobranca = _cobranca(sessao)
     ctn = _ctn(_abertas(("2026/10", 3340)))
 
-    assert conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA) is True
+    resultado = conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA)
 
+    assert resultado is ResultadoConferencia.CONFERIDA
     assert cobranca.divida_centavos == 3340
     assert ctn.chamadas == ["mensalidades", "historico"]
 
@@ -242,20 +313,41 @@ def test_antes_do_envio_so_confere_uma_vez_por_dia(sessao, politica):
     assert ctn.chamadas == ["mensalidades", "historico"] * 2
 
 
-def test_antes_do_envio_bloqueia_a_quitada_no_ctn_no_mesmo_dia(sessao, politica):
+def test_antes_do_envio_marca_a_quitada_no_ctn_no_mesmo_dia(sessao, politica):
     cobranca = _cobranca(sessao)
-    ctn = _ctn([])
+    ctn = _ctn([], rejeitadas=2)
 
-    assert conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA) is False
-    # Mesmo dia: não chama o CTN de novo e continua bloqueada.
-    assert (
-        conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA + timedelta(hours=1))
-        is False
+    primeira = conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA)
+    # Mesmo dia: não chama o CTN de novo e continua quitada.
+    segunda = conferir_antes_do_envio(
+        sessao, ctn, politica, cobranca.id, AGORA + timedelta(hours=1)
     )
+
+    assert primeira is segunda is ResultadoConferencia.QUITADA
     assert ctn.chamadas == ["mensalidades"]
 
 
-def test_quitada_de_ontem_nao_bloqueia_se_o_ctn_cai_hoje(sessao, politica):
+def test_antes_do_envio_distingue_sem_lancamentos_e_dado_suspeito(sessao, politica):
+    sem = _cobranca(sessao, matricula="M-0002")
+    suspeita = _cobranca(sessao, matricula="M-0003")
+    ctn = CTNEspiao(
+        mensalidades_abertas={"M-0003": _abertas(("2026/10", 0))}, hoje=date(2026, 11, 9)
+    )
+
+    assert (
+        conferir_antes_do_envio(sessao, ctn, politica, sem.id, AGORA)
+        is ResultadoConferencia.SEM_LANCAMENTOS
+    )
+    assert (
+        conferir_antes_do_envio(sessao, ctn, politica, suspeita.id, AGORA)
+        is ResultadoConferencia.DADO_SUSPEITO
+    )
+    # Nenhuma das duas fica marcada: a próxima rodada confere de novo.
+    assert sem.conferida_em is None
+    assert suspeita.conferida_em is None
+
+
+def test_quitada_de_ontem_nao_vale_se_o_ctn_cai_hoje(sessao, politica):
     cobranca = _cobranca(sessao)
     cobranca.conferida_em = AGORA - timedelta(days=1)
     cobranca.meses_em_aberto = []
@@ -263,14 +355,19 @@ def test_quitada_de_ontem_nao_bloqueia_se_o_ctn_cai_hoje(sessao, politica):
     ctn = _ctn([])
     ctn.fora_do_ar = True
 
-    assert conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA) is True
+    # Sem conferência de hoje: não é quitada (ontem não vale) e também não está conferida.
+    resultado = conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA)
+
+    assert resultado is ResultadoConferencia.NAO_CONFERIDA
 
 
-def test_antes_do_envio_com_ctn_fora_libera_com_o_retrato(sessao, politica):
+def test_antes_do_envio_com_ctn_fora_diz_que_nao_conferiu(sessao, politica):
     cobranca = _cobranca(sessao)
     ctn = _ctn(_abertas(("2026/10", 3340)))
     ctn.fora_do_ar = True
 
-    assert conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA) is True
+    resultado = conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA)
+
+    assert resultado is ResultadoConferencia.NAO_CONFERIDA
     assert cobranca.conferida_em is None
     assert cobranca.divida_centavos == 10020

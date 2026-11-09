@@ -2,8 +2,8 @@
 
 O segredo, o JSON, a conta, a inbox e o dedupe já ficaram no webhook (tarefa 3.4). Aqui ficam os
 gates do turno, nesta ordem: cobrança ativa, humano na conversa, reinício, anexo, janela de
-atendimento, janela de 24h do WhatsApp, teto e o toque no botão "Pagar com Pix". O toque no botão
-é a única mensagem que dispensa a janela de atendimento (D40).
+atendimento, janela de 24h do WhatsApp, teto, a cobrança quitada no CTN e o toque no botão "Pagar
+com Pix". O toque no botão é a única mensagem que dispensa a janela de atendimento (D40).
 """
 
 from dataclasses import dataclass
@@ -60,7 +60,13 @@ class Reiniciar:
     """Comando de reinício, só para os telefones da equipe."""
 
 
-Gate = Seguir | Ignorar | Adiar | Retomar | Fixa | Reiniciar | PagarPix
+@dataclass(frozen=True)
+class Quitada:
+    """A conferência de hoje achou a cobrança quitada no CTN: não se cobra nem se gera Pix. O
+    orquestrador leva a conversa ao humano conferir (CONCILIACAO), uma vez só."""
+
+
+Gate = Seguir | Ignorar | Adiar | Retomar | Fixa | Reiniciar | PagarPix | Quitada
 
 
 def _so_anexo_nao_aceito(mensagens: list[Mensagem], politica: Politica) -> bool:
@@ -94,8 +100,13 @@ def avaliar_gates(
     sessao: Session,
     *,
     barrar_humano: bool = True,
+    quitada_no_ctn: bool = False,
 ) -> Gate:
-    """Em sombra, o humano na conversa não barra: a sombra lê enquanto os humanos atendem (T7)."""
+    """Em sombra, o humano na conversa não barra: a sombra lê enquanto os humanos atendem (T7).
+
+    `quitada_no_ctn` (a conferência de hoje achou a cobrança quitada) troca o `Seguir` e o
+    `PagarPix` por `Quitada`. Ela é o último gate: humano, reinício, janela de atendimento, janela
+    de 24h e teto valem primeiro, e a quitada nunca manda texto livre onde eles não deixam."""
     if not mensagens:
         return Ignorar("sem_mensagem")
     if conversa.cobranca.status is not StatusCobranca.ATIVA:
@@ -123,6 +134,8 @@ def avaliar_gates(
         # Quem já saiu pelo teto e foi devolvido ao robô também chega aqui: o orquestrador decide
         # entre a 6ª mensagem e o retorno silencioso ao humano.
         return Fixa(TipoFixa.CANAL_EXTERNO)
+    if quitada_no_ctn:
+        return Quitada()
     if toque:
         return PagarPix()
     return Seguir()

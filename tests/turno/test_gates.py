@@ -3,9 +3,19 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from agente.abertura.disparar import BOTAO_PAGAR_PIX
 from agente.db.historico import registrar_mensagem
 from agente.tipos import EstadoConversa, OrigemMensagem, StatusCobranca, TipoFixa
-from agente.turno.gates import Adiar, Fixa, Ignorar, Reiniciar, Retomar, Seguir, avaliar_gates
+from agente.turno.gates import (
+    Adiar,
+    Fixa,
+    Ignorar,
+    Quitada,
+    Reiniciar,
+    Retomar,
+    Seguir,
+    avaliar_gates,
+)
 
 JP = ZoneInfo("America/Fortaleza")
 SEGUNDA_10H = datetime(2026, 10, 26, 10, tzinfo=JP)
@@ -155,3 +165,55 @@ def test_ordem_janela_vem_antes_do_teto(sessao, conversa, politica):
 
 def test_rajada_vazia_e_ignorada(sessao, conversa, politica):
     assert _avaliar(sessao, conversa, [], politica) == Ignorar("sem_mensagem")
+
+
+def _quitada(sessao, conversa, mensagens, politica, agora=SEGUNDA_10H, **resto):
+    return avaliar_gates(conversa, mensagens, agora, politica, sessao, quitada_no_ctn=True, **resto)
+
+
+def test_quitada_no_ctn_e_o_ultimo_gate_antes_do_seguir(sessao, conversa, politica):
+    assert _quitada(sessao, conversa, [_cliente(sessao, conversa)], politica) == Quitada()
+
+
+def test_quitada_no_ctn_tambem_vale_para_o_toque_no_botao(sessao, conversa, politica):
+    # Quem quitou não gera Pix: o toque no botão cai no mesmo gate.
+    mensagem = _cliente(sessao, conversa, texto=BOTAO_PAGAR_PIX.texto)
+    assert _quitada(sessao, conversa, [mensagem], politica) == Quitada()
+
+
+def test_quitada_no_ctn_com_humano_na_conversa_nao_faz_nada(sessao, conversa, politica):
+    conversa.human_owned = True
+    resultado = _quitada(sessao, conversa, [_cliente(sessao, conversa)], politica)
+    assert resultado == Ignorar("humano_na_conversa")
+
+
+def test_quitada_no_ctn_em_sombra_com_humano_segue_para_a_marcacao(sessao, conversa, politica):
+    conversa.human_owned = True
+    mensagens = [_cliente(sessao, conversa)]
+    resultado = _quitada(sessao, conversa, mensagens, politica, barrar_humano=False)
+    assert resultado == Quitada()
+
+
+def test_quitada_no_ctn_fora_da_janela_de_atendimento_adia(sessao, conversa, politica):
+    mensagem = _cliente(sessao, conversa, momento=DOMINGO)
+    resultado = _quitada(sessao, conversa, [mensagem], politica, agora=DOMINGO)
+    assert isinstance(resultado, Adiar)
+
+
+def test_quitada_no_ctn_passou_das_24h_so_manda_template(sessao, conversa, politica):
+    mensagem = _cliente(sessao, conversa, momento=SEGUNDA_10H - timedelta(hours=25))
+    assert _quitada(sessao, conversa, [mensagem], politica) == Retomar()
+
+
+def test_quitada_no_ctn_no_teto_segue_o_gate_do_teto(sessao, conversa, politica):
+    _agente(sessao, conversa, politica.teto_resolucao)
+    resultado = _quitada(sessao, conversa, [_cliente(sessao, conversa)], politica)
+    assert resultado == Fixa(TipoFixa.CANAL_EXTERNO)
+
+
+def test_quitada_no_ctn_com_reinicio_da_equipe_reinicia(sessao, conversa, politica):
+    mensagem = _cliente(sessao, conversa, texto=politica.comando_reinicio)
+    da_equipe = politica.model_copy(
+        update={"telefones_equipe": frozenset({conversa.cobranca.cliente.telefone})}
+    )
+    assert _quitada(sessao, conversa, [mensagem], da_equipe) == Reiniciar()

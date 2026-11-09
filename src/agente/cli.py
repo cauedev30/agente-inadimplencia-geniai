@@ -83,18 +83,47 @@ def _importar(argumentos: argparse.Namespace) -> int:
     return 0
 
 
+def _sem_detalhe_de_erro(orientacao: str) -> Callable[[Comando], Comando]:
+    """Os comandos da pré-sombra lidam com conversas de clientes: uma exceção que ninguém previu
+    não sai com traceback nem com a mensagem (o SQLAlchemy põe os parâmetros do SQL nela). Sai só o
+    tipo do erro e o que fazer."""
+
+    def decorar(comando: Comando) -> Comando:
+        @functools.wraps(comando)
+        def rodar(argumentos: argparse.Namespace) -> int:
+            try:
+                return comando(argumentos)
+            except Exception as erro:
+                print(f"Erro inesperado ({type(erro).__name__}). {orientacao}")
+                return 1
+
+        return rodar
+
+    return decorar
+
+
+def _mascarar(matricula: str) -> str:
+    """Só os 3 últimos caracteres da matrícula vão à tela (LGPD)."""
+    return f"***{matricula[-3:]}"
+
+
+@_sem_detalhe_de_erro("Nada além das aberturas já confirmadas foi enviado; rode de novo.")
 def _disparar(argumentos: argparse.Namespace) -> int:
     config = carregar_config()
     politica = carregar_politica(config.politica_path)
     # Até a T4, não há disparador real: as aberturas só ficam gravadas.
     print("Disparador falso: nenhuma mensagem sai de verdade (T4).")
-    with criar_sessao(config.database_url)() as sessao, ExitStack() as pilha:
+    # ocultar_parametros: o SQL de um erro não pode levar nome nem telefone para a tela.
+    with (
+        criar_sessao(config.database_url, ocultar_parametros=True)() as sessao,
+        ExitStack() as pilha,
+    ):
         # Com a chave do CTN, cada cobrança é conferida antes da abertura (uma vez por dia).
         ctn = pilha.enter_context(_abrir_ctn(config)) if config.ctn_real_ligado else None
         if ctn is not None:
             print("CTN real: cada cobrança é conferida antes da abertura (só leitura).")
         relatorio = disparar_aberturas(
-            sessao, politica, DisparadorFalso(), argumentos.campanha, datetime.now(UTC), ctn
+            sessao, politica, DisparadorFalso(), argumentos.campanha, _agora(), ctn
         )
     if relatorio.fora_da_janela:
         print("fora da janela de atendimento: nada foi disparado")
@@ -102,9 +131,20 @@ def _disparar(argumentos: argparse.Namespace) -> int:
     print(f"enviadas: {relatorio.enviadas}")
     print(f"puladas: {relatorio.puladas}")
     print(f"quitadas no CTN (sem abertura): {relatorio.quitadas_no_ctn}")
+    print(f"sem lançamentos no CTN (sem abertura): {relatorio.sem_lancamentos}")
+    print(f"dados suspeitos do CTN (sem abertura): {relatorio.dados_suspeitos}")
+    print(f"não conferidas, CTN fora (sem abertura): {relatorio.nao_conferidas}")
+    print(f"telefone de mais de uma cobrança (sem abertura): {relatorio.telefone_compartilhado}")
     print(f"falhas: {len(relatorio.falhas)}")
+    # Só a matrícula mascarada e o tipo do erro: a mensagem pode trazer telefone, nome ou URL.
     for matricula, erro in relatorio.falhas:
-        print(f"  {matricula}: {erro}")
+        print(f"  {_mascarar(matricula)}: {erro}")
+    if relatorio.alarme_conferencia:
+        print(
+            "ALARME DA CONFERÊNCIA: quitadas ou sem lançamentos demais nesta rodada; a campanha "
+            "parou. Confira o CTN e a carteira antes de rodar de novo."
+        )
+        return 3
     return 0
 
 
@@ -193,25 +233,6 @@ def _faltam_do_chatwoot(config: Config) -> list[str]:
         )
         if valor is None
     ]
-
-
-def _sem_detalhe_de_erro(orientacao: str) -> Callable[[Comando], Comando]:
-    """Os comandos da pré-sombra lidam com conversas de clientes: uma exceção que ninguém previu
-    não sai com traceback nem com a mensagem (o SQLAlchemy põe os parâmetros do SQL nela). Sai só o
-    tipo do erro e o que fazer."""
-
-    def decorar(comando: Comando) -> Comando:
-        @functools.wraps(comando)
-        def rodar(argumentos: argparse.Namespace) -> int:
-            try:
-                return comando(argumentos)
-            except Exception as erro:
-                print(f"Erro inesperado ({type(erro).__name__}). {orientacao}")
-                return 1
-
-        return rodar
-
-    return decorar
 
 
 @_sem_detalhe_de_erro("Apague a pasta de saída antes de tentar de novo.")

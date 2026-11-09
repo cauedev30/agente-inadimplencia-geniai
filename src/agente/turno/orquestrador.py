@@ -16,7 +16,7 @@ import httpx
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
-from agente.carteira.conferir import conferir_antes_do_envio
+from agente.carteira.conferir import ResultadoConferencia, conferir_antes_do_envio
 from agente.db.historico import (
     abrir_turno,
     fechar_turno,
@@ -67,6 +67,7 @@ from agente.turno.gates import (
     Gate,
     Ignorar,
     PagarPix,
+    Quitada,
     Reiniciar,
     Retomar,
     Seguir,
@@ -75,7 +76,12 @@ from agente.turno.gates import (
     e_comando_de_reinicio,
     humano_na_conversa,
 )
-from agente.turno.handoff import fazer_handoff, ja_desconfiou, ja_saiu_pelo_teto
+from agente.turno.handoff import (
+    fazer_handoff,
+    ja_desconfiou,
+    ja_saiu_pelo_teto,
+    ja_saiu_por_conciliacao,
+)
 from agente.turno.jev1 import LeituraJev1, desconfia_no_limiar, laudo_do_risco
 from agente.turno.liberacao import modo_da_conversa
 from agente.turno.redacao import (
@@ -110,6 +116,21 @@ log = logging.getLogger(__name__)
 ROTULO_PEDIR_TEXTO = f"FIXA:{TipoFixa.PEDIR_TEXTO.value}"
 # O que o turno de uma chamada grava como ação principal quando o cliente não é o devedor (D47).
 ROTULO_TERCEIRO = "TERCEIRO"
+# A conferência que não vale para citar valor: o turno ativo espera.
+_SEM_CONFERENCIA_DE_HOJE = (
+    ResultadoConferencia.NAO_CONFERIDA,
+    ResultadoConferencia.SEM_LANCAMENTOS,
+    ResultadoConferencia.DADO_SUSPEITO,
+)
+# O que o turno em sombra grava como ação principal quando a conferência achou a cobrança quitada
+# no CTN: o agente ativo não cobraria, e a sombra precisa mostrar isso.
+ROTULO_QUITADA = "QUITADA_NO_CTN"
+
+
+class ConferenciaNaoFeita(CTNIndisponivel):
+    """A conferência de hoje não valeu (CTN fora, sem lançamentos ou dado suspeito): o turno ativo
+    não cita valor estimado e tem de esperar, como espera a integração fora do ar."""
+
 
 # O que conta como integração fora do ar (CTN, Pix, Chatwoot, redator e Jev): é tentado de novo e
 # depois vai ao humano. Qualquer outro erro é bug de código: tem o próprio teto (`erros_turno`).
@@ -236,7 +257,12 @@ def _historico_e_novas(
 
 
 def _ouvir_os_audios(
-    sessao: Session, conversa: Conversa, agora: datetime, deps: Dependencias
+    sessao: Session,
+    conversa: Conversa,
+    agora: datetime,
+    deps: Dependencias,
+    *,
+    quitada_no_ctn: bool = False,
 ) -> None:
     """Transcreve os áudios da rajada se o turno vai seguir (D43), antes de qualquer decisão.
 
@@ -256,6 +282,7 @@ def _ouvir_os_audios(
         deps.politica,
         sessao,
         barrar_humano=deps.modo is Modo.ATIVO,
+        quitada_no_ctn=quitada_no_ctn,
     )
     if isinstance(gate, Seguir):
         transcrever_audios(
@@ -1059,6 +1086,19 @@ def _pagar_pix(
     )
 
 
+def _resolver_pendente(sessao: Session, conversa: Conversa, deps: Dependencias) -> None:
+    """A mensagem do agente gravada e ainda não confirmada não sai mais: confere o Chatwoot (que não
+    se perca o que chegou a sair) e descarta a que não saiu."""
+    pendente = _envio_pendente(sessao, conversa.id)
+    if pendente is None:
+        return
+    chatwoot_id = _entregue(sessao, conversa, pendente, deps)
+    if chatwoot_id is None:
+        _descartar(sessao, pendente)
+    else:
+        confirmar_envio(sessao, pendente, chatwoot_id)
+
+
 def _desistir(
     sessao: Session,
     conversa: Conversa,
@@ -1072,14 +1112,7 @@ def _desistir(
         # O handoff manda a mensagem do canal externo: só dentro da janela (D16).
         agendar_turno(sessao, conversa.id, proxima_abertura(agora, deps.politica))
         return ResultadoTurno.ADIADO
-    pendente = _envio_pendente(sessao, conversa.id)
-    if pendente is not None:
-        # Que não se perca o que chegou a sair: confere o Chatwoot antes de descartar.
-        chatwoot_id = _entregue(sessao, conversa, pendente, deps)
-        if chatwoot_id is None:
-            _descartar(sessao, pendente)
-        else:
-            confirmar_envio(sessao, pendente, chatwoot_id)
+    _resolver_pendente(sessao, conversa, deps)
     mensagens = tomar_turno(sessao, conversa.id)
     turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
     turno.humano_na_conversa = humano_na_conversa(conversa)
@@ -1292,22 +1325,22 @@ def _turno_ativo(
     O envio ao Chatwoot é o último passo: o turno é gravado e confirmado antes, com a mensagem
     PENDENTE, e o retorno agendado cobre o processo que cair no meio.
 
-    A cobrança que a conferência de hoje achou sem meses em aberto (`quitada_no_ctn`) não é
-    cobrada: a conversa sai para o humano conferir (CONCILIACAO), pelo mesmo caminho de quem
-    desiste.
+    A cobrança que a conferência de hoje achou quitada (`quitada_no_ctn`) não é cobrada: é o último
+    gate do turno (`Quitada`), e a conversa sai para o humano conferir (CONCILIACAO). Uma mensagem
+    pendente de antes, com o valor antigo, não é mais retomada.
     """
-    desistindo = quitada_no_ctn or conversa.falhas_turno >= deps.politica.integracao_tentativas
+    desistindo = conversa.falhas_turno >= deps.politica.integracao_tentativas
     pendente = _envio_pendente(sessao, conversa.id)
-    if pendente is not None and not desistindo:
+    if pendente is not None and not desistindo and not quitada_no_ctn:
         return _retomar_envio(sessao, conversa, pendente, deps, agora)
     try:
         with sessao.begin_nested():
-            if quitada_no_ctn:
-                resultado = _desistir(sessao, conversa, deps, agora, MotivoHumano.CONCILIACAO)
-            elif desistindo:
+            if desistindo:
                 resultado = _desistir(sessao, conversa, deps, agora)
             else:
-                resultado = _rodar_turno(sessao, conversa, agora, deps)
+                resultado = _rodar_turno(
+                    sessao, conversa, agora, deps, quitada_no_ctn=quitada_no_ctn
+                )
     except _FALHAS_DE_INTEGRACAO as erro:
         log.exception("o turno da conversa %s falhou", conversa.id)
         return _registrar_falha(sessao, conversa.id, erro, deps, agora, desistindo=desistindo)
@@ -1327,8 +1360,47 @@ def _turno_ativo(
     return resultado if entrega is ResultadoTurno.ENVIADO else entrega
 
 
+def _quitada(
+    sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
+) -> ResultadoTurno:
+    """A cobrança quitada no CTN (gate `Quitada`): não se cobra, não se gera Pix.
+
+    Em sombra, só marca no turno que o agente ativo não cobraria. No ativo, a conversa sai para o
+    humano conferir (CONCILIACAO) e a mensagem do handoff sai só na 1ª vez: se a conversa já saiu
+    por CONCILIACAO e o atendente a devolveu ao robô, volta ao humano sem mensagem.
+    """
+    if deps.modo is Modo.SOMBRA:
+        fechar_turno(
+            sessao,
+            turno.id,
+            ResultadoTurno.SOMBRA,
+            acao_principal=ROTULO_QUITADA,
+            redacao={"saida": "SOMBRA", "motivo": "quitada_no_ctn"},
+            momento=agora,
+        )
+        return ResultadoTurno.SOMBRA
+    # O texto que estava para sair levava o valor antigo.
+    _resolver_pendente(sessao, conversa, deps)
+    primeira_vez = not ja_saiu_por_conciliacao(sessao, conversa)
+    _handoff(sessao, conversa, MotivoHumano.CONCILIACAO, deps, agora, enviar_mensagem=primeira_vez)
+    fechar_turno(
+        sessao,
+        turno.id,
+        ResultadoTurno.HANDOFF,
+        acao_principal=rotulo_humano(MotivoHumano.CONCILIACAO),
+        redacao={"saida": "HANDOFF", "motivo": "quitada_no_ctn"},
+        momento=agora,
+    )
+    return ResultadoTurno.HANDOFF
+
+
 def _rodar_turno(
-    sessao: Session, conversa: Conversa, agora: datetime, deps: Dependencias
+    sessao: Session,
+    conversa: Conversa,
+    agora: datetime,
+    deps: Dependencias,
+    *,
+    quitada_no_ctn: bool = False,
 ) -> ResultadoTurno:
     conversa_id = conversa.id
     gate = avaliar_gates(
@@ -1338,6 +1410,7 @@ def _rodar_turno(
         deps.politica,
         sessao,
         barrar_humano=deps.modo is Modo.ATIVO,
+        quitada_no_ctn=quitada_no_ctn,
     )
     if isinstance(gate, Adiar):
         # As mensagens ficam pendentes e o turno volta para a fila na abertura (D16).
@@ -1372,6 +1445,8 @@ def _rodar_turno(
         return _seguir(sessao, conversa, turno, deps, agora)
     if isinstance(gate, PagarPix):
         return _pagar_pix(sessao, conversa, turno, deps, agora)
+    if isinstance(gate, Quitada):
+        return _quitada(sessao, conversa, turno, deps, agora)
     if deps.modo is Modo.SOMBRA:
         return fechar(ResultadoTurno.SOMBRA)
     if isinstance(gate, Fixa) and gate.tipo is TipoFixa.CANAL_EXTERNO:
@@ -1402,18 +1477,30 @@ def _rodar_turno(
 
 def _conferir_no_contato(
     sessao: Session, conversa: Conversa, agora: datetime, deps: Dependencias
-) -> bool:
-    """Confere a cobrança no CTN no 1º turno do dia, antes de qualquer escrita e de qualquer trava.
+) -> ResultadoConferencia | None:
+    """Confere a cobrança no CTN no 1º turno do dia, só se o turno vai cobrar (ou gerar o Pix).
 
-    O CTN lento não pode segurar a linha da cobrança: a chamada vem antes do turno gravar algo, e
-    a gravação curta da conferência é confirmada logo (`conferir_antes_do_envio`). Devolve `False`
-    se a conferência de hoje achou a cobrança sem meses em aberto; o CTN fora do ar devolve `True`
-    e o turno segue com os valores do retrato.
+    Os gates (humano, janela de atendimento, janela de 24h, teto, reinício) rodam antes, só de
+    leitura: onde eles já decidem (ignorar, adiar, retomar, a 6ª, o `/reset`), o CTN nem é chamado.
+    Só com `Seguir` ou `PagarPix` a conferência acontece, antes de qualquer escrita e de qualquer
+    trava (o CTN lento não segura a linha da cobrança: a gravação curta é confirmada logo, em
+    `conferir_antes_do_envio`). Devolve `None` se não há o que conferir.
     """
     if not deps.conferir_no_contato or conversa.cobranca.status is not StatusCobranca.ATIVA:
-        return True
-    if humano_na_conversa(conversa):
-        return True
+        return None
+    if deps.modo is Modo.ATIVO and conversa.falhas_turno >= deps.politica.integracao_tentativas:
+        # As tentativas acabaram: o turno só vai desistir (handoff), sem precisar do CTN.
+        return None
+    gate = avaliar_gates(
+        conversa,
+        mensagens_pendentes(sessao, conversa.id),
+        agora,
+        deps.politica,
+        sessao,
+        barrar_humano=deps.modo is Modo.ATIVO,
+    )
+    if not isinstance(gate, Seguir | PagarPix):
+        return None
     return conferir_antes_do_envio(sessao, deps.ctn, deps.politica, conversa.cobranca_id, agora)
 
 
@@ -1430,12 +1517,32 @@ def processar_turno(
         if conversa.erros_turno >= deps.politica.erro_interno_tentativas:
             # As tentativas acabaram e o encerramento ficou para depois (janela, Chatwoot fora).
             return _encerrar_por_erro_interno(sessao, conversa, efetivo, agora)
-        quitada = not _conferir_no_contato(sessao, conversa, agora, deps)
-        _ouvir_os_audios(sessao, conversa, agora, efetivo)
+        conferencia = _conferir_no_contato(sessao, conversa, agora, efetivo)
+        if efetivo.modo is Modo.ATIVO and conferencia in _SEM_CONFERENCIA_DE_HOJE:
+            # Nunca se cita valor estimado: sem a conferência de hoje (CTN fora, sem lançamentos,
+            # dado suspeito), o turno espera como a integração fora do ar espera (a mesma espera
+            # crescente) e, esgotadas as tentativas, a conversa vai ao humano com o motivo
+            # INTEGRACAO_INDISPONIVEL. A mensagem do cliente segue pendente. Em sombra o turno
+            # roda normal: não envia nada.
+            log.warning(
+                "turno da conversa %s sem conferência de hoje (%s): espera",
+                conversa.id,
+                conferencia,
+            )
+            return _registrar_falha(
+                sessao,
+                conversa.id,
+                ConferenciaNaoFeita(conferencia.value),
+                efetivo,
+                agora,
+                desistindo=False,
+            )
+        quitada = conferencia is ResultadoConferencia.QUITADA
+        _ouvir_os_audios(sessao, conversa, agora, efetivo, quitada_no_ctn=quitada)
         if efetivo.modo is Modo.ATIVO:
             resultado = _turno_ativo(sessao, conversa, agora, efetivo, quitada_no_ctn=quitada)
         else:
-            resultado = _rodar_turno(sessao, conversa, agora, efetivo)
+            resultado = _rodar_turno(sessao, conversa, agora, efetivo, quitada_no_ctn=quitada)
         if conversa.erros_turno and resultado not in (ResultadoTurno.ADIADO, ResultadoTurno.ERRO):
             conversa.erros_turno = 0
             sessao.flush()

@@ -20,8 +20,8 @@ def _desconto(regua: Regua, divida_centavos: int, degrau: int, politica: Politic
     if not 0 <= degrau <= parametros.n_degraus:
         raise ValueError(f"degrau {degrau} fora da régua {regua} (0 a {parametros.n_degraus})")
     desconto = parametros.desconto_max_centavos * degrau // parametros.n_degraus
-    # O desconto nunca zera a dívida.
-    return min(desconto, divida_centavos - 1)
+    # O desconto nunca zera a dívida, e nunca é negativo (dívida de zero ou menos: sem desconto).
+    return max(0, min(desconto, divida_centavos - 1))
 
 
 def valor_com_desconto(regua: Regua, divida_centavos: int, degrau: int, politica: Politica) -> int:

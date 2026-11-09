@@ -5,20 +5,31 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import event, select
 
+from agente.abertura.disparar import BOTAO_PAGAR_PIX
 from agente.db.historico import registrar_mensagem
-from agente.db.modelos import Mensagem
+from agente.db.modelos import Conversa, Mensagem, Transicao, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso, MensalidadeAberta
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevFalso
 from agente.integracoes.pix import PixFalso
 from agente.integracoes.redator import RedatorFalso
-from agente.tipos import Modo, MotivoHumano, OrigemMensagem, ResultadoTurno, StatusCobranca
+from agente.tipos import (
+    EstadoConversa,
+    EstadoEnvio,
+    Modo,
+    MotivoHumano,
+    OrigemMensagem,
+    ResultadoTurno,
+    StatusCobranca,
+)
+from agente.turno.fila import mensagens_pendentes
+from agente.turno.handoff import NOTA_CONCILIACAO_REPETIDA, devolver_ao_robo
 from agente.turno.jev3 import aprovar_tudo
 from agente.turno.liberacao import liberar_tudo
-from agente.turno.orquestrador import Dependencias, processar_turno
+from agente.turno.orquestrador import ROTULO_QUITADA, Dependencias, processar_turno
 
-from .test_orquestrador_gates import SEGUNDA_10H
+from .test_orquestrador_gates import DOMINGO, SEGUNDA_10H
 
 ESCRITA = ("INSERT", "UPDATE", "DELETE")
 
@@ -64,11 +75,14 @@ class CTNEspiao(CTNFalso):
         return super().historico_pagamentos(matricula, meses)
 
 
-def _ctn(escritas=None, abertas=((("2026/09", 3340), ("2026/10", 3340)))):
+def _ctn(escritas=None, abertas=((("2026/09", 3340), ("2026/10", 3340))), rejeitadas=None):
+    # `rejeitadas`: quantos lançamentos rejeitados o CTN devolve (sem ele, são as abertas); sem
+    # abertas e sem rejeitadas, o CTN "não tem lançamento nenhum" da matrícula.
     ctn = CTNEspiao(
         escritas=escritas,
         clientes=[ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", None)],
         mensalidades_abertas={"M-0001": [MensalidadeAberta(m, v) for m, v in abertas]},
+        rejeitadas_lidas={"M-0001": rejeitadas} if rejeitadas is not None else None,
         hoje=date(2026, 10, 26),
     )
     return ctn
@@ -143,7 +157,13 @@ def test_conferida_ontem_confere_de_novo(sessao, ligada, politica):
     assert ligada.cobranca.conferida_em == SEGUNDA_10H
 
 
-def test_ctn_fora_nao_bloqueia_o_turno_e_nao_marca_conferida(sessao, ligada, politica):
+def _sem_valor_ao_cliente(deps):
+    """Nada com valor saiu ao cliente: nem texto com R$, nem Pix."""
+    assert all("R$" not in texto for texto in deps.chatwoot.enviadas(555))
+    assert deps.pix.cobrancas == {}
+
+
+def test_ctn_fora_nao_cita_valor_e_o_turno_espera(sessao, ligada, politica):
     ctn = _ctn()
     ctn.fora_do_ar = True
     deps = _deps(politica, ctn)
@@ -151,11 +171,86 @@ def test_ctn_fora_nao_bloqueia_o_turno_e_nao_marca_conferida(sessao, ligada, pol
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    assert resultado is ResultadoTurno.ENVIADO
-    [texto] = deps.chatwoot.enviadas(555)
-    assert "R$ 100,20" in texto
+    # O CTN fora é integração fora: o turno espera com a espera das integrações e a mensagem do
+    # cliente segue pendente. Nenhum valor estimado (o do retrato, R$ 100,20) sai.
+    assert resultado is ResultadoTurno.ERRO
+    assert deps.chatwoot.enviadas(555) == []
+    assert ligada.falhas_turno == 1
+    assert ligada.turno_em is not None
+    assert len(mensagens_pendentes(sessao, ligada.id)) == 1
     assert ligada.cobranca.conferida_em is None
     assert ligada.cobranca.divida_centavos == 10020
+    _sem_valor_ao_cliente(deps)
+
+
+def test_ctn_fora_em_todas_as_tentativas_leva_ao_humano_sem_valor(sessao, ligada, politica):
+    ctn = _ctn()
+    ctn.fora_do_ar = True
+    deps = _deps(politica, ctn)
+    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
+
+    for tentativa in range(deps.politica.integracao_tentativas):
+        quando = SEGUNDA_10H + timedelta(minutes=10 * tentativa)
+        resultado = processar_turno(sessao, ligada.id, quando, deps)
+
+    assert resultado is ResultadoTurno.HANDOFF
+    assert ligada.motivo_humano is MotivoHumano.INTEGRACAO_INDISPONIVEL
+    _sem_valor_ao_cliente(deps)
+
+
+def test_ctn_que_volta_na_2a_tentativa_confere_e_manda_o_valor_conferido(sessao, ligada, politica):
+    ctn = _ctn()
+    ctn.fora_do_ar = True
+    deps = _deps(politica, ctn)
+    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ERRO
+
+    ctn.fora_do_ar = False
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H + timedelta(minutes=10), deps)
+
+    assert resultado is ResultadoTurno.ENVIADO
+    [texto] = deps.chatwoot.enviadas(555)
+    assert "R$ 66,80" in texto and "R$ 100,20" not in texto
+    assert ligada.falhas_turno == 0
+
+
+@pytest.mark.parametrize(
+    "ctn_sem_conferencia",
+    [
+        # nenhum lançamento rejeitado veio, e o retrato diz que há 3 meses em atraso
+        lambda: _ctn(abertas=()),
+        # dado suspeito: valor zero
+        lambda: _ctn(abertas=(("2026/10", 0),)),
+        # dado suspeito: mês repetido
+        lambda: _ctn(abertas=(("2026/10", 3340), ("2026/10", 3340))),
+    ],
+    ids=["sem_lancamentos", "valor_zero", "mes_repetido"],
+)
+def test_conferencia_sem_valor_confiavel_tambem_espera_sem_citar_valor(
+    sessao, ligada, politica, ctn_sem_conferencia
+):
+    deps = _deps(politica, ctn_sem_conferencia())
+    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.ERRO
+    assert deps.chatwoot.enviadas(555) == []
+    assert ligada.cobranca.conferida_em is None
+    assert ligada.cobranca.status is StatusCobranca.ATIVA
+    _sem_valor_ao_cliente(deps)
+
+
+def test_ctn_fora_no_toque_do_botao_tambem_nao_gera_pix(sessao, ligada, politica):
+    ctn = _ctn()
+    ctn.fora_do_ar = True
+    deps = _deps(politica, ctn)
+    _cliente_diz(sessao, ligada, BOTAO_PAGAR_PIX.texto, SEGUNDA_10H, 1)
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.ERRO
+    _sem_valor_ao_cliente(deps)
 
 
 def test_ctn_fora_em_sombra_segue_com_o_retrato(sessao, ligada, politica):
@@ -166,9 +261,18 @@ def test_ctn_fora_em_sombra_segue_com_o_retrato(sessao, ligada, politica):
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
+    # Em sombra nada é enviado; o turno roda normal e só registra.
     assert resultado is ResultadoTurno.SOMBRA
     assert ligada.cobranca.conferida_em is None
     assert ligada.cobranca.divida_centavos == 10020
+    assert deps.chatwoot.chamadas == []
+
+
+def test_sem_lancamentos_em_sombra_segue_normal(sessao, ligada, politica):
+    deps = _deps(politica, _ctn(abertas=()), modo=Modo.SOMBRA)
+    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
+
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.SOMBRA
 
 
 def test_durante_a_chamada_ao_ctn_nao_ha_escrita_pendente_nem_trava(sessao, ligada, politica):
@@ -197,8 +301,24 @@ def test_sem_a_chave_do_ctn_real_o_turno_nao_confere(sessao, ligada, politica):
     assert ligada.cobranca.conferida_em is None
 
 
+def _quitada():
+    """O CTN devolveu 2 rejeitadas e as duas foram pagas."""
+    return _ctn(abertas=(), rejeitadas=2)
+
+
+def _saidas_para_o_humano(sessao):
+    return [
+        t.motivo
+        for t in sessao.scalars(
+            select(Transicao)
+            .where(Transicao.para == EstadoConversa.ATENDIMENTO_HUMANO)
+            .order_by(Transicao.id)
+        )
+    ]
+
+
 def test_quitada_no_ctn_nao_cobra_e_passa_ao_humano(sessao, ligada, politica):
-    ctn = _ctn(abertas=())
+    ctn = _quitada()
     deps = _deps(politica, ctn)
     _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
 
@@ -209,7 +329,7 @@ def test_quitada_no_ctn_nao_cobra_e_passa_ao_humano(sessao, ligada, politica):
     assert cobranca.status is StatusCobranca.ATIVA
     assert cobranca.meses_em_aberto == []
     assert cobranca.divida_centavos == 10020
-    # Nenhuma cobrança nem Pix: só o handoff, com o motivo da conciliação.
+    # Nenhuma cobrança nem Pix: só o handoff, com o motivo da conciliação, e a mensagem do canal.
     texto_agente = sessao.scalars(
         select(Mensagem).where(Mensagem.origem == OrigemMensagem.AGENTE)
     ).all()
@@ -218,14 +338,182 @@ def test_quitada_no_ctn_nao_cobra_e_passa_ao_humano(sessao, ligada, politica):
     assert MotivoHumano.CONCILIACAO.value in " ".join(
         str(chamada) for chamada in deps.chatwoot.chamadas
     )
+    assert len(deps.chatwoot.enviadas(555)) == 1
+    assert _saidas_para_o_humano(sessao) == [MotivoHumano.CONCILIACAO]
+    turno = sessao.scalars(select(Turno).order_by(Turno.id.desc())).first()
+    assert turno.acao_principal == "HUMAN:CONCILIACAO"
 
 
-def test_quitada_no_ctn_em_sombra_nao_envia_nada(sessao, ligada, politica):
-    ctn = _ctn(abertas=())
+def test_quitada_no_ctn_no_toque_do_botao_nao_gera_pix(sessao, ligada, politica):
+    deps = _deps(politica, _quitada())
+    _cliente_diz(sessao, ligada, BOTAO_PAGAR_PIX.texto, SEGUNDA_10H, 1)
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.HANDOFF
+    assert deps.pix.cobrancas == {}
+
+
+def test_quitada_no_ctn_com_humano_na_conversa_nao_faz_nada(sessao, ligada, politica):
+    ctn = _quitada()
+    deps = _deps(politica, ctn)
+    ligada.human_owned = True
+    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.IGNORADO
+    # O gate do humano vem antes: nem o CTN foi chamado, nem o Chatwoot.
+    assert ctn.chamadas == []
+    assert deps.chatwoot.chamadas == []
+    assert _saidas_para_o_humano(sessao) == []
+
+
+def test_quitada_no_ctn_devolvida_ao_robo_volta_ao_humano_sem_mensagem(sessao, ligada, politica):
+    ctn = _quitada()
+    deps = _deps(politica, ctn)
+    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.HANDOFF
+    devolver_ao_robo(sessao, ligada, SEGUNDA_10H + timedelta(minutes=30))
+    sessao.commit()
+    mais_tarde = SEGUNDA_10H + timedelta(minutes=40)
+    _cliente_diz(sessao, ligada, "e aí?", mais_tarde, 2)
+
+    resultado = processar_turno(sessao, ligada.id, mais_tarde, deps)
+
+    # A 2ª vez: volta ao humano, com a nota, e o cliente não recebe a mensagem de novo.
+    assert resultado is ResultadoTurno.HANDOFF
+    assert len(deps.chatwoot.enviadas(555)) == 1
+    assert _saidas_para_o_humano(sessao) == [MotivoHumano.CONCILIACAO, MotivoHumano.CONCILIACAO]
+    assert ligada.estado is EstadoConversa.ATENDIMENTO_HUMANO
+    notas = [c[2] for c in deps.chatwoot.chamadas if c[0] == "nota_privada"]
+    assert NOTA_CONCILIACAO_REPETIDA in notas[-1]
+    # Mesmo dia: o CTN não foi chamado de novo.
+    assert ctn.chamadas == ["mensalidades"]
+
+
+def test_quitada_no_ctn_com_a_6a_ja_enviada_segue_o_gate_do_teto(sessao, ligada, politica):
+    ctn = _quitada()
+    deps = _deps(politica, ctn)
+    for i in range(deps.politica.teto_resolucao):
+        registrar_mensagem(
+            sessao, ligada.id, OrigemMensagem.AGENTE, f"r{i}", f"a{i}", True, SEGUNDA_10H
+        )
+    sessao.commit()
+    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H + timedelta(minutes=1), 1)
+
+    primeira = processar_turno(sessao, ligada.id, SEGUNDA_10H + timedelta(minutes=1), deps)
+    devolver_ao_robo(sessao, ligada, SEGUNDA_10H + timedelta(minutes=30))
+    sessao.commit()
+    mais_tarde = SEGUNDA_10H + timedelta(minutes=40)
+    _cliente_diz(sessao, ligada, "e aí?", mais_tarde, 2)
+    segunda = processar_turno(sessao, ligada.id, mais_tarde, deps)
+
+    # A 6ª sai uma vez (TETO); a volta é silenciosa. A quitada nem chegou a ser conferida.
+    assert (primeira, segunda) == (ResultadoTurno.FIXA, ResultadoTurno.HANDOFF)
+    assert len(deps.chatwoot.enviadas(555)) == 1
+    assert _saidas_para_o_humano(sessao) == [MotivoHumano.TETO, MotivoHumano.TETO]
+    assert ctn.chamadas == []
+
+
+def test_quitada_no_ctn_com_a_ultima_mensagem_de_mais_de_24h_so_manda_o_template(
+    sessao, ligada, politica
+):
+    ctn = _quitada()
+    deps = _deps(politica, ctn)
+    _cliente_diz(sessao, ligada, "oi", SEGUNDA_10H - timedelta(hours=25), 1)
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.FIXA
+    assert deps.chatwoot.enviadas(555) == []
+    assert len(deps.disparador.envios) == 1
+    assert ligada.estado is not EstadoConversa.ATENDIMENTO_HUMANO
+    assert ctn.chamadas == []
+
+
+def test_quitada_no_ctn_fora_da_janela_de_atendimento_adia_sem_chamar_o_ctn(
+    sessao, ligada, politica
+):
+    ctn = _quitada()
+    deps = _deps(politica, ctn)
+    _cliente_diz(sessao, ligada, "oi", DOMINGO, 1)
+
+    resultado = processar_turno(sessao, ligada.id, DOMINGO, deps)
+
+    assert resultado is ResultadoTurno.ADIADO
+    assert ctn.chamadas == []
+    assert deps.chatwoot.chamadas == []
+
+
+def test_quitada_no_ctn_descarta_a_mensagem_pendente_com_o_valor_antigo(sessao, ligada, politica):
+    deps = _deps(politica, _quitada())
+    pendente = registrar_mensagem(
+        sessao,
+        ligada.id,
+        OrigemMensagem.AGENTE,
+        "Você deve R$ 100,20",
+        None,
+        True,
+        SEGUNDA_10H,
+        envio=EstadoEnvio.PENDENTE,
+    )
+    _cliente_diz(sessao, ligada, "oi", SEGUNDA_10H + timedelta(minutes=1), 1)
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H + timedelta(minutes=1), deps)
+
+    assert resultado is ResultadoTurno.HANDOFF
+    assert pendente.envio is EstadoEnvio.DESCARTADA
+    assert all("R$" not in texto for texto in deps.chatwoot.enviadas(555))
+
+
+def test_reset_da_equipe_funciona_numa_cobranca_quitada(sessao, ligada, politica):
+    ctn = _quitada()
+    da_equipe = politica.model_copy(
+        update={"telefones_equipe": frozenset({ligada.cobranca.cliente.telefone})}
+    )
+    deps = _deps(da_equipe, ctn)
+    _cliente_diz(sessao, ligada, "oi", SEGUNDA_10H, 1)
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.HANDOFF
+    mais_tarde = SEGUNDA_10H + timedelta(minutes=5)
+    _cliente_diz(sessao, ligada, deps.politica.comando_reinicio, mais_tarde, 2)
+
+    resultado = processar_turno(sessao, ligada.id, mais_tarde, deps)
+
+    assert resultado is ResultadoTurno.IGNORADO
+    assert deps.politica.texto_reinicio in deps.chatwoot.enviadas(555)
+    conversas = sessao.scalars(select(Conversa).order_by(Conversa.id)).all()
+    assert len(conversas) == 2
+    # A conversa nova é a 1ª vez dela: a quitada leva a mensagem do handoff de novo.
+    nova = conversas[1]
+    depois = mais_tarde + timedelta(minutes=1)
+    _cliente_diz(sessao, nova, "oi de novo", depois, 3)
+    assert processar_turno(sessao, nova.id, depois, deps) is ResultadoTurno.HANDOFF
+    assert _saidas_para_o_humano(sessao) == [MotivoHumano.CONCILIACAO, MotivoHumano.CONCILIACAO]
+
+
+def test_quitada_no_ctn_em_sombra_e_marcada_no_turno_e_nao_envia_nada(sessao, ligada, politica):
+    ctn = _quitada()
     deps = _deps(politica, ctn, modo=Modo.SOMBRA)
     _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
     assert resultado is ResultadoTurno.SOMBRA
+    assert deps.chatwoot.chamadas == []
+    turno = sessao.scalars(select(Turno)).one()
+    assert turno.resultado is ResultadoTurno.SOMBRA
+    assert turno.acao_principal == ROTULO_QUITADA
+    assert turno.redacao["motivo"] == "quitada_no_ctn"
+    assert ligada.cobranca.meses_em_aberto == []
+
+
+def test_quitada_no_ctn_em_sombra_com_humano_na_conversa_tambem_e_marcada(sessao, ligada, politica):
+    ligada.human_owned = True
+    deps = _deps(politica, _quitada(), modo=Modo.SOMBRA)
+    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
+
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert sessao.scalars(select(Turno)).one().acao_principal == ROTULO_QUITADA
     assert deps.chatwoot.chamadas == []
