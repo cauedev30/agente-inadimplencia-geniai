@@ -326,19 +326,31 @@ Quem paga por outro caminho (boleto, cartão, balcão) aparece no `lancamentos_b
 
 - **Leitura:** `baixas_desde(cursor)`, com o cursor `baixas` na tabela `cursor_ctn` (a `coletado_em` da
   última baixa lida; inclusivo, por isso idempotente). Sem cursor, a 1ª leitura recua 3 horas. A rotina não
-  levanta se o CTN falhar: o cursor não anda.
+  levanta se o CTN ou a gravação falharem: o cursor não anda. Baixa com campo acima do tamanho da coluna é
+  pulada.
 - **Registro:** cada baixa vai para a tabela `baixa_ctn`, única pelo `id` da API. O campo `efeito` diz o que
   a rotina fez (`quitou`, `abateu`, `ignorada`, `ja_paga`, `sem_cobranca`, ...). A baixa que não pôde ser
-  tratada fica sem `aplicada_em` e é refeita no ciclo seguinte, por até 24 horas.
+  tratada porque o CTN estava fora fica sem `aplicada_em` e é refeita no ciclo seguinte, por até 24 horas;
+  sem lançamentos ou com dado suspeito a resposta não muda, e a baixa encerra na hora (`nao_conferida`). Por
+  passada a rotina confere no máximo 10 matrículas (as demais ficam para o ciclo seguinte) e para no 1º CTN
+  fora, para não estourar a cota (60 chamadas por minuto).
 - **Quitou** (a conferência achou rejeitadas e nenhuma em aberto): a cobrança vira **PAGA** com motivo
   `baixa_externa`, a conversa encerra e sai **1 aviso**, o `texto_baixa_externa` do `politica.toml`, texto
   fixo, **só dentro da janela de 24h** do WhatsApp e fora do teto de mensagens. Fora da janela, em sombra ou
-  com humano na conversa, não sai aviso (com humano, o atendente recebe uma nota privada).
+  com humano na conversa, não sai aviso (com humano, o atendente recebe uma nota privada, refeita nos ciclos
+  seguintes por até 24 horas se o Chatwoot falhar). O reenvio de um aviso que ficou pendente repete esses
+  testes: se o serviço voltou à sombra, o telefone saiu do piloto ou um atendente assumiu, o aviso é descartado.
 - **Pagou parte:** os meses, a dívida e a régua saem da conferência e o agente segue, sem mensagem própria.
-- **Ignoradas:** a baixa do mês corrente (ainda não vencido), a cobrança já PAGA (D39) e o cliente sem
-  cobrança ATIVA são só registrados.
-- Um Pix nosso pendente não é tocado. Se for pago depois, cai no fluxo do pagamento em dobro (D39).
-- Nenhum log leva matrícula, nome nem telefone: só ids do banco.
+  O Pix e o link pendentes de valor diferente da dívida nova expiram, para o mês pago por fora não entrar
+  duas vezes.
+- **Ignoradas:** a baixa do mês corrente (ou futuro) que **não** está entre os meses em aberto da cobrança
+  (ainda não venceu); se o mês corrente está em atraso, ou a cobrança ainda não tem a lista de meses, a baixa é
+  conferida. A cobrança já PAGA (D39) e o cliente sem cobrança ATIVA são só registrados.
+- Na quitação, um Pix nosso pendente não é tocado. Se for pago depois, cai no fluxo do pagamento em dobro (D39).
+- A chamada ao Chatwoot (aviso e nota) vem sempre depois do commit; as travas de linha seguem a ordem do
+  webhook do Pix (conversas, cobrança, pagamento; `db/travas.py`).
+- Nenhum log leva matrícula, nome nem telefone, nem o texto do erro do SQL (traz os parâmetros): só o tipo
+  do erro e ids do banco.
 
 ### O telefone com e sem o 9 (A1)
 

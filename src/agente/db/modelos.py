@@ -295,5 +295,6 @@ class BaixaCTNRegistro(Base):
     pago_em: Mapped[datetime]
     coletado_em: Mapped[datetime]
     cobranca_id: Mapped[int | None] = mapped_column(ForeignKey("cobranca.id"))
-    aplicada_em: Mapped[datetime | None]
-    efeito: Mapped[str | None] = mapped_column(String(40))
+    # A tabela só cresce e a rotina filtra por estes dois a cada 10 minutos (migração 0015).
+    aplicada_em: Mapped[datetime | None] = mapped_column(index=True)
+    efeito: Mapped[str | None] = mapped_column(String(40), index=True)

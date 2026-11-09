@@ -30,6 +30,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from agente.db.modelos import Cobranca
+from agente.db.travas import travar_conversas_e_cobranca
 from agente.dominio.divida import classificar_regua
 from agente.dominio.propensao import eh_propenso
 from agente.integracoes.ctn import (
@@ -118,9 +119,19 @@ def _dado_suspeito(abertas: list[MensalidadeAberta], meses_do_retrato: int) -> b
 
 
 def conferir_cobranca(
-    sessao: Session, ctn: CTN, politica: Politica, cobranca_id: int, agora: datetime
+    sessao: Session,
+    ctn: CTN,
+    politica: Politica,
+    cobranca_id: int,
+    agora: datetime,
+    *,
+    travar_conversas: bool = False,
 ) -> Conferencia:
-    """Confere a cobrança no CTN e grava o que leu. Faz `flush`, não `commit`."""
+    """Confere a cobrança no CTN e grava o que leu. Faz `flush`, não `commit`.
+
+    `travar_conversas` é para quem vai mexer na conversa logo depois (a rotina das baixas
+    externas): trava as conversas e depois a cobrança, na ordem de `db/travas.py`, em vez de só a
+    cobrança. A chamada ao CTN continua vindo antes de qualquer trava."""
     cobranca = sessao.get_one(Cobranca, cobranca_id)
     matricula = cobranca.cliente.matricula_ctn
     try:
@@ -137,7 +148,10 @@ def conferir_cobranca(
         return _do_retrato(cobranca)
 
     # Só aqui, com tudo lido, a trava curta da linha: a cobrança pode ter fechado durante a chamada.
-    sessao.refresh(cobranca, with_for_update={"key_share": True})
+    if travar_conversas:
+        travar_conversas_e_cobranca(sessao, cobranca_id)
+    else:
+        sessao.refresh(cobranca, with_for_update={"key_share": True})
     if cobranca.status is not StatusCobranca.ATIVA:
         return _do_retrato(cobranca)
 

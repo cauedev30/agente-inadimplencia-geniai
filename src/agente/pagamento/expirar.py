@@ -13,8 +13,11 @@ from agente.db.modelos import Cobranca, Pagamento
 from agente.tipos import FormaPagamento, StatusPagamento
 
 
-def _expirar(sessao: Session, *condicoes) -> int:
-    """Expira os Pix pendentes que batem com as condições, travando-os em ordem de id.
+def _expirar(
+    sessao: Session, *condicoes, formas: tuple[FormaPagamento, ...] = (FormaPagamento.PIX,)
+) -> int:
+    """Expira os pagamentos pendentes (só os Pix, salvo `formas`) que batem com as condições,
+    travando-os em ordem de id.
 
     O UPDATE confere o status no próprio comando: o webhook que grava PAGO entre a leitura e o
     commit não é sobrescrito por EXPIRADO.
@@ -25,7 +28,7 @@ def _expirar(sessao: Session, *condicoes) -> int:
     confirmação, que espera ou, se o pagamento mudou, deixa a linha de fora.
     """
     pendentes = (
-        Pagamento.forma == FormaPagamento.PIX,
+        Pagamento.forma.in_(formas),
         Pagamento.status == StatusPagamento.PENDENTE,
         *condicoes,
     )
@@ -58,3 +61,21 @@ def expirar_pendentes(sessao: Session, cobranca: Cobranca) -> int:
     confirmado (EXPIRADO entra no `confirmar_pagamento`). Cancelar a cobrança lá espera a T1.
     """
     return _expirar(sessao, Pagamento.cobranca_id == cobranca.id)
+
+
+def expirar_de_outro_valor(sessao: Session, cobranca: Cobranca) -> int:
+    """Expira o Pix e o link pendentes cujo valor não é o da dívida de hoje da cobrança.
+
+    É o abate por baixa externa: o cliente pagou parte por fora e a dívida diminuiu, então o Pix ou
+    o link gerado com a dívida antiga, se pago, cobriria o mês pago por fora outra vez. Expirar
+    tira o pagamento do reaproveitamento (`pix_vigente`) e o mantém na tabela, com o `br_code`,
+    como histórico. Como no handoff, só vale no banco do agente: o Pix segue pagável no banco do
+    CDT, e se for pago o pagamento ainda é confirmado (D39 cuida do que vier em dobro). As travas
+    seguem a ordem de `db/travas.py`: quem chama já travou as conversas e a cobrança.
+    """
+    return _expirar(
+        sessao,
+        Pagamento.cobranca_id == cobranca.id,
+        Pagamento.valor_centavos != cobranca.divida_centavos,
+        formas=(FormaPagamento.PIX, FormaPagamento.LINK_CTN),
+    )

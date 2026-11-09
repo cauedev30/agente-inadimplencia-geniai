@@ -225,6 +225,33 @@ def test_migracao_0014_cria_a_tabela_das_baixas_do_ctn(tmp_path):
     motor.dispose()
 
 
+def test_migracao_0015_indexa_a_aplicacao_e_o_efeito_das_baixas(tmp_path):
+    url = f"sqlite:///{(tmp_path / 'm15.db').as_posix()}"
+    config = alembic_config(url)
+
+    command.upgrade(config, "0014")
+    motor = create_engine(url)
+    antes = {i["name"] for i in inspect(motor).get_indexes("baixa_ctn")}
+    assert "ix_baixa_ctn_aplicada_em" not in antes and "ix_baixa_ctn_efeito" not in antes
+
+    command.upgrade(config, "0015")
+    indices = {i["name"]: i["column_names"] for i in inspect(motor).get_indexes("baixa_ctn")}
+    assert indices["ix_baixa_ctn_aplicada_em"] == ["aplicada_em"]
+    assert indices["ix_baixa_ctn_efeito"] == ["efeito"]
+    assert indices["ix_baixa_ctn_matricula"] == ["matricula"]  # o da 0014 segue
+
+    command.downgrade(config, "0014")
+    depois = {i["name"] for i in inspect(motor).get_indexes("baixa_ctn")}
+    assert "ix_baixa_ctn_aplicada_em" not in depois and "ix_baixa_ctn_efeito" not in depois
+    assert "ix_baixa_ctn_matricula" in depois
+    motor.dispose()
+
+
+def test_o_modelo_das_baixas_tem_os_mesmos_indices_da_migracao(sessao):
+    indices = {i["name"] for i in inspect(sessao.get_bind()).get_indexes("baixa_ctn")}
+    assert {"ix_baixa_ctn_aplicada_em", "ix_baixa_ctn_efeito"} <= indices
+
+
 def test_baixa_do_ctn_e_unica_pelo_id_da_api(sessao, conversa):
     def baixa(id_externo):
         return BaixaCTNRegistro(

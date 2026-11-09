@@ -8,22 +8,33 @@ cada uma em `baixa_ctn` (idempotente pelo `id` da API) e confere a cobrança ATI
   sai 1 aviso curto, de texto fixo (`texto_baixa_externa`), só dentro das 24h do WhatsApp e fora do
   teto de mensagens;
 - pagou parte: os meses, a dívida e a régua saem da conferência e o agente segue, sem mensagem;
-- baixa do mês corrente (ainda não vencido): ignorada, não abate;
+- baixa do mês corrente (ou futuro) que NÃO está entre os meses em aberto da cobrança: o mês ainda
+  não venceu, é ignorada e não abate. Se o mês corrente está em atraso (`meses_em_aberto` o traz),
+  ou a cobrança ainda não tem a lista, a baixa é conferida como qualquer outra;
 - cobrança já PAGA (D39) ou sem cobrança ATIVA: só registrada.
 
-O cursor (`cursor_ctn`, nome `baixas`) só anda depois de as baixas serem gravadas; se o CTN falhar,
-nada anda e a rotina não levanta. Uma baixa cuja conferência não pôde rodar fica por tratar
-(`aplicada_em` nulo) e é refeita no ciclo seguinte, até `PRAZO_DA_CONFERENCIA`. Um Pix nosso
-pendente não é tocado: se for pago depois, cai no fluxo do pagamento em dobro (D39).
+O cursor (`cursor_ctn`, nome `baixas`) só anda depois de as baixas serem gravadas; se o CTN ou a
+gravação falharem, nada anda e a rotina não levanta. Uma baixa cuja conferência não pôde rodar
+porque o CTN estava fora fica por tratar (`aplicada_em` nulo) e é refeita no ciclo seguinte, até
+`PRAZO_DA_CONFERENCIA`; sem lançamentos ou com dado suspeito, a resposta não muda numa nova
+tentativa, e a baixa encerra na hora como `nao_conferida`. Por passada, a rotina confere no máximo
+`MAX_CONFERENCIAS_POR_CICLO` matrículas e para na primeira vez que o CTN estiver fora.
 
-Cada cobrança é commitada sozinha, e o commit vem antes de qualquer envio: o que já saiu não se
-perde se a seguinte quebrar, e a conferência (que chama o CTN) nunca segura uma trava de linha.
-Nenhum log leva matrícula, nome nem telefone: só ids do banco.
+No abate, o Pix e o link pendentes de valor diferente da dívida nova expiram (`expirar.py`); o Pix
+nosso pendente de valor igual não é tocado, e na quitação também não: se for pago depois, cai no
+fluxo do pagamento em dobro (D39).
+
+Cada cobrança é commitada sozinha, e o commit vem antes de qualquer envio ou nota ao atendente: o
+Chatwoot lento não segura trava de linha, e o que já saiu não se perde se a seguinte quebrar. A
+conferência (que chama o CTN) também nunca segura uma trava durante a chamada; depois dela, a
+gravação trava as conversas e a cobrança na ordem de `db/travas.py`, a mesma do webhook do Pix. O
+reenvio do aviso repete os testes do 1º envio (modo, piloto, atendente, 24h). Nenhum log leva
+matrícula, nome nem telefone, nem o texto do erro do SQL (que traz os parâmetros): só o tipo do
+erro e ids do banco.
 """
 
 import logging
-from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -37,6 +48,7 @@ from agente.db.modelos import BaixaCTNRegistro, Cliente, Cobranca, Conversa, Cur
 from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, BaixaCTN, ClienteNaoEncontrado, CTNIndisponivel
 from agente.pagamento.confirmar import dentro_das_24h
+from agente.pagamento.expirar import expirar_de_outro_valor
 from agente.politica import Politica
 from agente.tipos import (
     EstadoConversa,
@@ -63,6 +75,9 @@ MARGEM_DE_RELEITURA = timedelta(0)
 # A baixa que a conferência não consegue tratar é refeita a cada ciclo; passado este prazo desde a
 # coleta, desiste (`nao_conferida`) em vez de gastar chamadas para sempre.
 PRAZO_DA_CONFERENCIA = timedelta(hours=24)
+# Quantas matrículas a rotina confere no CTN por passada (2 chamadas cada, no mesmo fio dos turnos,
+# com 60 chamadas por minuto de cota). As que passam do teto ficam por tratar para o ciclo seguinte.
+MAX_CONFERENCIAS_POR_CICLO = 10
 MOTIVO_BAIXA_EXTERNA = "baixa_externa"
 
 # O que a rotina fez com a baixa (`baixa_ctn.efeito`).
@@ -72,15 +87,20 @@ QUITOU_FORA_DA_JANELA = "quitou_fora_da_janela"  # PAGA; passadas as 24h, o avis
 QUITOU_SEM_CONVERSA = "quitou_sem_conversa"  # PAGA; o cliente nunca foi contatado
 QUITOU_SOMBRA = "quitou_sombra"  # PAGA; em sombra (ou fora da liberação) nada é enviado
 QUITOU_COM_HUMANO = "quitou_com_humano"  # PAGA; o atendente soube pela nota, o cliente não recebe
+# PAGA; a nota ao atendente está por enviar (o Chatwoot falhou, ou ele assumiu depois do aviso)
+QUITOU_COM_HUMANO_NOTA_PENDENTE = "quitou_com_humano_nota_pendente"
+QUITOU_COM_HUMANO_SEM_NOTA = "quitou_com_humano_sem_nota"  # PAGA; a nota não saiu em 24h
 ABATEU = "abateu"  # pagou parte: os meses em aberto diminuíram
 SEM_MUDANCA = "sem_mudanca"  # conferida, e os meses em aberto continuam os mesmos
-IGNORADA = "ignorada"  # o mês corrente, ainda não vencido
+IGNORADA = "ignorada"  # o mês corrente, ainda não vencido (fora dos meses em aberto)
 JA_PAGA = "ja_paga"  # a cobrança já estava PAGA (D39)
 SEM_COBRANCA = "sem_cobranca"  # o cliente não tem cobrança ATIVA
 CONFERIDA_JUNTO = "conferida_junto"  # outra baixa da mesma matrícula, na mesma conferência
 NAO_CONFERIDA = "nao_conferida"  # a conferência não rodou em `PRAZO_DA_CONFERENCIA`
 
 _EFEITOS_IGNORADOS = {IGNORADA, JA_PAGA, SEM_COBRANCA, SEM_MUDANCA}
+# Os efeitos com um envio por fazer: a rotina os refaz a cada passada.
+_COM_ENVIO_POR_FAZER = (QUITOU_AVISO_PENDENTE, QUITOU_COM_HUMANO_NOTA_PENDENTE)
 
 
 @dataclass(frozen=True)
@@ -143,8 +163,29 @@ def _gravar_cursor(sessao: Session, coletado_em: datetime) -> None:
     sessao.flush()
 
 
+_COLUNAS = BaixaCTNRegistro.__table__.c
+_MAIOR_INTEIRO = 2**31 - 1
+
+
+def _cabe_no_banco(baixa: BaixaCTN) -> bool:
+    """Um campo acima da coluna dá `DataError` no Postgres e travaria a rotina a cada ciclo."""
+    return (
+        len(baixa.id_externo) <= _COLUNAS.id_externo.type.length
+        and len(baixa.matricula) <= _COLUNAS.matricula.type.length
+        and len(baixa.mes_ref) <= _COLUNAS.mes_ref.type.length
+        and abs(baixa.valor_centavos) <= _MAIOR_INTEIRO
+    )
+
+
 def _gravar_baixas(sessao: Session, baixas: list[BaixaCTN]) -> int:
-    """Grava as baixas que o banco ainda não tem e devolve quantas eram novas."""
+    """Grava as baixas que o banco ainda não tem e devolve quantas eram novas. A baixa com um
+    campo que não cabe na coluna é pulada (o cursor passa por ela) e só a contagem é logada."""
+    validas = [baixa for baixa in baixas if _cabe_no_banco(baixa)]
+    if len(validas) < len(baixas):
+        log.warning(
+            "%s baixas do CTN têm campo acima da coluna e foram puladas", len(baixas) - len(validas)
+        )
+    baixas = validas
     conhecidas: set[str] = set()
     ids = [baixa.id_externo for baixa in baixas]
     for inicio in range(0, len(ids), 500):
@@ -190,7 +231,7 @@ def _ler_do_ctn(sessao: Session, ctn: CTN, agora: datetime, resumo: ResumoBaixas
             "a leitura das baixas do CTN falhou (%s); o cursor não anda", type(erro).__name__
         )
         return False
-    resumo.lidas = _gravar_baixas(sessao, baixas)
+    novas = _gravar_baixas(sessao, baixas)
     if baixas:
         # Nunca além de `agora`: o relógio errado do coletor (`coletado_em` no futuro) levaria o
         # cursor junto e as baixas coletadas de agora até aquela data nunca seriam lidas.
@@ -199,6 +240,7 @@ def _ler_do_ctn(sessao: Session, ctn: CTN, agora: datetime, resumo: ResumoBaixas
             log.warning("o CTN trouxe baixa com coletado_em no futuro; o cursor fica em agora")
         _gravar_cursor(sessao, min(maior, agora))
     sessao.commit()
+    resumo.lidas = novas
     return True
 
 
@@ -258,7 +300,8 @@ def _enviar_aviso(
     return True
 
 
-def _nota_ao_atendente(deps: DependenciasDasBaixas, conversa: Conversa) -> None:
+def _enviar_nota(deps: DependenciasDasBaixas, conversa: Conversa) -> bool:
+    """A nota privada ao atendente, depois do commit. False se o Chatwoot falhou."""
     try:
         deps.chatwoot.nota_privada(
             conversa.chatwoot_conversa_id,
@@ -267,6 +310,8 @@ def _nota_ao_atendente(deps: DependenciasDasBaixas, conversa: Conversa) -> None:
         )
     except Exception as erro:
         log.warning("a nota da baixa externa ao atendente falhou (%s)", type(erro).__name__)
+        return False
+    return True
 
 
 def _encerrar_conversa(sessao: Session, conversa: Conversa, agora: datetime) -> None:
@@ -276,24 +321,34 @@ def _encerrar_conversa(sessao: Session, conversa: Conversa, agora: datetime) -> 
         transicionar(sessao, conversa, EstadoConversa.ENCERRADO, None, None, momento=agora)
 
 
+def _em_sombra(deps: DependenciasDasBaixas, cobranca: Cobranca) -> bool:
+    """O serviço está em sombra, ou o telefone não está no piloto: nada é enviado ao cliente."""
+    return (
+        deps.modo is not Modo.ATIVO or modo_da_conversa(cobranca, deps.politica) is not Modo.ATIVO
+    )
+
+
 def _quitar(
     sessao: Session, deps: DependenciasDasBaixas, cobranca: Cobranca, agora: datetime
 ) -> tuple[str, Conversa | None, Mensagem | None]:
     """A cobrança vira PAGA e a conversa encerra. Devolve o efeito e, se o aviso foi gravado
-    PENDENTE, a conversa e a mensagem a enviar depois do commit."""
+    PENDENTE (ou a nota ao atendente está por enviar), a conversa e a mensagem a enviar depois do
+    commit."""
     cobranca.status = StatusCobranca.PAGA
     cobranca.encerrada_motivo = MOTIVO_BAIXA_EXTERNA
     cobranca.encerrada_em = agora
     conversa = _conversa_mais_recente(cobranca)
     if conversa is None:
         return QUITOU_SEM_CONVERSA, None, None
-    if deps.modo is not Modo.ATIVO or modo_da_conversa(cobranca, deps.politica) is not Modo.ATIVO:
+    if _em_sombra(deps, cobranca):
         # A sombra não envia nem muda o estado da conversa (arquitetura, seção 8).
         return QUITOU_SOMBRA, None, None
     com_humano = humano_na_conversa(conversa)
     _encerrar_conversa(sessao, conversa, agora)
     if com_humano:
-        return QUITOU_COM_HUMANO, conversa, None
+        if conversa.chatwoot_conversa_id is None:
+            return QUITOU_COM_HUMANO, conversa, None  # não há onde pôr a nota
+        return QUITOU_COM_HUMANO_NOTA_PENDENTE, conversa, None
     if conversa.chatwoot_conversa_id is None or not dentro_das_24h(sessao, conversa, agora):
         return QUITOU_FORA_DA_JANELA, conversa, None
     mensagem = registrar_mensagem(
@@ -309,6 +364,20 @@ def _quitar(
     return QUITOU_AVISO_PENDENTE, conversa, mensagem
 
 
+@dataclass
+class _Tratamento:
+    """O que `_tratar_cobranca_ativa` deixou para depois do commit e para o laço."""
+
+    # Foi ao CTN conferir (gasta o teto por ciclo).
+    conferiu: bool = False
+    # A conferência falhou porque o CTN está fora: as próximas matrículas também falhariam.
+    ctn_fora: bool = False
+    # A baixa que carrega o envio por fazer (o aviso, se `mensagem`; senão, a nota ao atendente).
+    principal: BaixaCTNRegistro | None = None
+    conversa: Conversa | None = None
+    mensagem: Mensagem | None = None
+
+
 def _tratar_cobranca_ativa(
     sessao: Session,
     deps: DependenciasDasBaixas,
@@ -316,18 +385,24 @@ def _tratar_cobranca_ativa(
     baixas: list[BaixaCTNRegistro],
     agora: datetime,
     resumo: ResumoBaixas,
-) -> tuple[Conversa, Mensagem] | None:
-    """Aplica as baixas de uma cobrança ATIVA. Devolve a conversa e a mensagem do aviso, se ele
-    precisa sair depois do commit."""
+) -> _Tratamento:
+    """Aplica as baixas de uma cobrança ATIVA. Deixa tudo gravado e sem commit; quem chama faz o
+    commit e só então envia o aviso ou a nota."""
     corrente = _mes_corrente(deps.politica, agora)
+    em_aberto = cobranca.meses_em_aberto
     a_conferir = []
     for baixa in baixas:
-        if baixa.mes_ref >= corrente:
+        # O mês corrente em atraso (vencimento já passou, cartão recusado) é dívida: confere. Sem a
+        # lista de meses em aberto não há como saber, e conferir é o lado seguro.
+        a_vencer = (
+            baixa.mes_ref >= corrente and em_aberto is not None and baixa.mes_ref not in em_aberto
+        )
+        if a_vencer:
             _marcar(resumo, baixa, IGNORADA, cobranca.id, agora)
         else:
             a_conferir.append(baixa)
     if not a_conferir:
-        return None
+        return _Tratamento()
 
     antes = cobranca.mensalidades_abertas
     # As baixas da pessoa que um turno leu há até 60 s ficam em cache no cliente do CTN: a
@@ -335,13 +410,23 @@ def _tratar_cobranca_ativa(
     deps.ctn.invalidar_cache(a_conferir[0].matricula)
     # A conferência chama o CTN: nada pendente na sessão e nenhuma trava de linha durante a chamada.
     sessao.commit()
-    conferencia = conferir_cobranca(sessao, deps.ctn, deps.politica, cobranca.id, agora)
+    # Depois da chamada, as travas na ordem do pagamento (conversas, cobrança): a quitação mexe na
+    # conversa, e o webhook do Pix trava a conversa antes da cobrança (`db/travas.py`).
+    conferencia = conferir_cobranca(
+        sessao, deps.ctn, deps.politica, cobranca.id, agora, travar_conversas=True
+    )
     if not conferencia.conferida:
-        # O CTN caiu, a cobrança fechou no meio ou o dado não é crível: a baixa fica por tratar.
+        if conferencia.motivo is not None:
+            # Sem lançamentos ou dado suspeito: a resposta não muda numa nova tentativa (o
+            # `lancamentos` não muda no dia), e repetir só gasta a cota. Encerra já.
+            for baixa in a_conferir:
+                _marcar(resumo, baixa, NAO_CONFERIDA, cobranca.id, agora)
+            return _Tratamento(conferiu=True)
+        # O CTN caiu (ou a cobrança fechou no meio): a baixa fica por tratar até o prazo.
         for baixa in a_conferir:
             if agora - baixa.coletado_em >= PRAZO_DA_CONFERENCIA:
                 _marcar(resumo, baixa, NAO_CONFERIDA, cobranca.id, agora)
-        return None
+        return _Tratamento(conferiu=True, ctn_fora=cobranca.status is StatusCobranca.ATIVA)
 
     principal, *outras = a_conferir
     mensagem = conversa = None
@@ -351,14 +436,27 @@ def _tratar_cobranca_ativa(
     elif len(conferencia.meses_em_aberto) < antes:
         efeito = ABATEU
         resumo.abatidas += 1
+        # O Pix ou o link gerado com a dívida antiga, se fosse pago, cobriria o mês pago por fora de
+        # novo.
+        expirar_de_outro_valor(sessao, cobranca)
     else:
         efeito = SEM_MUDANCA
     _marcar(resumo, principal, efeito, cobranca.id, agora)
     for baixa in outras:
         _marcar(resumo, baixa, CONFERIDA_JUNTO, cobranca.id, agora)
-    if efeito == QUITOU_COM_HUMANO:
-        _nota_ao_atendente(deps, conversa)
-    return (conversa, mensagem) if mensagem is not None else None
+    if efeito in _COM_ENVIO_POR_FAZER:
+        return _Tratamento(conferiu=True, principal=principal, conversa=conversa, mensagem=mensagem)
+    return _Tratamento(conferiu=True)
+
+
+def _entregar(sessao: Session, deps: DependenciasDasBaixas, tratamento: _Tratamento) -> None:
+    """Envia o aviso ou a nota que a quitação deixou por fazer (a sessão sem escrita pendente)."""
+    principal, conversa = tratamento.principal, tratamento.conversa
+    if tratamento.mensagem is not None:
+        if _enviar_aviso(sessao, deps, conversa, tratamento.mensagem):
+            principal.efeito = QUITOU
+    elif _enviar_nota(deps, conversa):
+        principal.efeito = QUITOU_COM_HUMANO
 
 
 def _tratar_matricula(
@@ -368,86 +466,183 @@ def _tratar_matricula(
     baixas: list[BaixaCTNRegistro],
     agora: datetime,
     resumo: ResumoBaixas,
-) -> None:
+) -> _Tratamento:
     cobranca = _cobranca_do_cliente(sessao, matricula)
     if cobranca is None or cobranca.status not in (StatusCobranca.ATIVA, StatusCobranca.PAGA):
         for baixa in baixas:
             _marcar(resumo, baixa, SEM_COBRANCA, None, agora)
-        return
+        return _Tratamento()
     if cobranca.status is StatusCobranca.PAGA:
         for baixa in baixas:
             _marcar(resumo, baixa, JA_PAGA, cobranca.id, agora)
-        return
-    aviso = _tratar_cobranca_ativa(sessao, deps, cobranca, baixas, agora, resumo)
+        return _Tratamento()
+    tratamento = _tratar_cobranca_ativa(sessao, deps, cobranca, baixas, agora, resumo)
     sessao.commit()
-    if aviso is not None:
-        conversa, mensagem = aviso
-        principal = next(b for b in baixas if b.efeito == QUITOU_AVISO_PENDENTE)
-        if _enviar_aviso(sessao, deps, conversa, mensagem):
-            principal.efeito = QUITOU
+    if tratamento.principal is not None:
+        # Depois do commit: o Chatwoot lento não segura a trava da cobrança nem da conversa.
+        _entregar(sessao, deps, tratamento)
         sessao.commit()
+    return tratamento
 
 
 def _tratar_pendentes(
     sessao: Session, deps: DependenciasDasBaixas, agora: datetime, resumo: ResumoBaixas
 ) -> None:
-    pendentes = sessao.scalars(
-        select(BaixaCTNRegistro)
-        .where(BaixaCTNRegistro.aplicada_em.is_(None))
-        .order_by(BaixaCTNRegistro.coletado_em, BaixaCTNRegistro.id)
-    ).all()
-    por_matricula: dict[str, list[BaixaCTNRegistro]] = defaultdict(list)
-    for baixa in pendentes:
-        por_matricula[baixa.matricula].append(baixa)
-    for matricula, baixas in por_matricula.items():
+    """Trata as baixas por tratar, matrícula a matrícula, da coletada há mais tempo à mais nova.
+
+    O teto por ciclo conta só as matrículas que foram ao CTN: a baixa de quem não está na carteira
+    custa uma leitura no banco, não uma chamada. As que passam do teto ficam para o ciclo seguinte.
+    No primeiro `CTNIndisponivel` a passada para: as próximas falhariam do mesmo jeito.
+    """
+    matriculas = dict.fromkeys(
+        sessao.scalars(
+            select(BaixaCTNRegistro.matricula)
+            .where(BaixaCTNRegistro.aplicada_em.is_(None))
+            .order_by(BaixaCTNRegistro.coletado_em, BaixaCTNRegistro.id)
+        )
+    )
+    conferidas = 0
+    for matricula in matriculas:
+        if conferidas >= MAX_CONFERENCIAS_POR_CICLO:
+            break
+        # SKIP LOCKED (o SQLite ignora): a linha que outra instância está tratando fica com ela. A
+        # trava dura até o 1º commit, que vem antes da chamada ao CTN; o que evita o aviso em dobro
+        # é o reenvio (que trava a baixa até enviar) e a conferência (que vê a cobrança já PAGA).
+        baixas = sessao.scalars(
+            select(BaixaCTNRegistro)
+            .where(BaixaCTNRegistro.matricula == matricula, BaixaCTNRegistro.aplicada_em.is_(None))
+            .order_by(BaixaCTNRegistro.coletado_em, BaixaCTNRegistro.id)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        ).all()
+        if not baixas:
+            continue
         ids = [baixa.id for baixa in baixas]
+        totais = replace(resumo)
         try:
-            _tratar_matricula(sessao, deps, matricula, baixas, agora, resumo)
+            tratamento = _tratar_matricula(sessao, deps, matricula, baixas, agora, resumo)
             sessao.commit()
-        except Exception:
+        except Exception as erro:
             sessao.rollback()
-            log.exception("as baixas %s do CTN não puderam ser tratadas", ids)
+            # Só o tipo e os ids do banco: o texto do erro do SQL leva os parâmetros (a matrícula).
+            log.error("as baixas %s do CTN não puderam ser tratadas (%s)", ids, type(erro).__name__)
+            for campo in fields(resumo):
+                setattr(resumo, campo.name, getattr(totais, campo.name))
+            continue
+        if tratamento.conferiu:
+            conferidas += 1
+        if tratamento.ctn_fora:
+            log.warning("o CTN não respondeu à conferência; o resto fica para o próximo ciclo")
+            break
+
+
+def _reenviar_aviso(
+    sessao: Session,
+    deps: DependenciasDasBaixas,
+    baixa: BaixaCTNRegistro,
+    cobranca: Cobranca | None,
+    conversa: Conversa | None,
+    agora: datetime,
+) -> None:
+    mensagem = (
+        sessao.scalars(
+            select(Mensagem)
+            .where(
+                Mensagem.conversa_id == conversa.id,
+                Mensagem.envio == EstadoEnvio.PENDENTE,
+                Mensagem.origem == OrigemMensagem.FIXA,
+                Mensagem.texto == deps.politica.texto_baixa_externa,
+            )
+            .order_by(Mensagem.id.desc())
+        ).first()
+        if conversa is not None
+        else None
+    )
+    if mensagem is None:
+        baixa.efeito = QUITOU_FORA_DA_JANELA
+    elif _em_sombra(deps, cobranca):
+        # O serviço voltou à sombra ou o telefone saiu do piloto desde que o aviso foi gravado.
+        mensagem.envio = EstadoEnvio.DESCARTADA
+        baixa.efeito = QUITOU_SOMBRA
+    elif humano_na_conversa(conversa):
+        # Um atendente assumiu: o cliente não recebe, e o atendente ganha a nota.
+        mensagem.envio = EstadoEnvio.DESCARTADA
+        baixa.efeito = QUITOU_COM_HUMANO_NOTA_PENDENTE
+    elif not dentro_das_24h(sessao, conversa, agora):
+        mensagem.envio = EstadoEnvio.DESCARTADA
+        baixa.efeito = QUITOU_FORA_DA_JANELA
+    elif _enviar_aviso(sessao, deps, conversa, mensagem):
+        baixa.efeito = QUITOU
+
+
+def _reenviar_nota(
+    deps: DependenciasDasBaixas, baixa: BaixaCTNRegistro, conversa: Conversa | None, agora: datetime
+) -> None:
+    if (
+        conversa is None
+        or conversa.chatwoot_conversa_id is None
+        or agora - baixa.aplicada_em >= PRAZO_DA_CONFERENCIA
+    ):
+        log.warning("a nota da baixa %s ao atendente não saiu; desiste", baixa.id)
+        baixa.efeito = QUITOU_COM_HUMANO_SEM_NOTA
+    elif _enviar_nota(deps, conversa):
+        baixa.efeito = QUITOU_COM_HUMANO
+
+
+def _reenviar_um(
+    sessao: Session, deps: DependenciasDasBaixas, baixa_id: int, agora: datetime
+) -> None:
+    # SKIP LOCKED (o SQLite ignora): a baixa fica travada até o envio acabar, então a outra
+    # instância que chegar junto a pula em vez de mandar o mesmo aviso. É a única trava segura
+    # durante uma chamada ao Chatwoot, e só a desta linha: nada de cobrança nem de conversa.
+    baixa = sessao.scalars(
+        select(BaixaCTNRegistro)
+        .where(BaixaCTNRegistro.id == baixa_id, BaixaCTNRegistro.efeito.in_(_COM_ENVIO_POR_FAZER))
+        .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
+    ).first()
+    if baixa is None:
+        return
+    cobranca = sessao.get(Cobranca, baixa.cobranca_id) if baixa.cobranca_id is not None else None
+    conversa = _conversa_mais_recente(cobranca) if cobranca is not None else None
+    if baixa.efeito == QUITOU_COM_HUMANO_NOTA_PENDENTE:
+        _reenviar_nota(deps, baixa, conversa, agora)
+    else:
+        _reenviar_aviso(sessao, deps, baixa, cobranca, conversa, agora)
+    sessao.commit()
 
 
 def _reenviar_avisos(sessao: Session, deps: DependenciasDasBaixas, agora: datetime) -> None:
-    """O aviso gravado PENDENTE que o Chatwoot não recebeu sai agora; se as 24h passaram, é
-    descartado."""
-    baixas = sessao.scalars(
-        select(BaixaCTNRegistro).where(BaixaCTNRegistro.efeito == QUITOU_AVISO_PENDENTE)
+    """O aviso gravado PENDENTE que o Chatwoot não recebeu sai agora, se o modo, o piloto e o
+    atendente ainda deixam e se as 24h não passaram; senão é descartado. A nota que ficou por enviar
+    ao atendente é refeita até o prazo. Uma exceção num item não impede os outros."""
+    ids = sessao.scalars(
+        select(BaixaCTNRegistro.id)
+        .where(BaixaCTNRegistro.efeito.in_(_COM_ENVIO_POR_FAZER))
+        .order_by(BaixaCTNRegistro.id)
     ).all()
-    for baixa in baixas:
-        cobranca = sessao.get(Cobranca, baixa.cobranca_id)
-        conversa = _conversa_mais_recente(cobranca) if cobranca is not None else None
-        mensagem = (
-            sessao.scalars(
-                select(Mensagem)
-                .where(
-                    Mensagem.conversa_id == conversa.id,
-                    Mensagem.envio == EstadoEnvio.PENDENTE,
-                    Mensagem.origem == OrigemMensagem.FIXA,
-                    Mensagem.texto == deps.politica.texto_baixa_externa,
-                )
-                .order_by(Mensagem.id.desc())
-            ).first()
-            if conversa is not None
-            else None
-        )
-        if mensagem is None:
-            baixa.efeito = QUITOU_FORA_DA_JANELA
-        elif not dentro_das_24h(sessao, conversa, agora):
-            mensagem.envio = EstadoEnvio.DESCARTADA
-            baixa.efeito = QUITOU_FORA_DA_JANELA
-        elif _enviar_aviso(sessao, deps, conversa, mensagem):
-            baixa.efeito = QUITOU
-        sessao.commit()
+    for baixa_id in ids:
+        try:
+            _reenviar_um(sessao, deps, baixa_id, agora)
+        except Exception as erro:
+            sessao.rollback()
+            log.error("o reenvio da baixa %s falhou (%s)", baixa_id, type(erro).__name__)
 
 
 def ler_baixas(sessao: Session, deps: DependenciasDasBaixas, agora: datetime) -> ResumoBaixas:
     """Uma passada da rotina: reenvia os avisos que ficaram pendentes, lê e grava as baixas novas e
-    trata as por tratar. Nunca levanta por falha do CTN ou do Chatwoot."""
+    trata as por tratar. Nunca levanta, e o que loga é só o tipo do erro e ids do banco: a sessão do
+    serviço mostra os parâmetros do SQL, e eles levam a matrícula."""
     resumo = ResumoBaixas()
-    _reenviar_avisos(sessao, deps, agora)
-    if not _ler_do_ctn(sessao, deps.ctn, agora, resumo):
-        return resumo
-    _tratar_pendentes(sessao, deps, agora, resumo)
+    try:
+        _reenviar_avisos(sessao, deps, agora)
+    except Exception as erro:
+        sessao.rollback()
+        log.error("o reenvio dos avisos das baixas falhou (%s)", type(erro).__name__)
+    try:
+        if _ler_do_ctn(sessao, deps.ctn, agora, resumo):
+            _tratar_pendentes(sessao, deps, agora, resumo)
+    except Exception as erro:
+        sessao.rollback()
+        log.error("a rotina das baixas falhou (%s)", type(erro).__name__)
     return resumo
