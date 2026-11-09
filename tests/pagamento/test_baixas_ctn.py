@@ -20,7 +20,13 @@ from agente.db.modelos import (
     Transicao,
 )
 from agente.integracoes.chatwoot import ChatwootFalso
-from agente.integracoes.ctn import BaixaCTN, CTNFalso, CTNIndisponivel, MensalidadeAberta
+from agente.integracoes.ctn import (
+    BaixaCTN,
+    ClienteNaoEncontrado,
+    CTNFalso,
+    CTNIndisponivel,
+    MensalidadeAberta,
+)
 from agente.pagamento import baixas_ctn as baixas_modulo
 from agente.pagamento.baixas_ctn import (
     CURSOR_BAIXAS,
@@ -1246,3 +1252,96 @@ def test_se_a_gravacao_da_segunda_baixa_falha_o_cursor_nao_anda_e_a_primeira_nao
     ids = [r.id_externo for r in sessao.scalars(select(BaixaCTNRegistro))]
     assert sorted(ids) == ["b-1", "b-2"]
     assert sessao.get(CursorCTN, CURSOR_BAIXAS).valor == (AGORA - timedelta(minutes=20)).isoformat()
+
+
+# ---- a matrícula que o CTN não conhece não para o laço; o erro de rede para ----
+
+
+def _ctn_com_matricula_desconhecida(matriculas, desconhecida, erro):
+    ctn = _ctn_de_varias(matriculas)
+    consultar = ctn.consultar_mensalidades
+
+    def consultando(matricula):
+        if matricula == desconhecida:
+            raise erro
+        return consultar(matricula)
+
+    ctn.consultar_mensalidades = consultando
+    return ctn
+
+
+def test_matricula_que_o_ctn_nao_conhece_encerra_na_hora_e_o_laco_segue(sessao, politica):
+    matriculas = ["M-0000", "M-0001", "M-0002"]  # a mais antiga é a desconhecida
+    cobrancas = [_nova_cobranca(sessao, m, n)[0] for n, m in enumerate(matriculas)]
+    ctn = _ctn_com_matricula_desconhecida(matriculas, "M-0000", ClienteNaoEncontrado("M-0000"))
+    deps = _deps(politica, ctn)
+
+    resumo = ler_baixas(sessao, deps, AGORA)
+
+    assert resumo.quitadas == 2
+    assert [c.status for c in cobrancas] == [
+        StatusCobranca.ATIVA,
+        StatusCobranca.PAGA,
+        StatusCobranca.PAGA,
+    ]
+    assert _registro(sessao, "b-0").efeito == "nao_conferida"
+    assert _registro(sessao, "b-0").aplicada_em == AGORA
+    assert _por_tratar(sessao) == []
+
+
+def test_o_erro_de_rede_na_conferencia_continua_parando_o_laco(sessao, politica):
+    matriculas = ["M-0000", "M-0001", "M-0002"]
+    cobrancas = [_nova_cobranca(sessao, m, n)[0] for n, m in enumerate(matriculas)]
+    ctn = _ctn_com_matricula_desconhecida(matriculas, "M-0000", httpx.ConnectError("sem rede"))
+
+    resumo = ler_baixas(sessao, _deps(politica, ctn), AGORA)
+
+    assert resumo.quitadas == 0
+    assert all(c.status is StatusCobranca.ATIVA for c in cobrancas)
+    assert len(_por_tratar(sessao)) == 3
+
+
+# ---- a matrícula que levanta também gasta o teto e desiste em 24h ----
+
+
+def test_a_matricula_que_levanta_depois_de_chamar_o_ctn_conta_no_teto(
+    sessao, politica, monkeypatch
+):
+    matriculas = [f"M-{n:04d}" for n in range(15)]
+    for numero, matricula in enumerate(matriculas):
+        _nova_cobranca(sessao, matricula, numero)
+    ctn = _ctn_de_varias(matriculas)
+    chamadas = []
+
+    def levanta(*_args, **_kwargs):
+        chamadas.append(1)
+        raise RuntimeError("falha do banco depois do CTN")
+
+    monkeypatch.setattr(baixas_modulo, "conferir_cobranca", levanta)
+
+    ler_baixas(sessao, _deps(politica, ctn), AGORA)
+
+    assert len(chamadas) == MAX_CONFERENCIAS_POR_CICLO
+
+
+def test_a_baixa_que_levanta_por_mais_de_24h_e_encerrada_como_nao_conferida(
+    sessao, politica, monkeypatch, caplog
+):
+    _nova_cobranca(sessao, MATRICULA, 1)
+    ctn = _ctn([_baixa()])
+
+    def levanta(*_args, **_kwargs):
+        raise RuntimeError(f"[parameters: ('{MATRICULA}',)]")
+
+    monkeypatch.setattr(baixas_modulo, "conferir_cobranca", levanta)
+    deps = _deps(politica, ctn)
+
+    ler_baixas(sessao, deps, AGORA)
+    assert _registro(sessao).aplicada_em is None  # dentro do prazo, tenta de novo
+
+    with caplog.at_level("DEBUG"):
+        ler_baixas(sessao, deps, AGORA + timedelta(hours=25))
+
+    assert _registro(sessao).efeito == "nao_conferida"
+    assert _registro(sessao).aplicada_em is not None
+    assert MATRICULA not in caplog.text

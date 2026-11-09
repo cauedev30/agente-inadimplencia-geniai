@@ -485,6 +485,25 @@ def _tratar_matricula(
     return tratamento
 
 
+def _desistir_das_vencidas(
+    sessao: Session, ids: list[int], agora: datetime, resumo: ResumoBaixas
+) -> None:
+    """As baixas que seguem levantando erro desde antes do prazo encerram como `nao_conferida`."""
+    try:
+        vencidas = sessao.scalars(
+            select(BaixaCTNRegistro).where(
+                BaixaCTNRegistro.id.in_(ids), BaixaCTNRegistro.aplicada_em.is_(None)
+            )
+        ).all()
+        for baixa in vencidas:
+            if agora - baixa.coletado_em >= PRAZO_DA_CONFERENCIA:
+                _marcar(resumo, baixa, NAO_CONFERIDA, None, agora)
+        sessao.commit()
+    except Exception as erro:
+        sessao.rollback()
+        log.error("as baixas %s não puderam ser encerradas (%s)", ids, type(erro).__name__)
+
+
 def _tratar_pendentes(
     sessao: Session, deps: DependenciasDasBaixas, agora: datetime, resumo: ResumoBaixas
 ) -> None:
@@ -528,6 +547,10 @@ def _tratar_pendentes(
             log.error("as baixas %s do CTN não puderam ser tratadas (%s)", ids, type(erro).__name__)
             for campo in fields(resumo):
                 setattr(resumo, campo.name, getattr(totais, campo.name))
+            # Pode ter chamado o CTN antes de levantar: conta no teto, senão a matrícula que sempre
+            # levanta seria refeita a cada ciclo sem limite. E, passado o prazo, desiste.
+            conferidas += 1
+            _desistir_das_vencidas(sessao, ids, agora, resumo)
             continue
         if tratamento.conferiu:
             conferidas += 1

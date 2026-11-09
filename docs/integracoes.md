@@ -331,7 +331,9 @@ Quem paga por outro caminho (boleto, cartão, balcão) aparece no `lancamentos_b
 - **Registro:** cada baixa vai para a tabela `baixa_ctn`, única pelo `id` da API. O campo `efeito` diz o que
   a rotina fez (`quitou`, `abateu`, `ignorada`, `ja_paga`, `sem_cobranca`, ...). A baixa que não pôde ser
   tratada porque o CTN estava fora fica sem `aplicada_em` e é refeita no ciclo seguinte, por até 24 horas;
-  sem lançamentos ou com dado suspeito a resposta não muda, e a baixa encerra na hora (`nao_conferida`). Por
+  sem lançamentos, com dado suspeito ou com a matrícula que o CTN não conhece, a resposta não muda, e a baixa
+  encerra na hora (`nao_conferida`) sem parar as outras. Uma matrícula que levanta erro depois de chamar o CTN
+  gasta o teto e desiste em 24 horas. Por
   passada a rotina confere no máximo 10 matrículas (as demais ficam para o ciclo seguinte) e para no 1º CTN
   fora, para não estourar a cota (60 chamadas por minuto).
 - **Quitou** (a conferência achou rejeitadas e nenhuma em aberto): a cobrança vira **PAGA** com motivo

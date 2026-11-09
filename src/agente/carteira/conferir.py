@@ -47,6 +47,10 @@ log = logging.getLogger(__name__)
 # Por que a conferência não valeu mesmo com o CTN no ar (`Conferencia.motivo`).
 MOTIVO_SEM_LANCAMENTOS = "sem_lancamentos"
 MOTIVO_DADO_SUSPEITO = "dado_suspeito"
+# O CTN respondeu que não conhece a matrícula: falha daquela pessoa, não do CTN. Para o turno e o
+# disparo vale como qualquer conferência que não rodou (`NAO_CONFERIDA`); a rotina das baixas a
+# encerra na hora em vez de esperar o CTN voltar.
+MOTIVO_CLIENTE_NAO_ENCONTRADO = "cliente_nao_encontrado"
 
 # Uma mensalidade acima disto é dado errado: as reais vão de R$ 10 a R$ 99 (o
 # `politica.mensalidade_centavos` fixo é só uma estimativa).
@@ -68,7 +72,8 @@ class ResultadoConferencia(StrEnum):
 @dataclass(frozen=True)
 class Conferencia:
     """O resultado de uma conferência. Sem `conferida`, os valores são os do retrato e `motivo`
-    diz por que (`None` quando o CTN falhou ou a cobrança deixou de estar ativa)."""
+    diz por que (`None` quando o CTN falhou ou a cobrança deixou de estar ativa; o
+    `cliente_nao_encontrado` é a falha daquela matrícula, não do CTN)."""
 
     meses_em_aberto: list[str] = field(default_factory=list)
     divida_centavos: int = 0
@@ -143,7 +148,12 @@ def conferir_cobranca(
             if abertas
             else []
         )
-    except (CTNIndisponivel, ClienteNaoEncontrado, httpx.HTTPError):
+    except ClienteNaoEncontrado:
+        log.warning(
+            "o CTN não conhece a matrícula da cobrança %s; segue com o retrato", cobranca_id
+        )
+        return _do_retrato(cobranca, MOTIVO_CLIENTE_NAO_ENCONTRADO)
+    except (CTNIndisponivel, httpx.HTTPError):
         log.warning("a conferência da cobrança %s falhou; segue com o retrato", cobranca_id)
         return _do_retrato(cobranca)
 
