@@ -189,6 +189,8 @@ def montar_dependencias(config: Config) -> Dependencias:
         webchat=_webchat(config),
         llm_turno=llm_turno,
         ctn=_ctn(config, modo),
+        # Só o CTN real tem os lançamentos para conferir; o falso daria "sem meses" a todos.
+        conferir_no_contato=config.ctn_real_ligado,
     )
 
 

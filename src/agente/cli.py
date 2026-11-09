@@ -9,6 +9,7 @@ import argparse
 import functools
 import sys
 from collections.abc import Callable
+from contextlib import ExitStack
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -81,15 +82,20 @@ def _disparar(argumentos: argparse.Namespace) -> int:
     politica = carregar_politica(config.politica_path)
     # Até a T4, não há disparador real: as aberturas só ficam gravadas.
     print("Disparador falso: nenhuma mensagem sai de verdade (T4).")
-    with criar_sessao(config.database_url)() as sessao:
+    with criar_sessao(config.database_url)() as sessao, ExitStack() as pilha:
+        # Com a chave do CTN, cada cobrança é conferida antes da abertura (uma vez por dia).
+        ctn = pilha.enter_context(_abrir_ctn(config)) if config.ctn_real_ligado else None
+        if ctn is not None:
+            print("CTN real: cada cobrança é conferida antes da abertura (só leitura).")
         relatorio = disparar_aberturas(
-            sessao, politica, DisparadorFalso(), argumentos.campanha, datetime.now(UTC)
+            sessao, politica, DisparadorFalso(), argumentos.campanha, datetime.now(UTC), ctn
         )
     if relatorio.fora_da_janela:
         print("fora da janela de atendimento: nada foi disparado")
         return 1
     print(f"enviadas: {relatorio.enviadas}")
     print(f"puladas: {relatorio.puladas}")
+    print(f"quitadas no CTN (sem abertura): {relatorio.quitadas_no_ctn}")
     print(f"falhas: {len(relatorio.falhas)}")
     for matricula, erro in relatorio.falhas:
         print(f"  {matricula}: {erro}")

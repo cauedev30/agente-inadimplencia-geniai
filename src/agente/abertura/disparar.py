@@ -3,6 +3,11 @@
 A abertura é template e não conta no teto (D33). Cada cobrança recebe uma só: a que já tem conversa
 é pulada, e a que falhou fica sem conversa para a próxima rodada.
 
+Com o CTN (`ctn`), a cobrança é conferida antes da abertura, uma vez por dia (spec do CTN real,
+seção 4): o valor do template é o conferido, e a que o CTN mostra sem meses em aberto (já pagou) não
+recebe a abertura. A chamada ao CTN vem antes de qualquer escrita da cobrança, e o commit da
+conferência solta a trava curta dela antes do envio.
+
 Ordem das travas (etapa 6: conversa, cobrança, pagamento): o disparador só insere a conversa e a
 mensagem, e cada envio faz o próprio commit. O INSERT pega no máximo `FOR KEY SHARE` na cobrança,
 que não conflita com a trava `NO KEY UPDATE` da confirmação e do turno, então não espera por eles
@@ -17,10 +22,12 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from agente.carteira.conferir import conferir_antes_do_envio
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Cobranca, Conversa
 from agente.dominio.dinheiro import formatar_reais
 from agente.dominio.janela import dentro_da_janela
+from agente.integracoes.ctn import CTN
 from agente.integracoes.disparador import Disparador
 from agente.politica import Politica
 from agente.tipos import Botao, OrigemMensagem, StatusCobranca
@@ -34,6 +41,8 @@ BOTAO_PAGAR_PIX = Botao("resposta", "Pagar com Pix", "PAGAR_PIX")
 class RelatorioDisparo:
     enviadas: int = 0
     puladas: int = 0
+    # A conferência no CTN achou a cobrança sem meses em aberto: a abertura não sai.
+    quitadas_no_ctn: int = 0
     falhas: list[tuple[str, str]] = field(default_factory=list)
     fora_da_janela: bool = False
 
@@ -47,7 +56,12 @@ def _primeiro_nome(nome: str) -> str:
 
 
 def disparar_aberturas(
-    sessao: Session, politica: Politica, disparador: Disparador, campanha: str, agora: datetime
+    sessao: Session,
+    politica: Politica,
+    disparador: Disparador,
+    campanha: str,
+    agora: datetime,
+    ctn: CTN | None = None,
 ) -> RelatorioDisparo:
     relatorio = RelatorioDisparo()
     if not dentro_da_janela(agora, politica):
@@ -62,6 +76,11 @@ def disparar_aberturas(
     for cobranca in cobrancas:
         if cobranca.conversas:
             relatorio.puladas += 1
+            continue
+        if ctn is not None and not conferir_antes_do_envio(
+            sessao, ctn, politica, cobranca.id, agora
+        ):
+            relatorio.quitadas_no_ctn += 1
             continue
         variaveis = {
             "nome": _primeiro_nome(cobranca.cliente.nome),
