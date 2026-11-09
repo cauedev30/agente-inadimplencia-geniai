@@ -504,6 +504,19 @@ def test_o_valor_em_reais_vira_centavos_sem_erro_de_ponto_flutuante(bruto, centa
     assert abertas[0].valor_centavos == centavos
 
 
+def test_invalidar_o_cache_da_matricula_faz_a_leitura_seguinte_ir_a_api():
+    chamadas, relogio = [], [1000.0]
+    ctn = cliente(servidor(chamadas=chamadas), relogio=lambda: relogio[0])
+    ctn.historico_pagamentos(MATRICULA, 12)
+    relogio[0] += 10
+    ctn.historico_pagamentos(MATRICULA, 12)
+    assert len(chamadas) == 1  # o cache de 60 s valeu
+    ctn.invalidar_cache(MATRICULA)
+    ctn.historico_pagamentos(MATRICULA, 12)
+    assert len(chamadas) == 2
+    ctn.invalidar_cache("xx-nunca-lida")  # matrícula fora do cache: nada a fazer
+
+
 def test_baixas_desde_converte_os_campos_e_filtra_pelo_cursor():
     desde = datetime(2026, 11, 6, 10, 6, tzinfo=UTC)
     baixas = cliente(servidor()).baixas_desde(desde)
@@ -650,6 +663,153 @@ def test_baixas_desde_com_a_pagina_toda_no_mesmo_instante_nao_confia_na_ordem():
     assert [b.id_externo for b in baixas] == ["3000"]
 
 
+# ---- 50 ou mais baixas no instante do cursor: a leitura curta basta, e a longa tem teto ----
+
+INSTANTE = datetime(2026, 11, 6, 5, 0, tzinfo=UTC)
+
+
+def _no_instante(quantas, antes=0, instante=INSTANTE, primeiro_id=2000):
+    """`antes` baixas de coletas anteriores (de hora em hora, ids 1000 em diante) e `quantas` do
+    mesmo `instante` da coleta."""
+    texto = instante.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    linhas = [
+        _bx(
+            1000 + n,
+            f"xx{n:09d}",
+            "PIX",
+            "2026/10",
+            "2026-11-06",
+            33.4,
+            (instante - timedelta(hours=1 + n)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        )
+        for n in range(antes)
+    ]
+    linhas += [
+        _bx(primeiro_id + n, f"xx{n:09d}", "PIX", "2026/10", "2026-11-06", 33.4, texto)
+        for n in range(quantas)
+    ]
+    return {"/v1/ctn/lancamentos_bx": linhas}
+
+
+def _ids_no_instante(quantas, primeiro_id=2000):
+    return {str(primeiro_id + n) for n in range(quantas)}
+
+
+def _ciclos(ctn, chamadas, relogio, cursor, vistos, quantos, passo=600.0):
+    """Roda `quantos` ciclos de leitura com o mesmo cursor e devolve, por ciclo, as chamadas
+    gastas e as baixas devolvidas."""
+    saldo = []
+    for _ in range(quantos):
+        antes = len(chamadas)
+        baixas = ctn.baixas_desde(cursor, vistos)
+        saldo.append((len(chamadas) - antes, [b.id_externo for b in baixas]))
+        relogio[0] += passo
+    return saldo
+
+
+@pytest.mark.parametrize("antes", [0, 30], ids=["so_o_instante", "com_coletas_anteriores"])
+def test_60_baixas_no_mesmo_instante_e_nenhuma_nova_custam_uma_chamada_por_ciclo(antes):
+    chamadas, relogio = [], [1000.0]
+    tabelas = _no_instante(60, antes=antes)
+    ctn = cliente(servidor(tabelas, chamadas), relogio=lambda: relogio[0])
+    saldo = _ciclos(ctn, chamadas, relogio, INSTANTE, _ids_no_instante(60), quantos=5)
+    # O 1º ciclo ainda não sabe se a API respeita o `desc` (a página é de um instante só): lê a
+    # janela uma vez (página 0 + 2 páginas por `id`). Depois, uma chamada por ciclo, sem baixa.
+    assert saldo == [(3, [])] + [(1, [])] * 4
+
+
+def test_com_50_ou_mais_no_instante_do_cursor_uma_baixa_nova_chega_com_uma_chamada():
+    chamadas, relogio = [], [1000.0]
+    tabelas = _no_instante(60, antes=30)
+    ctn = cliente(servidor(tabelas, chamadas), relogio=lambda: relogio[0])
+    _ciclos(ctn, chamadas, relogio, INSTANTE, _ids_no_instante(60), quantos=2)
+
+    depois = INSTANTE + timedelta(minutes=10)
+    tabelas["/v1/ctn/lancamentos_bx"].append(
+        _bx(3000, "xx000009999", "PIX", "2026/10", "2026-11-06", 33.4, "2026-11-06T05:10:00.000Z")
+    )
+    antes = len(chamadas)
+    baixas = ctn.baixas_desde(INSTANTE, _ids_no_instante(60))
+    assert [b.id_externo for b in baixas] == ["3000"]
+    assert len(chamadas) - antes == 1
+
+    # Com o cursor no novo instante, as 60 antigas ficam abaixo dele: vazio, uma chamada.
+    antes = len(chamadas)
+    assert ctn.baixas_desde(depois, {"3000"}) == []
+    assert len(chamadas) - antes == 1
+
+
+def test_baixas_desde_nao_devolve_as_ja_vistas():
+    tabelas = _no_instante(3, antes=2)
+    baixas = cliente(servidor(tabelas)).baixas_desde(INSTANTE, {"2000", "2001"})
+    assert [b.id_externo for b in baixas] == ["2002"]
+    # Sem `vistos`, o cursor é inclusivo como sempre.
+    todas = cliente(servidor(tabelas)).baixas_desde(INSTANTE)
+    assert [b.id_externo for b in todas] == ["2000", "2001", "2002"]
+
+
+def test_pagina_do_instante_com_baixa_nao_vista_le_a_janela_para_nao_perder_nenhuma():
+    # Cursor antigo (sem `vistos`, como ao migrar): as linhas do instante não estão provadas.
+    chamadas, relogio = [], [1000.0]
+    tabelas = _no_instante(60, antes=30)
+    ctn = cliente(servidor(tabelas, chamadas), relogio=lambda: relogio[0])
+    baixas = ctn.baixas_desde(INSTANTE)
+    assert len(baixas) == 60
+    assert any(dict(c.url.params)["ordem"] == "id" for c in chamadas)
+
+
+def test_a_api_que_ignora_o_desc_nao_faz_a_leitura_longa_a_cada_ciclo(caplog):
+    chamadas, relogio = [], [1000.0]
+    tabelas = _baixas_do_dia(antigas=117, novas=3)
+    ctn = cliente(servidor(tabelas, chamadas, direcao="ignora"), relogio=lambda: relogio[0])
+    cursor = _cursor_depois_das_antigas(117)
+    with caplog.at_level("WARNING"):
+        saldo = _ciclos(ctn, chamadas, relogio, cursor, (), quantos=7)
+
+    # Ciclo 0 (t=0): leitura longa (1 + 3 páginas). Ciclos 1 a 5 (10 a 50 min): adiada, 1 chamada,
+    # `[]`, o cursor fica onde está. Ciclo 6 (60 min): a hora passou, lê de novo.
+    assert [chamadas_do_ciclo for chamadas_do_ciclo, _ in saldo] == [4, 1, 1, 1, 1, 1, 4]
+    assert saldo[0][1] == saldo[6][1] == ["1117", "1118", "1119"]
+    assert all(baixas == [] for _, baixas in saldo[1:6])
+    longas = [c for c in chamadas if dict(c.url.params)["ordem"] == "id"]
+    assert len(longas) == 6
+    adiadas = [r for r in caplog.records if "adiada" in r.getMessage()]
+    assert len(adiadas) == 5
+    assert all(MATRICULA not in r.getMessage() and "xx0000" not in r.getMessage() for r in adiadas)
+
+
+def test_o_teto_da_leitura_longa_vale_para_a_chamada_inteira_com_varias_janelas():
+    # Cursor de 70 dias = 3 janelas, cada uma com 60 baixas novas (leitura longa em todas): uma
+    # chamada a `baixas_desde` conta como UMA leitura longa e termina sem adiar a meio caminho.
+    linhas = []
+    for mes, dia in ((9, 1), (10, 1), (11, 1)):
+        for n in range(60):
+            linhas.append(
+                _bx(
+                    mes * 1000 + n,
+                    f"xx{n:09d}",
+                    "PIX",
+                    "2026/10",
+                    f"2026-{mes:02d}-{dia:02d}",
+                    33.4,
+                    f"2026-{mes:02d}-{dia:02d}T10:{n:02d}:00.000Z",
+                )
+            )
+    chamadas, relogio = [], [1000.0]
+    ctn = cliente(
+        servidor({"/v1/ctn/lancamentos_bx": linhas}, chamadas), relogio=lambda: relogio[0]
+    )
+    baixas = ctn.baixas_desde(AGORA - timedelta(days=70))
+    assert len(baixas) == 180
+    janelas_lidas_por_id = {
+        dict(c.url.params)["de"] for c in chamadas if dict(c.url.params)["ordem"] == "id"
+    }
+    assert len(janelas_lidas_por_id) == 3
+    # Dentro da hora, a seguinte já não pode ler a janela inteira.
+    relogio[0] += 600
+    assert ctn.baixas_desde(AGORA - timedelta(days=70)) == []
+
+
 def test_baixas_desde_se_a_api_recusa_o_desc_le_a_janela_inteira():
     chamadas = []
     tabelas = _baixas_do_dia(antigas=117, novas=3)
@@ -705,11 +865,57 @@ def test_baixas_desde_conta_o_dia_do_cursor_em_brasilia_e_nao_no_utc():
     assert dict(chamadas[0].url.params)["de"] == "2026-11-04"
 
 
-def test_baixa_sem_coletado_em_e_resposta_invalida():
-    tabelas = tabelas_padrao()
-    tabelas["/v1/ctn/lancamentos_bx"][4]["coletado_em"] = None
+def _tabela_com_uma_linha_ruim(ruim):
+    boas = [
+        _bx(61, "xx000000061", "PIX", "2026/10", "2026-11-06", 33.4, "2026-11-06T10:00:00.000Z"),
+        _bx(63, "xx000000063", "PIX", "2026/10", "2026-11-06", 33.4, "2026-11-06T10:10:00.000Z"),
+    ]
+    return {"/v1/ctn/lancamentos_bx": [boas[0], ruim, boas[1]]}
+
+
+def _linha_ruim(**mudancas):
+    linha = _bx(62, "xx000000062", "PIX", "2026/10", "2026-11-06", 33.4, "2026-11-06T10:05:00.000Z")
+    linha.update(mudancas)
+    return linha
+
+
+@pytest.mark.parametrize(
+    "mudancas",
+    [
+        {"dt_baixa": None},
+        {"valor": -33.4},
+        {"valor": "1.234"},
+        {"mes_ref": "outubro"},
+        {"coletado_em": None},
+        {"coletado_em": "ontem"},
+    ],
+    ids=["sem_dt_baixa", "estorno", "milhar_ambiguo", "mes_estranho", "sem_coleta", "coleta_ruim"],
+)
+def test_baixas_desde_pula_a_linha_malformada_e_devolve_as_boas(mudancas, caplog):
+    tabelas = _tabela_com_uma_linha_ruim(_linha_ruim(**mudancas))
+    with caplog.at_level("DEBUG"):
+        baixas = cliente(servidor(tabelas)).baixas_desde(datetime(2026, 11, 6, tzinfo=UTC))
+    assert [b.id_externo for b in baixas] == ["61", "63"]
+    # O log diz quantas e quais (o id da API), nunca a matrícula, o nome nem o corpo da linha.
+    registro = " ".join(r.getMessage() for r in caplog.records)
+    assert "62" in registro
+    assert "xx000000062" not in registro and "Nome Inventado" not in registro
+
+
+def test_baixas_desde_pula_a_linha_malformada_tambem_na_leitura_da_janela_inteira():
+    tabelas = _baixas_do_dia(antigas=40, novas=70)
+    tabelas["/v1/ctn/lancamentos_bx"][60]["dt_baixa"] = None
+    baixas = cliente(servidor(tabelas)).baixas_desde(_cursor_depois_das_antigas(40))
+    assert len(baixas) == 69
+    assert "1060" not in {b.id_externo for b in baixas}
+
+
+def test_baixas_desde_com_a_falha_geral_de_formato_continua_levantando():
+    def tratar(_requisicao):
+        return httpx.Response(200, json={"semdados": []})
+
     with pytest.raises(CTNIndisponivel, match="formato"):
-        cliente(servidor(tabelas)).baixas_desde(datetime(2026, 11, 6, tzinfo=UTC))
+        cliente(tratar).baixas_desde(AGORA)
 
 
 # ---- sem rejeitadas x todas pagas, e outra matrícula na resposta ----

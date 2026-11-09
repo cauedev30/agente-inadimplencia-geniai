@@ -54,6 +54,12 @@ log = logging.getLogger(__name__)
 CURSOR_BAIXAS = "baixas"
 # A API leva até ~2h45 para mostrar a baixa: sem cursor, a 1ª leitura recua mais que isso.
 RECUO_DA_PRIMEIRA_LEITURA = timedelta(hours=3)
+# Quanto antes do cursor guardado cada leitura recomeça, para pegar a baixa que a API mostra
+# atrasada (com `coletado_em` anterior ao cursor). Começa em 0: o atraso de até 2h45 entre a
+# `coletado_em` e a baixa aparecer será medido no ensaio real, e então este valor se ajusta AQUI.
+# As baixas relidas já gravadas vão em `vistos` e não custam nada além das linhas lidas; mas
+# uma margem que cubra mais de 50 baixas tira a leitura da 1ª página (ver `CTNEficaz`).
+MARGEM_DE_RELEITURA = timedelta(0)
 # A baixa que a conferência não consegue tratar é refeita a cada ciclo; passado este prazo desde a
 # coleta, desiste (`nao_conferida`) em vez de gastar chamadas para sempre.
 PRAZO_DA_CONFERENCIA = timedelta(hours=24)
@@ -109,6 +115,24 @@ def _cursor(sessao: Session, agora: datetime) -> datetime:
     return datetime.fromisoformat(registro.valor)
 
 
+def _como_utc(instante: datetime) -> datetime:
+    return instante if instante.tzinfo is not None else instante.replace(tzinfo=UTC)
+
+
+def _vistos(sessao: Session, a_partir_de: datetime) -> set[str]:
+    """Os ids das baixas já gravadas com `coletado_em` a partir do cursor: a leitura não as traz de
+    volta e, por elas, sabe que as linhas do instante do cursor já foram vistas. Vêm do próprio
+    `baixa_ctn` (gravado na mesma transação que o cursor), então o cursor continua sendo só uma
+    data e o valor de antes segue valendo."""
+    folga = a_partir_de - timedelta(days=1)  # a comparação exata é feita aqui, não no banco
+    linhas = sessao.execute(
+        select(BaixaCTNRegistro.id_externo, BaixaCTNRegistro.coletado_em).where(
+            BaixaCTNRegistro.coletado_em >= folga
+        )
+    )
+    return {id_externo for id_externo, coletado in linhas if _como_utc(coletado) >= a_partir_de}
+
+
 def _gravar_cursor(sessao: Session, coletado_em: datetime) -> None:
     valor = coletado_em.astimezone(UTC).isoformat()
     registro = sessao.get(CursorCTN, CURSOR_BAIXAS)
@@ -158,8 +182,9 @@ def _gravar_baixas(sessao: Session, baixas: list[BaixaCTN]) -> int:
 
 def _ler_do_ctn(sessao: Session, ctn: CTN, agora: datetime, resumo: ResumoBaixas) -> bool:
     """Lê as baixas desde o cursor e as grava. False se o CTN falhou (nada andou)."""
+    cursor = _cursor(sessao, agora) - MARGEM_DE_RELEITURA
     try:
-        baixas = ctn.baixas_desde(_cursor(sessao, agora))
+        baixas = ctn.baixas_desde(cursor, _vistos(sessao, cursor))
     except (CTNIndisponivel, ClienteNaoEncontrado, httpx.HTTPError) as erro:
         log.warning(
             "a leitura das baixas do CTN falhou (%s); o cursor não anda", type(erro).__name__
@@ -167,7 +192,12 @@ def _ler_do_ctn(sessao: Session, ctn: CTN, agora: datetime, resumo: ResumoBaixas
         return False
     resumo.lidas = _gravar_baixas(sessao, baixas)
     if baixas:
-        _gravar_cursor(sessao, max(baixa.coletado_em for baixa in baixas))
+        # Nunca além de `agora`: o relógio errado do coletor (`coletado_em` no futuro) levaria o
+        # cursor junto e as baixas coletadas de agora até aquela data nunca seriam lidas.
+        maior = max(baixa.coletado_em for baixa in baixas)
+        if maior > agora:
+            log.warning("o CTN trouxe baixa com coletado_em no futuro; o cursor fica em agora")
+        _gravar_cursor(sessao, min(maior, agora))
     sessao.commit()
     return True
 
@@ -300,6 +330,9 @@ def _tratar_cobranca_ativa(
         return None
 
     antes = cobranca.mensalidades_abertas
+    # As baixas da pessoa que um turno leu há até 60 s ficam em cache no cliente do CTN: a
+    # conferência daqui, que existe por causa de uma baixa nova, lê de novo.
+    deps.ctn.invalidar_cache(a_conferir[0].matricula)
     # A conferência chama o CTN: nada pendente na sessão e nenhuma trava de linha durante a chamada.
     sessao.commit()
     conferencia = conferir_cobranca(sessao, deps.ctn, deps.politica, cobranca.id, agora)

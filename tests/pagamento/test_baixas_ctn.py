@@ -58,12 +58,14 @@ class CTNEspiao(CTNFalso):
     def __init__(self, **resto):
         super().__init__(**resto)
         self.cursores = []
+        self.vistos = []
         self.conferencias = 0
         self.conferencia_fora = False
 
-    def baixas_desde(self, coletado_desde):
+    def baixas_desde(self, coletado_desde, vistos=()):
         self.cursores.append(coletado_desde)
-        return super().baixas_desde(coletado_desde)
+        self.vistos.append(set(vistos))
+        return super().baixas_desde(coletado_desde, vistos)
 
     def consultar_mensalidades(self, matricula):
         self.conferencias += 1
@@ -505,3 +507,160 @@ def test_o_log_nao_leva_matricula_nome_nem_telefone(sessao, ligada, politica, ca
 
     for dado in (MATRICULA, "M-OUTRA", NOME, TELEFONE, "900000001"):
         assert dado not in caplog.text
+
+
+# ---- o cursor com vários ids no mesmo instante, a coleta no futuro e a margem ----
+
+
+def test_a_leitura_seguinte_leva_os_ids_ja_gravados_do_instante_do_cursor(sessao, ligada, politica):
+    ctn = _ctn(
+        [_baixa("b-1", minutos=30), _baixa("b-2", minutos=20), _baixa("b-3", minutos=20)],
+        abertas=_abertas("2026/08", "2026/09"),
+    )
+    deps = _deps(politica, ctn)
+    ler_baixas(sessao, deps, AGORA)
+    assert ctn.vistos[0] == set()
+
+    resumo = ler_baixas(sessao, deps, AGORA + timedelta(minutes=10))
+
+    assert ctn.cursores[-1] == AGORA - timedelta(minutes=20)
+    # Os do instante do cursor, e só eles (a b-1 é de antes). Não voltam, então nada é "lido".
+    assert ctn.vistos[-1] == {"b-2", "b-3"}
+    assert resumo.lidas == 0
+
+
+def test_baixa_com_coletado_em_no_futuro_nao_leva_o_cursor_para_o_futuro(sessao, ligada, politica):
+    # O relógio do coletor errado: a baixa vem datada de 3 dias à frente.
+    futura = replace(_baixa("b-futura"), coletado_em=AGORA + timedelta(days=3))
+    ctn = _ctn([_baixa("b-1", minutos=30), futura], abertas=_abertas("2026/08", "2026/09"))
+    deps = _deps(politica, ctn)
+
+    ler_baixas(sessao, deps, AGORA)
+
+    assert datetime.fromisoformat(sessao.get(CursorCTN, CURSOR_BAIXAS).valor) == AGORA
+    # A baixa que chega depois, coletada no tempo certo, não se perde atrás de um cursor no futuro.
+    ctn.baixas_externas.append(
+        replace(_baixa("b-nova", "2026/09"), coletado_em=AGORA + timedelta(minutes=5))
+    )
+    resumo = ler_baixas(sessao, deps, AGORA + timedelta(minutes=10))
+    assert resumo.lidas == 1
+    assert _registro(sessao, "b-nova")
+
+
+def test_margem_de_releitura_recua_o_cursor_e_os_ja_gravados_nao_se_repetem(
+    sessao, ligada, politica, monkeypatch
+):
+    monkeypatch.setattr("agente.pagamento.baixas_ctn.MARGEM_DE_RELEITURA", timedelta(minutes=45))
+    ctn = _ctn(
+        [_baixa("b-1", minutos=30), _baixa("b-2", minutos=20)],
+        abertas=_abertas("2026/08", "2026/09"),
+    )
+    deps = _deps(politica, ctn)
+    ler_baixas(sessao, deps, AGORA)
+
+    resumo = ler_baixas(sessao, deps, AGORA + timedelta(minutes=10))
+
+    # O cursor guardado é o do b-2; o pedido recua 45 min, e as duas já gravadas vão em `vistos`.
+    assert ctn.cursores[-1] == AGORA - timedelta(minutes=20) - timedelta(minutes=45)
+    assert ctn.vistos[-1] == {"b-1", "b-2"}
+    assert resumo.lidas == 0
+    assert len(sessao.scalars(select(BaixaCTNRegistro)).all()) == 2
+
+
+def test_a_margem_comeca_em_zero():
+    from agente.pagamento.baixas_ctn import MARGEM_DE_RELEITURA
+
+    assert MARGEM_DE_RELEITURA == timedelta(0)
+
+
+# ---- a linha malformada da API e a conferência com o cache velho (CTNEficaz de verdade) ----
+
+
+def _tabela_eficaz(linhas_bx, lancamentos=()):
+    return {"/v1/ctn/lancamentos_bx": linhas_bx, "/v1/ctn/lancamentos": list(lancamentos)}
+
+
+def _bx_eficaz(id_, matricula, minutos, dia="2026-11-09"):
+    from tests.integracoes.test_ctn_eficaz import _bx
+
+    coletado = (AGORA - timedelta(minutes=minutos)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return _bx(id_, matricula, "PIX", "2026/10", dia, 33.4, coletado)
+
+
+def test_linha_malformada_do_ctn_nao_trava_o_cursor_e_as_boas_sao_gravadas(
+    sessao, ligada, politica, caplog
+):
+    from tests.integracoes.test_ctn_eficaz import cliente as cliente_eficaz
+    from tests.integracoes.test_ctn_eficaz import servidor
+
+    ruim = _bx_eficaz(62, "xx000000062", 25)
+    ruim["dt_baixa"] = None
+    tabelas = _tabela_eficaz(
+        [_bx_eficaz(61, "xx000000061", 30), ruim, _bx_eficaz(63, "xx000000063", 20)]
+    )
+    ctn = cliente_eficaz(servidor(tabelas), agora=lambda: AGORA)
+    deps = _deps(politica, ctn)
+
+    with caplog.at_level("DEBUG"):
+        resumo = ler_baixas(sessao, deps, AGORA)
+        segunda = ler_baixas(sessao, deps, AGORA + timedelta(minutes=10))
+
+    assert resumo.lidas == 2
+    assert segunda.lidas == 0
+    assert {r.id_externo for r in sessao.scalars(select(BaixaCTNRegistro))} == {"61", "63"}
+    # O cursor andou até a última boa, em vez de falhar a cada ciclo.
+    assert sessao.get(CursorCTN, CURSOR_BAIXAS).valor == (AGORA - timedelta(minutes=20)).isoformat()
+    registro = " ".join(r.getMessage() for r in caplog.records)
+    assert "xx0000" not in registro and "Nome Inventado" not in registro
+    assert "falhou" not in registro
+
+
+def test_a_conferencia_da_rotina_nao_usa_o_cache_velho_das_baixas_da_pessoa(
+    sessao, ligada, politica
+):
+    from tests.integracoes.test_ctn_eficaz import _lanc, servidor
+    from tests.integracoes.test_ctn_eficaz import cliente as cliente_eficaz
+
+    lancamentos = [
+        _lanc(1, "2026/08", "rejeitada", data_baixa="2026-08-12", matricula=MATRICULA),
+        _lanc(2, "2026/09", "rejeitada", data_baixa="2026-09-12", matricula=MATRICULA),
+        _lanc(3, "2026/10", "rejeitada", data_baixa="2026-10-12", matricula=MATRICULA),
+    ]
+    tabelas = _tabela_eficaz([], lancamentos)
+    relogio = [1000.0]
+    ctn = cliente_eficaz(servidor(tabelas), agora=lambda: AGORA, relogio=lambda: relogio[0])
+    # Um turno leu as baixas do cliente há 10 s (nenhuma ainda) e o cache guardou a lista vazia.
+    assert ctn.historico_pagamentos(MATRICULA, 12) == []
+    relogio[0] += 10
+    # A baixa de 2026/10 aparece no CTN: a conferência da rotina tem de enxergá-la.
+    tabelas["/v1/ctn/lancamentos_bx"].append(_bx_eficaz(70, MATRICULA, 5))
+
+    resumo = ler_baixas(sessao, _deps(politica, ctn), AGORA)
+
+    assert resumo.abatidas == 1
+    assert _registro(sessao, "70").efeito == "abateu"
+
+
+def test_60_baixas_no_mesmo_instante_custam_uma_chamada_por_ciclo_depois_do_primeiro(
+    sessao, politica
+):
+    from tests.integracoes.test_ctn_eficaz import cliente as cliente_eficaz
+    from tests.integracoes.test_ctn_eficaz import servidor
+
+    antigas = [_bx_eficaz(1000 + n, f"xx{n:09d}", 240 + 60 * n) for n in range(30)]
+    do_instante = [_bx_eficaz(2000 + n, f"yy{n:09d}", 20) for n in range(60)]
+    chamadas = []
+    ctn = cliente_eficaz(
+        servidor(_tabela_eficaz(antigas + do_instante), chamadas), agora=lambda: AGORA
+    )
+    deps = _deps(politica, ctn)
+
+    custos = []
+    for ciclo in range(4):
+        antes = len(chamadas)
+        resumo = ler_baixas(sessao, deps, AGORA + timedelta(minutes=10 * ciclo))
+        custos.append((len(chamadas) - antes, resumo.lidas))
+
+    # Ciclo 0: as 60 são novas (página toda nova): 1 + a janela por `id` (90 linhas, 2 páginas).
+    # Ciclos 1 a 3: nada novo; as 60 do instante do cursor já estão gravadas: 1 chamada.
+    assert custos == [(3, 60), (1, 0), (1, 0), (1, 0)]

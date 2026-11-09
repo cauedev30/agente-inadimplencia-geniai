@@ -26,9 +26,9 @@ class CTNQueConta(CTNFalso):
         super().__init__(**resto)
         self.leituras = 0
 
-    def baixas_desde(self, coletado_desde):
+    def baixas_desde(self, coletado_desde, vistos=()):
         self.leituras += 1
-        return super().baixas_desde(coletado_desde)
+        return super().baixas_desde(coletado_desde, vistos)
 
 
 def _baixa():

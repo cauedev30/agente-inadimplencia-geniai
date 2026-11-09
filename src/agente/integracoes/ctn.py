@@ -4,7 +4,7 @@ A implementação real depende da T9 (tarefa 6.5). Até lá, o sistema roda com 
 """
 
 import secrets
-from collections.abc import Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
@@ -117,12 +117,28 @@ class CTN(Protocol):
         `ConsultaMensalidades`). Matrícula desconhecida devolve `ConsultaMensalidades([], 0)`."""
         ...
 
-    def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
+    def baixas_desde(
+        self, coletado_desde: datetime, vistos: Collection[str] = ()
+    ) -> list[BaixaCTN]:
         """As baixas coletadas a partir de `coletado_desde`, INCLUSIVE, da coletada há mais tempo
         à mais nova, sem `id_externo` repetido. O cursor é inclusivo porque duas baixas podem ter a
-        mesma `coletado_em`: com `>` a que chegasse depois do cursor andar se perderia. Quem guarda
-        o cursor recebe de volta a última baixa já vista e a descarta pelo `id_externo` (a rotina da
-        Etapa 3 é idempotente por ele)."""
+        mesma `coletado_em`: com `>` a que chegasse depois do cursor andar se perderia.
+
+        `vistos` são os ids que quem guarda o cursor já gravou com `coletado_em` a partir dele:
+        não voltam na lista, e é por eles que a leitura sabe que as linhas do instante do cursor já
+        foram vistas e para na 1ª página (sem eles, 50 ou mais baixas no instante do cursor
+        obrigariam a reler a janela inteira a cada ciclo). Sem `vistos`, as do cursor voltam e a
+        rotina das baixas, idempotente pelo `id_externo`, descarta a que já viu.
+
+        Uma implementação pode devolver `[]` com o cursor onde está quando adiar uma leitura cara
+        (o `CTNEficaz` faz a da janela inteira no máximo uma vez por hora): nada se perde, porque
+        a baixa que não veio é lida na leitura seguinte."""
+        ...
+
+    def invalidar_cache(self, matricula: str) -> None:
+        """Esquece o que a implementação guardou da matrícula (o `CTNEficaz` guarda as baixas da
+        pessoa por 60 s). Quem confere por causa de uma baixa nova chama antes, para não ler a
+        lista de antes dela. A implementação sem cache não faz nada."""
         ...
 
     def gerar_link_pagamento(
@@ -222,14 +238,19 @@ class CTNFalso:
         lidas = self.rejeitadas_lidas.get(matricula, len(abertas))
         return ConsultaMensalidades(abertas, max(lidas, len(abertas)))
 
-    def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
+    def baixas_desde(
+        self, coletado_desde: datetime, vistos: Collection[str] = ()
+    ) -> list[BaixaCTN]:
         self._exigir_no_ar()
         unicas = {
             baixa.id_externo: baixa
             for baixa in self.baixas_externas
-            if baixa.coletado_em >= coletado_desde
+            if baixa.coletado_em >= coletado_desde and baixa.id_externo not in vistos
         }
         return sorted(unicas.values(), key=lambda baixa: (baixa.coletado_em, baixa.id_externo))
+
+    def invalidar_cache(self, matricula: str) -> None:
+        """O falso não guarda nada em cache."""
 
     def _novo_link(self, tipo: str, matricula: str, valor: int | None, cobranca: int | None):
         id_externo = f"{tipo}-{self._lote}-{len(self.links) + 1}"
@@ -285,8 +306,13 @@ class CTNComposto:
     def consultar_mensalidades(self, matricula: str) -> ConsultaMensalidades:
         return self.leitura.consultar_mensalidades(matricula)
 
-    def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
-        return self.leitura.baixas_desde(coletado_desde)
+    def baixas_desde(
+        self, coletado_desde: datetime, vistos: Collection[str] = ()
+    ) -> list[BaixaCTN]:
+        return self.leitura.baixas_desde(coletado_desde, vistos)
+
+    def invalidar_cache(self, matricula: str) -> None:
+        self.leitura.invalidar_cache(matricula)
 
     def gerar_link_pagamento(
         self, matricula: str, valor_centavos: int, cobranca_id: int

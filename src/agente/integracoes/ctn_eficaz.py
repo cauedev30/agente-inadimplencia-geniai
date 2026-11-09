@@ -17,7 +17,7 @@ import threading
 import time
 import unicodedata
 from collections import deque
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as hora_do_dia
 from decimal import ROUND_HALF_UP, Decimal
@@ -66,8 +66,16 @@ JANELA_DO_LIMITE = 60.0
 # casamento com os lançamentos e o histórico da propensão) e a cota diária é de 5.000 chamadas.
 VALIDADE_DO_CACHE_DE_BAIXAS = 60.0
 CACHE_BAIXAS_MAXIMO = 256
+# A leitura longa das baixas (a janela inteira, por `id`) custa dezenas de chamadas e mais de mil
+# linhas (a cota diária é de 5.000 chamadas e 20.000 linhas): no máximo uma por hora (hora do
+# `relogio`). Passada a hora, a leitura longa que seria preciso fazer é adiada, não cortada: a
+# chamada devolve `[]` com o cursor onde está, e a baixa nova é lida na próxima leitura longa.
+INTERVALO_DA_LEITURA_LONGA = 3600.0
 # A API corta a consulta em 15 s; o prazo total do cliente fica abaixo disso.
 PRAZO_PADRAO = 12.0
+
+# Quantos ids de baixa malformada o log lista (o resto só entra na contagem).
+MAXIMO_DE_IDS_NO_LOG = 10
 
 MOTIVO_PRAZO = "o CTN passou do prazo"
 MOTIVO_FORMATO = "resposta do CTN em formato inesperado"
@@ -236,6 +244,36 @@ def _baixa(linha: Mapping) -> BaixaCTN:
     )
 
 
+def _baixas_validas(linhas: Iterable[Mapping]) -> list[BaixaCTN]:
+    """As baixas das linhas da API. A linha malformada (sem `dt_baixa` ou `coletado_em`, valor
+    negativo de estorno, milhar ambíguo, mês estranho...) é PULADA, como o retrato faz com as
+    `invalidas`: uma só linha ruim não pode parar a leitura de todas as outras, porque o cursor
+    nunca andaria. O log leva a contagem e o `id` da API (nunca a matrícula, o nome nem o corpo)."""
+    baixas = []
+    puladas: list[str] = []
+    for linha in linhas:
+        try:
+            baixas.append(_baixa(linha))
+        except (KeyError, TypeError, ValueError, ArithmeticError):
+            puladas.append(_id_legivel(linha))
+    if puladas:
+        log.warning(
+            "o CTN trouxe %s baixa(s) malformada(s), puladas; ids: %s",
+            len(puladas),
+            ", ".join(puladas[:MAXIMO_DE_IDS_NO_LOG]),
+        )
+    return baixas
+
+
+def _id_legivel(linha: Mapping) -> str:
+    """O `id` da linha para o log, só se for número ou um código curto (nada que pareça dado)."""
+    bruto = linha.get("id")
+    if isinstance(bruto, bool) or not isinstance(bruto, int | str):
+        return "?"
+    texto = str(bruto).strip()
+    return texto if re.fullmatch(r"[\w-]{1,40}", texto) else "?"
+
+
 def _lancamento(linha: Mapping) -> tuple[MensalidadeAberta, date | None]:
     return (
         MensalidadeAberta(_mes(linha["mes_ano"]), _centavos(linha["valor"])),
@@ -255,6 +293,20 @@ def _decrescente_provado(baixas: list[BaixaCTN]) -> bool:
     return all(a.coletado_em >= b.coletado_em for a, b in pares) and any(
         a.coletado_em > b.coletado_em for a, b in pares
     )
+
+
+class _LeituraLongaAdiada(Exception):
+    """A leitura longa seria precisa, mas a da última hora já foi feita (uso interno)."""
+
+
+class _OrcamentoDaLeitura:
+    """A permissão de leitura longa de UMA chamada a `baixas_desde`: calculada no começo e comum a
+    todas as janelas dela, para que uma chamada de cursor antigo (várias janelas) não se adie no
+    meio e devolva um resultado pela metade."""
+
+    def __init__(self, liberada: bool):
+        self.liberada = liberada
+        self.usada = False
 
 
 class CTNEficaz:
@@ -294,6 +346,11 @@ class CTNEficaz:
         # matrícula -> (instante do `relogio` em que expira, as baixas da pessoa)
         self._trava_cache = threading.Lock()
         self._baixas_em_cache: dict[str, tuple[float, tuple[BaixaCTN, ...]]] = {}
+        # Quando (hora do `relogio`) foi a última leitura longa das baixas, e se a API respeita o
+        # `desc` (True: provado por uma página ou pela janela inteira; False: página crescente,
+        # fora de ordem ou `desc` recusado; None: ainda não se sabe). Só valem com o processo vivo.
+        self._ultima_leitura_longa: float | None = None
+        self._desc_honrado: bool | None = None
         self._cliente = httpx.Client(
             base_url=url.rstrip("/"),
             headers={"Authorization": f"Bearer {chave}", "Accept": "application/json"},
@@ -431,62 +488,150 @@ class CTNEficaz:
             sorted(abertas, key=lambda mensalidade: mensalidade.mes_ano), len(rejeitadas)
         )
 
-    def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
+    def baixas_desde(
+        self, coletado_desde: datetime, vistos: Collection[str] = ()
+    ) -> list[BaixaCTN]:
         """As baixas com `coletado_em` a partir do cursor, inclusive (uma baixa coletada no mesmo
-        instante do cursor não se perde; o consumidor é idempotente pelo `id_externo`).
+        instante do cursor não se perde; o consumidor é idempotente pelo `id_externo`), menos as de
+        `vistos` (os ids que o consumidor já gravou no instante do cursor ou depois dele).
 
         A API filtra por `dia_relatorio`, e o relatório de um dia pode ser coletado depois da
         meia-noite: a janela abre um dia antes do dia do cursor (em Brasília) e anda de 31 em 31
         dias até hoje. Dentro de cada janela a leitura é incremental (`_baixas_da_janela`): no caso
         comum, uma chamada, em vez de reler os dias inteiros a cada 10 minutos (a cota é de 20.000
-        linhas por dia)."""
+        linhas por dia).
+
+        A leitura longa (janela inteira) é feita no máximo uma vez por hora
+        (`INTERVALO_DA_LEITURA_LONGA`). Se for preciso uma segunda dentro da hora, a chamada
+        devolve `[]` e registra o adiamento: o cursor do consumidor não anda, e nada se perde."""
         cursor = _como_utc(coletado_desde)
+        vistos = frozenset(vistos)
         hoje = self._hoje()
+        orcamento = _OrcamentoDaLeitura(self._leitura_longa_liberada())
         inicio = cursor.astimezone(FUSO_DO_NEGOCIO).date() - timedelta(days=1)
         achadas: dict[str, BaixaCTN] = {}
-        while inicio <= hoje:
-            fim = min(inicio + timedelta(days=DIAS_POR_JANELA - 1), hoje)
-            filtros = {"de": inicio.isoformat(), "ate": fim.isoformat()}
-            for baixa in self._baixas_da_janela(filtros, cursor):
-                achadas[baixa.id_externo] = baixa
-            inicio = fim + timedelta(days=1)
+        try:
+            while inicio <= hoje:
+                fim = min(inicio + timedelta(days=DIAS_POR_JANELA - 1), hoje)
+                filtros = {"de": inicio.isoformat(), "ate": fim.isoformat()}
+                for baixa in self._baixas_da_janela(filtros, cursor, vistos, orcamento):
+                    achadas[baixa.id_externo] = baixa
+                inicio = fim + timedelta(days=1)
+        except _LeituraLongaAdiada:
+            log.warning(
+                "a leitura longa das baixas do CTN foi adiada: a última foi há menos de %s min; "
+                "o cursor não anda",
+                int(INTERVALO_DA_LEITURA_LONGA // 60),
+            )
+            return []
         return sorted(achadas.values(), key=lambda b: (b.coletado_em, b.id_externo))
 
-    def _baixas_da_janela(self, filtros: Mapping[str, str], cursor: datetime) -> list[BaixaCTN]:
-        """As baixas da janela coletadas a partir do cursor.
+    def _leitura_longa_liberada(self) -> bool:
+        ultima = self._ultima_leitura_longa
+        return ultima is None or self._relogio() - ultima >= INTERVALO_DA_LEITURA_LONGA
+
+    def _baixas_da_janela(
+        self,
+        filtros: Mapping[str, str],
+        cursor: datetime,
+        vistos: frozenset[str],
+        orcamento: _OrcamentoDaLeitura,
+    ) -> list[BaixaCTN]:
+        """As baixas da janela coletadas a partir do cursor e fora de `vistos`.
 
         Caminho curto: pede a 1ª página por `coletado_em` decrescente, e as mais novas vêm
-        primeiro. Ela basta quando (a) é a janela inteira (`mais = false`), ou (b) traz uma baixa
+        primeiro. Ela basta quando (a) é a janela inteira (`mais = false`), (b) traz uma baixa
         anterior ao cursor e a ordem decrescente está PROVADA na própria página: tudo o que não veio
-        é mais antigo ainda. Só uma página de 50 aguenta a ordem por `coletado_em`: a paginação por
-        uma chave com repetição (uma coleta grava muitas linhas no mesmo instante) pode pular ou
-        repetir linhas de uma página a outra, e uma baixa pulada é uma cobrança que não para.
+        é mais antigo ainda, ou (c) a página chega justo ao instante do cursor, a API respeita o
+        `desc` (provado agora ou antes) e toda baixa da página nesse instante já foi vista: sobram
+        só linhas do mesmo instante, que o consumidor já gravou. Só uma página de 50 aguenta a
+        ordem por `coletado_em`: a paginação por uma chave com repetição (uma coleta grava muitas
+        linhas no mesmo instante) pode pular ou repetir linhas de uma página a outra, e uma baixa
+        pulada é uma cobrança que não para.
 
         Caminho longo: a página toda é nova (50 ou mais baixas desde o cursor), a ordem não está
-        provada (a API ignorou o `desc`, ou a página inteira é do mesmo instante) ou a API recusou
-        o `desc`. Relê a janela inteira pelo `id`, que é único e pagina sem falha, e filtra pelo
-        cursor."""
+        provada (a API ignorou o `desc`, ou a página inteira é do mesmo instante e não se sabe se a
+        API o respeita) ou a API recusou o `desc`. Relê a janela inteira pelo `id`, que é único e
+        pagina sem falha, e filtra pelo cursor. No máximo uma por hora."""
         try:
             pagina, mais = next(self._paginas(ROTA_BAIXAS, filtros, "coletado_em", "desc"))
-            baixas = [_converter(linha, _baixa) for linha in pagina]
+            baixas = _baixas_validas(pagina)
         except CTNRecusou as erro:
             if erro.status != 400:
                 raise
             log.warning("o CTN recusou a ordem decrescente das baixas; lendo a janela inteira")
-            return self._janela_inteira_das_baixas(filtros, cursor)
+            self._desc_honrado = False
+            return self._janela_inteira_das_baixas(filtros, cursor, vistos, orcamento, [])
+
+        def novas() -> list[BaixaCTN]:
+            return [b for b in baixas if b.coletado_em >= cursor and b.id_externo not in vistos]
+
         if not mais:
-            return [baixa for baixa in baixas if baixa.coletado_em >= cursor]
-        if baixas and baixas[-1].coletado_em < cursor and _decrescente_provado(baixas):
-            return [baixa for baixa in baixas if baixa.coletado_em >= cursor]
-        return self._janela_inteira_das_baixas(filtros, cursor)
+            return novas()
+        provada = _decrescente_provado(baixas)
+        self._lembrar_a_ordem(baixas, provada)
+        if baixas and baixas[-1].coletado_em < cursor and provada:
+            return novas()
+        if self._chegou_ao_cursor_sem_pendencia(baixas, cursor, vistos):
+            return novas()
+        return self._janela_inteira_das_baixas(filtros, cursor, vistos, orcamento, baixas)
+
+    def _lembrar_a_ordem(self, pagina: list[BaixaCTN], provada: bool) -> None:
+        """O que a página diz sobre o `desc`: decrescente provada = a API o respeita; crescente ou
+        fora de ordem = não respeita. Uma página toda do mesmo instante não diz nada."""
+        if provada:
+            self._desc_honrado = True
+        elif any(a.coletado_em < b.coletado_em for a, b in zip(pagina, pagina[1:], strict=False)):
+            self._desc_honrado = False
+
+    def _chegou_ao_cursor_sem_pendencia(
+        self, pagina: list[BaixaCTN], cursor: datetime, vistos: frozenset[str]
+    ) -> bool:
+        """A página (a mais nova, com a API respeitando o `desc`) vai até o instante do cursor e
+        toda baixa dela nesse instante já foi vista. As que ficaram para a página seguinte são do
+        mesmo instante ou mais antigas. Fica de fora, por ser um risco aceito, uma baixa NOVA com
+        exatamente o mesmo `coletado_em` do cursor que a coleta tenha gravado depois da leitura
+        anterior; a leitura longa da hora a acharia."""
+        if self._desc_honrado is not True or not pagina:
+            return False
+        if min(baixa.coletado_em for baixa in pagina) != cursor:
+            return False
+        return all(b.id_externo in vistos for b in pagina if b.coletado_em == cursor)
 
     def _janela_inteira_das_baixas(
-        self, filtros: Mapping[str, str], cursor: datetime
+        self,
+        filtros: Mapping[str, str],
+        cursor: datetime,
+        vistos: frozenset[str],
+        orcamento: _OrcamentoDaLeitura,
+        primeira_pagina: list[BaixaCTN],
     ) -> list[BaixaCTN]:
-        baixas = (_converter(linha, _baixa) for linha in self._linhas(ROTA_BAIXAS, filtros, "id"))
-        return [baixa for baixa in baixas if baixa.coletado_em >= cursor]
+        if not orcamento.liberada:
+            raise _LeituraLongaAdiada
+        if not orcamento.usada:
+            orcamento.usada = True
+            self._ultima_leitura_longa = self._relogio()
+        todas = _baixas_validas(self._linhas(ROTA_BAIXAS, filtros, "id"))
+        self._confirmar_a_ordem_pela_janela(primeira_pagina, todas)
+        return [b for b in todas if b.coletado_em >= cursor and b.id_externo not in vistos]
+
+    def _confirmar_a_ordem_pela_janela(self, pagina: list[BaixaCTN], todas: list[BaixaCTN]) -> None:
+        """Com a janela inteira na mão, a página pedida por `desc` é provadamente a das mais novas
+        quando seus instantes são os maiores da janela, nessa ordem, e a janela tem mais de um
+        instante (uma API que ignorasse o `desc` só daria essa página se tudo fosse do mesmo
+        instante). Serve à página de um instante só, que não prova nada sozinha."""
+        if not pagina or len({b.coletado_em for b in todas}) < 2:
+            return
+        maiores = sorted((b.coletado_em for b in todas), reverse=True)[: len(pagina)]
+        if [b.coletado_em for b in pagina] == maiores:
+            self._desc_honrado = True
 
     # ---- HTTP ----
+
+    def invalidar_cache(self, matricula: str) -> None:
+        """Esquece as baixas em cache da matrícula: a próxima leitura vai à API."""
+        with self._trava_cache:
+            self._baixas_em_cache.pop(matricula, None)
 
     def _baixas_da_pessoa(self, matricula: str) -> tuple[BaixaCTN, ...]:
         """As baixas da matrícula, lidas uma vez e reaproveitadas por `VALIDADE_DO_CACHE_DE_BAIXAS`

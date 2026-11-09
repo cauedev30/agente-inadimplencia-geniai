@@ -108,6 +108,23 @@ class ContratoLeituraCTN:
         assert all(baixa.coletado_em == ultimo for baixa in no_cursor)
         assert len({baixa.id_externo for baixa in no_cursor}) == len(no_cursor)
 
+    def test_invalidar_o_cache_da_matricula_nao_muda_o_que_se_le(self, ctn_e_matricula):
+        ctn, matricula = ctn_e_matricula
+        antes = ctn.historico_pagamentos(matricula, meses=12)
+        ctn.invalidar_cache(matricula)
+        ctn.invalidar_cache("NAO-EXISTE")
+        assert ctn.historico_pagamentos(matricula, meses=12) == antes
+
+    def test_os_vistos_do_cursor_nao_voltam(self, ctn_e_matricula):
+        # `vistos` são os ids que o consumidor já gravou no instante do cursor: não voltam.
+        ctn, _ = ctn_e_matricula
+        ultimo = ctn.baixas_desde(COLETADAS_DEPOIS_DE)[-1].coletado_em
+        no_cursor = {baixa.id_externo for baixa in ctn.baixas_desde(ultimo)}
+        assert no_cursor
+        assert ctn.baixas_desde(ultimo, no_cursor) == []
+        um = sorted(no_cursor)[0]
+        assert um not in {baixa.id_externo for baixa in ctn.baixas_desde(ultimo, {um})}
+
     def test_baixas_desde_depois_da_ultima_coleta_vem_vazia(self, ctn_e_matricula):
         ctn, _ = ctn_e_matricula
         ultimo = ctn.baixas_desde(COLETADAS_DEPOIS_DE)[-1].coletado_em
