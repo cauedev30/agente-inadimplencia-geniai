@@ -337,7 +337,7 @@ ficou sem resposta, para o dev (a leitura é só GET; a escrita segue falsa):
     "outra forma", fora da propensão ao cartão.
 12. **Em `lancamentos_bx`, o `de`/`ate` filtra o `dia_relatorio`** (pelo que o agente viu, não a `dt_baixa`):
     confirmar. E o que é a `data_baixa` de um lançamento `rejeitada` (a da recusa ou a de um pagamento depois)?
-13. **O `inadimplencia` traz 28 linhas com `meses_atraso` maior que 6 (de 7 a 26), 33 sem `ult_mesref` e
+13. **O `inadimplencia` traz 31 linhas com `meses_atraso` maior que 6 (de 7 a 26), 33 sem `ult_mesref` e
     1 matrícula repetida** (09/11). São pessoas passadas do corte, cadastro velho ou erro de carga?
 14. **`jp` é o JP Sul?**
 15. **Escrita:** link de pagamento e de cadastro do cartão, baixa e webhook. Há ambiente de teste?

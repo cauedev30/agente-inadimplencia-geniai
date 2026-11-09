@@ -129,6 +129,10 @@ pago_em}`. A assinatura é o HMAC-SHA256 do corpo no cabeçalho `X-Assinatura`, 
 
 ## T9 — CTN (tarefa 6.5)
 
+**Atualização de 2026-11-09:** a **leitura** já é real, pela API EFICAZ. Ver a seção
+[CTN real (EFICAZ, só leitura)](#ctn-real-eficaz-só-leitura), logo abaixo. O que resta desta T9 é a
+**escrita** (link de pagamento, link de cadastro do cartão, baixa e webhook), que a API não tem.
+
 **Como vai ser (2026-10-26):** não teremos acesso ao CTN. O desenvolvedor do Cartão de Todos está
 fazendo **uma API só para o agente**, e todos os dados reais passam por ela. Ela vai além da consulta. A
 lista abaixo é o que ela precisa oferecer; falta conferir item a item com o dev.
@@ -173,6 +177,199 @@ registra a baixa do pagamento pelo link; `false` quer dizer que o próprio CTN d
 que não tem clientes, ela responde 503.
 
 **Pronto quando:** o histórico, o link com desconto e a baixa funcionam numa matrícula de teste.
+
+## CTN real (EFICAZ, só leitura)
+
+**Desde 2026-11-09 a leitura do CTN é real.** O dev da GeniAI liberou a API EFICAZ, que só tem `GET`.
+Com a chave, o agente lê a carteira, a dívida, o histórico de pagamento e as baixas. O link do cartão, o
+link de cadastro e o `registrar_baixa` **seguem falsos**: a API não tem escrita (T9.15 em
+[`duvidas.md`](duvidas.md)). Decisões: D48 a D53 em [`decisoes.md`](decisoes.md). Spec do workspace:
+`specs/2026-11-06-integracao-ctn.md`. Documentação da API e sondagens: `fontes/2026-11-04-api-eficaz-ctn.md`.
+
+### As rotas lidas
+
+Todas são `GET` em `https://api.eficaz-group.com` (`AGENTE_CTN_URL`), com `unidade` e `ordem` em toda
+chamada.
+
+| Rota | O que o agente tira dela |
+|---|---|
+| `/v1/ctn/inadimplencia` | o retrato diário da carteira: matrícula, nome, telefone, `meses_atraso`, `meses_ate_corte`, `ult_mesref`, `data_ref`. Um retrato por dia, por volta das 07h05 (Brasília). **Não traz valor** |
+| `/v1/ctn/lancamentos` | uma linha por mensalidade. As de `status_lancamento = rejeitada` são os meses em aberto, e o `valor` delas é a dívida exata. Não muda no mesmo dia |
+| `/v1/ctn/lancamentos_bx` | as baixas (`forma`, `mes_ref`, `valor`, `dt_baixa`, `coletado_em`). Alimenta o histórico de pagamento (D36) e a notícia de que o cliente pagou. O CTN as coleta a cada 10 minutos, com até ~2h45 de atraso |
+| `/v1/ctn/filiados_full` | o cadastro do cliente (nome, telefone, CPF), para o `consultar_cliente` |
+
+O `inadimplencia_resumo` (totais por régua) **não é lido pelo agente**. Serve só de conferência manual.
+Em 09/11 ele mostrou ~2.000 pessoas de 1 e 2 meses que o `inadimplencia` não traz (T9.7).
+
+O que o agente faz com elas:
+- **Régua:** sai do `meses_atraso` (D25), não do campo `regua` da API, que mede outra coisa.
+- **Dívida do retrato:** `meses_atraso × mensalidade` (D24, `mensalidade_centavos` no `politica.toml`). É
+  estimativa, e nunca se cita ao cliente sem a conferência (abaixo).
+- **Dívida conferida:** a soma do `valor` das `rejeitada`, menos as pagas depois da recusa. Cada baixa paga
+  um lançamento só: o do mesmo mês, de valor igual ou maior e de data igual ou posterior. A parcial não
+  tira o mês.
+
+### Variáveis
+
+| Variável | Para que serve |
+|---|---|
+| `AGENTE_CTN_API_KEY` | a chave `eg_...`. Presente liga o CTN real; ausente ou vazia, o serviço usa o `CTNFalso`. Nunca vai ao git, ao log nem ao chat |
+| `AGENTE_CTN_URL` | a base da API. Padrão `https://api.eficaz-group.com`; vazia volta ao padrão |
+| `AGENTE_CTN_UNIDADE` | a unidade do CTN. Padrão `jp`; vazia volta ao padrão. *A confirmar* que `jp` é o JP Sul da D17 (T9.14) |
+| `AGENTE_LLM_DADOS_REAIS_LIBERADOS` | a trava do M2 (abaixo). Padrão `false` |
+
+A demonstração não recebe a chave e fica no `CTNFalso`.
+
+### A trava dos dados reais
+
+Com uma **fonte de dado real** (`AGENTE_CTN_API_KEY` ou o Chatwoot real) **e** um **destino externo** do
+texto do cliente (`AGENTE_LLM_API_KEY`, o Luna, ou `AGENTE_TRANSCRICAO_*`, a transcrição), o serviço
+**recusa subir** enquanto `AGENTE_LLM_DADOS_REAIS_LIBERADOS` não for `true`. A mensagem do erro diz quais
+variáveis dispararam, nunca os valores. Só se libera depois de a retenção de dados da OpenAI ser conferida
+no painel (T6, D42). É o mesmo desenho da trava do Jev (`AGENTE_JEV_DADOS_REAIS_LIBERADOS`, D12). Ela fecha
+o M2: antes dela, a sombra mandava conversa real ao Luna sem trava.
+
+### O `CTNComposto`
+
+`CTNComposto(leitura, escrita)` implementa o `Protocol CTN` inteiro, então nenhum chamador muda. As
+leituras vão ao `CTNEficaz` (`integracoes/ctn_eficaz.py`); o link de pagamento, o link de cadastro do
+cartão e a baixa vão ao `CTNFalso`. O `principal.py` o monta quando há a chave. Os métodos novos de
+leitura são `inadimplentes(data_ref)`, `mensalidades_em_aberto(matricula)`, `consultar_mensalidades` (que
+também diz quantas rejeitadas leu) e `baixas_desde(coletado_desde)`.
+
+Regras do cliente `CTNEficaz`:
+- só leitura, transporte injetável, prazo total de 12 s por consulta (a API corta em 15 s);
+- o erro vira `CTNIndisponivel` **sem URL, sem chave e sem corpo** (o corpo traz dado de cliente);
+- **qualquer HTTP de erro**, o 400 inclusive, vira `CTNIndisponivel`; só o 404 do cadastro vira
+  `ClienteNaoEncontrado`;
+- a matrícula que a API não conhece devolve **lista vazia** no histórico e nas mensalidades (a API não
+  distingue "sem baixas" de "sem a matrícula"); só o `consultar_cliente` levanta `ClienteNaoEncontrado`;
+- a paginação segue até `mais = false` e **falha fechada**: `mais` que não é booleano, página vazia com
+  `mais` e mais de 200 páginas numa consulta levantam `CTNIndisponivel`. Nunca devolve um resultado cortado
+  que pareça inteiro;
+- uma linha malformada do retrato é pulada e contada; a falha geral de formato levanta;
+- as baixas de uma pessoa ficam em cache por 60 segundos (a conferência as usa duas vezes).
+
+### O limite de taxa
+
+A chave tem **60 chamadas por minuto, 5.000 chamadas e 20.000 linhas por dia**. A página é de **50 linhas**:
+um `limite` maior é ignorado (o teto da chave). Chamada recusada também conta. O cliente:
+- segura **55 chamadas por minuto** (sobra folga para o relógio e para a recusa), seguro entre threads;
+  quem passa do limite dorme até a mais antiga sair da janela, e a espera tem teto próprio;
+- guarda o campo `uso` do corpo e o põe no log em DEBUG;
+- um retrato inteiro custa ~58 chamadas e ~2.900 linhas (09/11). Cada conferência custa 2 chamadas (os lançamentos e as baixas da pessoa), mais as
+  páginas extras de quem tem mais de 50 linhas.
+
+### A carteira do dia
+
+```
+agente importar-ctn [--data AAAA-MM-DD] [--campanha ctn] [--simular]
+```
+
+Lê o retrato do dia (padrão: hoje, no fuso da janela) e grava como o `importar` do CSV: o upsert do
+`Cliente` e da cobrança ATIVA, com a régua por `dominio/divida.py`. A propensão ao cartão **não** sai
+daqui (custaria 1 chamada por cliente): sai na conferência. A saída traz só contagens.
+
+- **Entra** quem tem `meses_atraso ≥ 1` e telefone. Energisa (`meses_atraso = 0`) fica de fora e é contada
+  em `ignoradas Energisa`; sem telefone é contado e não entra.
+- **A leitura vem antes da gravação.** O retrato inteiro é lido para a memória; se o CTN cair no meio,
+  nada é gravado nem encerrado (saída 1, "rode de novo"). A gravação é em lotes de 50, com commit por lote,
+  e é idempotente.
+- **Encerra** a cobrança ATIVA **da mesma campanha** que saiu do retrato (`encerrada_motivo =
+  saiu_do_retrato`), sem mensagem. Não encerra se o retrato for suspeito (linha de outra `data_ref`, ou
+  nenhuma da data pedida), vazio, ou se o encerramento atingir **mais de 25%** das ativas da campanha (só
+  vale com ao menos 20 ativas). A cobrança com Pix nosso pendente fica ATIVA até o Pix expirar ou ser pago.
+- **Reativa** a cobrança encerrada por `saiu_do_retrato` que volta ao retrato **em até 3 dias** (no fuso
+  da janela), em vez de criar outra. A conversa se mantém. Cobrança encerrada por outro motivo e a PAGA
+  nunca voltam.
+- `--simular` faz tudo e desfaz: mostra os totais que a execução real teria.
+
+**Códigos de saída:**
+
+| Código | Quando |
+|---|---|
+| 0 | importou e o encerramento rodou |
+| 1 | retrato incompleto (o CTN caiu na leitura): nada foi gravado |
+| 2 | sem a `AGENTE_CTN_API_KEY` |
+| 3 | importou, mas **não encerrou** por retrato suspeito, vazio ou encerramento acima de 25%: o `motivo de não encerrar` vai na saída e pede revisão |
+
+### A conferência no contato
+
+A carteira do retrato só tem a contagem de meses. Antes do 1º envio **do dia** a um cliente, 2 chamadas
+(os lançamentos e as baixas dele) trazem os meses e o valor exatos. A conferência acontece em dois
+lugares, **antes das travas de linha**: o disparo (`abertura/disparar.py`) e o 1º turno
+(`turno/orquestrador.py`, só com o CTN real e só quando os gates já decidem seguir ou gerar o Pix). Ela
+grava `conferida_em`, `meses_em_aberto` (lista `AAAA/MM`, dado para o A20), a dívida, os meses e a
+propensão ao cartão (D36). É **uma vez por dia por cobrança** (no fuso da janela).
+
+| Estado | Quando | O disparo | O turno ativo |
+|---|---|---|---|
+| `CONFERIDA` | o CTN respondeu e o dado é crível | envia, com o valor conferido | cobra com o valor conferido |
+| `QUITADA` | havia rejeitadas e todas têm baixa | não envia; a cobrança fica ATIVA | não cobra e leva ao humano (handoff `CONCILIACAO`, a mensagem só na 1ª vez) |
+| `SEM_LANCAMENTOS` | nenhuma rejeitada, mas o retrato diz que há atraso | não envia | espera como a integração fora do ar; esgotadas as tentativas, vai ao humano (`INTEGRACAO_INDISPONIVEL`) |
+| `DADO_SUSPEITO` | mês repetido, valor zero, negativo ou acima de R$ 1.000, ou mais de 1 mês aberto além do retrato | não envia | idem |
+| `NAO_CONFERIDA` | o CTN caiu | não envia | idem |
+
+Regra de ouro: **só `CONFERIDA` deixa citar valor.** O valor do retrato é estimativa e nunca vai ao
+cliente. Em sombra o turno roda normal e grava `QUITADA_NO_CTN` como ação principal, para mostrar o que o
+ativo faria.
+
+**Alarme do disparo:** se, numa rodada, mais de **30%** das conferências feitas (com o mínimo de **20**)
+forem `QUITADA` ou `SEM_LANCAMENTOS`, a carteira ou o CTN está errado. A rodada **para na hora**, marca
+`alarme_conferencia` e o `agente disparar` sai com o código **3**. Confira o CTN e a carteira antes de
+rodar de novo.
+
+### As baixas externas
+
+Quem paga por outro caminho (boleto, cartão, balcão) aparece no `lancamentos_bx`. Uma rotina do serviço,
+**a cada 10 minutos** e só com o CTN real e as dependências de pagamento, lê as baixas novas e aplica:
+
+- **Leitura:** `baixas_desde(cursor)`, com o cursor `baixas` na tabela `cursor_ctn` (a `coletado_em` da
+  última baixa lida; inclusivo, por isso idempotente). Sem cursor, a 1ª leitura recua 3 horas. A rotina não
+  levanta se o CTN falhar: o cursor não anda.
+- **Registro:** cada baixa vai para a tabela `baixa_ctn`, única pelo `id` da API. O campo `efeito` diz o que
+  a rotina fez (`quitou`, `abateu`, `ignorada`, `ja_paga`, `sem_cobranca`, ...). A baixa que não pôde ser
+  tratada fica sem `aplicada_em` e é refeita no ciclo seguinte, por até 24 horas.
+- **Quitou** (a conferência achou rejeitadas e nenhuma em aberto): a cobrança vira **PAGA** com motivo
+  `baixa_externa`, a conversa encerra e sai **1 aviso**, o `texto_baixa_externa` do `politica.toml`, texto
+  fixo, **só dentro da janela de 24h** do WhatsApp e fora do teto de mensagens. Fora da janela, em sombra ou
+  com humano na conversa, não sai aviso (com humano, o atendente recebe uma nota privada).
+- **Pagou parte:** os meses, a dívida e a régua saem da conferência e o agente segue, sem mensagem própria.
+- **Ignoradas:** a baixa do mês corrente (ainda não vencido), a cobrança já PAGA (D39) e o cliente sem
+  cobrança ATIVA são só registrados.
+- Um Pix nosso pendente não é tocado. Se for pago depois, cai no fluxo do pagamento em dobro (D39).
+- Nenhum log leva matrícula, nome nem telefone: só ids do banco.
+
+### O telefone com e sem o 9 (A1)
+
+O CTN dá o celular com o 9, e o WhatsApp e o Chatwoot às vezes mandam sem. O agente guarda o telefone como
+o CTN dá e casa nos dois formatos: `variantes_telefone(e164) -> frozenset[str]` (`dominio/telefone.py`)
+devolve as duas escritas do celular. O fixo volta só ele mesmo, e o que não é brasileiro não tem variante,
+então nada casa com ele. É usada no webhook do Chatwoot (`chatwoot_webhook.py`), na liberação do piloto
+(`turno/liberacao.py`), nos gates (`turno/gates.py`) e na checagem de telefone compartilhado do disparo.
+
+### A forma de pagamento
+
+O histórico de pagamento usa a `forma` da baixa:
+
+| `forma` no CTN | `FormaHistorico` |
+|---|---|
+| `MASTERCARD`, `VISA`, `ELO`, `HIPERCARD` (e outras bandeiras) | `CARTAO` |
+| `PIX` | `PIX` |
+| começa com `BOLETO` | `BOLETO` |
+| `ENERGISA` | `ENERGIA` |
+| `DIRETO NO CARTÃO - DINHEIRO` | `OUTRO` (decisão do Cauê) |
+| `CAIXA ECONOMICA FEDERAL` | `OUTRO` (padrão assumido; é boleto? pergunta ao dev, T9.11) |
+| qualquer outra | `OUTRO` |
+
+O `DIRETO NO CARTAO - CORPORATIVO` cai em `CARTAO` (o nome tem "CARTAO").
+
+### Pronto quando
+
+- Uma leitura real de 3 matrículas confere nos formatos e nas contagens (nada de dado pessoal no relatório).
+- O `agente importar-ctn --simular` mostra os totais esperados e sai com 0.
+- A rotina das baixas roda sem erro e a `baixa_ctn` enche.
+- O serviço **não sobe** com a chave do CTN e a do Luna sem `AGENTE_LLM_DADOS_REAIS_LIBERADOS`.
 
 ## T4 — Disparador
 
