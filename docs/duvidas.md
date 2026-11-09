@@ -321,6 +321,31 @@ direto nele.
 5. O **link do CTN aceita um valor com desconto**, definido pelo agente (D34, D35)?
 6. Quem paga pelo link **já sai com a baixa no próprio CTN**, ou o agente também registra a baixa?
 
+**Atualização de 2026-11-09: a leitura real da API da EFICAZ (`/v1/ctn/*`) já funciona no agente.** O que
+ficou sem resposta, para o dev (a leitura é só GET; a escrita segue falsa):
+
+7. **O `inadimplencia` não traz quem deve 1 ou 2 meses?** Em 09/11 a unidade `jp` tinha, no
+   `inadimplencia_resumo`, 1.782 na régua 1 e 1.019 na 2, mas o `inadimplencia` do mesmo dia traz só 60 com
+   `meses_atraso = 1` e 591 com 2. De 3 a 6 meses bate (772/773, 404, 541/540, 366). Quem deve 1 ou 2 meses
+   está em outra tabela? O resumo conta o mês corrente rejeitado, e o `inadimplencia` não?
+8. **Energisa com `faturada` acumulada é dívida ou atraso do repasse?** (O retrato traz 133 linhas com
+   `meses_atraso = 0`; o agente as ignora.)
+9. **A baixa leva até ~2h45 para aparecer no `lancamentos_bx`:** é do CTN ou da coleta, e dá para encurtar?
+10. **A `matricula` do `lancamentos_bx` e a `matricula_titular` do `lancamentos` são a mesma do
+    `inadimplencia`?** (*a confirmar*: 4 pagantes de uma manhã não apareceram.)
+11. **`CAIXA ECONOMICA FEDERAL` na forma da baixa (30% das baixas) é boleto?** Hoje o agente a trata como
+    "outra forma", fora da propensão ao cartão.
+12. **Em `lancamentos_bx`, o `de`/`ate` filtra o `dia_relatorio`** (pelo que o agente viu, não a `dt_baixa`):
+    confirmar. E o que é a `data_baixa` de um lançamento `rejeitada` (a da recusa ou a de um pagamento depois)?
+13. **O `inadimplencia` traz 28 linhas com `meses_atraso` maior que 6 (de 7 a 26), 33 sem `ult_mesref` e
+    1 matrícula repetida** (09/11). São pessoas passadas do corte, cadastro velho ou erro de carga?
+14. **`jp` é o JP Sul?**
+15. **Escrita:** link de pagamento e de cadastro do cartão, baixa e webhook. Há ambiente de teste?
+16. **Cota da chave e IP fixo** quando o agente estiver no `dev2`: um retrato custa 58 chamadas e cerca de
+    2.900 linhas (a página é de 50 e a API ignora `limite` maior), e a cota é de 20.000 linhas por dia.
+17. **Por LGPD, uma chave que não veja endereço e e-mail** (o agente usa matrícula, nome, telefone, CPF e
+    lançamentos).
+
 ### T10. Jev a partir do Python
 
 **Atualização de 2026-11-03:** o Jev vem da **API direta da TypeSafe** (`POST
