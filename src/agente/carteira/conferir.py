@@ -5,13 +5,18 @@ ao cartão (D36) e a lista dos meses. A carteira do retrato diário só tem a co
 Regras:
 - O CTN cai ou não responde: os valores do retrato ficam, `conferida_em` não é gravado e a
   `Conferencia` volta com `conferida = False`. Nunca levanta para o chamador.
-- Quitada (o CTN devolveu rejeitadas e todas foram pagas): nada é encerrado nem enviado aqui. A
+- Quitada (o CTN devolveu rejeitadas, todas foram pagas e elas cobrem os meses do retrato): nada
+  é encerrado nem enviado aqui. A
   cobrança guarda `meses_em_aberto = []` e `conferida_em`, os valores do retrato ficam como estão, e
   quem chama (`conferir_antes_do_envio`) recebe `QUITADA`: não cobra. Só sai dessa condição quando
   uma conferência de outro dia achar meses em aberto.
 - Nenhuma rejeitada veio (matrícula que o CTN não conhece, ou que não casa com a dos lançamentos)
   contradiz o retrato, que diz que há meses em atraso: NÃO é quitada. `conferida = False`, motivo
   `sem_lancamentos`, sem `conferida_em`.
+- Rejeitadas pagas que não cobrem os meses do retrato (o retrato diz 5 e o CTN só tem 3
+  lançamentos rejeitados, todos pagos): os meses que sobram não têm mês nem valor conhecidos, então
+  NÃO é quitada nem há como abater. `conferida = False`, motivo `rejeitadas_nao_cobrem_o_retrato`,
+  sem `conferida_em`; vale como dado suspeito para quem chama.
 - Dado suspeito (mês repetido, valor zero, negativo ou acima do teto sanitário, mais meses abertos
   que o retrato + 1): `conferida = False`, motivo `dado_suspeito`, nada é gravado.
 - Quem não conseguiu conferir nunca cita valor estimado: o disparo pula a cobrança e o turno ativo
@@ -47,6 +52,7 @@ log = logging.getLogger(__name__)
 # Por que a conferência não valeu mesmo com o CTN no ar (`Conferencia.motivo`).
 MOTIVO_SEM_LANCAMENTOS = "sem_lancamentos"
 MOTIVO_DADO_SUSPEITO = "dado_suspeito"
+MOTIVO_NAO_COBRE_O_RETRATO = "rejeitadas_nao_cobrem_o_retrato"
 # O CTN respondeu que não conhece a matrícula: falha daquela pessoa, não do CTN. Para o turno e o
 # disparo vale como qualquer conferência que não rodou (`NAO_CONFERIDA`); a rotina das baixas a
 # encerra na hora em vez de esperar o CTN voltar.
@@ -123,6 +129,13 @@ def _dado_suspeito(abertas: list[MensalidadeAberta], meses_do_retrato: int) -> b
     return sum(mensalidade.valor_centavos for mensalidade in abertas) <= 0
 
 
+def _meses_do_retrato(cobranca: Cobranca) -> int:
+    """Os meses em atraso que o retrato da importação trouxe; sem eles (cobrança anterior à
+    coluna), os da cobrança."""
+    retrato = cobranca.mensalidades_retrato
+    return cobranca.mensalidades_abertas if retrato is None else retrato
+
+
 def conferir_cobranca(
     sessao: Session,
     ctn: CTN,
@@ -170,6 +183,14 @@ def conferir_cobranca(
         # "quitada" (o `lancamentos` não muda no mesmo dia). Nada é gravado.
         log.warning("a cobrança %s não tem lançamentos no CTN; segue sem conferir", cobranca_id)
         return _do_retrato(cobranca, MOTIVO_SEM_LANCAMENTOS)
+    if not abertas and consulta.rejeitadas_lidas < _meses_do_retrato(cobranca):
+        # Todas as rejeitadas estão pagas, mas o retrato diz que há mais meses em atraso do que
+        # elas: os que sobram não têm mês nem valor, então não dá para quitar nem para abater.
+        log.warning(
+            "as rejeitadas da cobrança %s não cobrem os meses do retrato; segue sem conferir",
+            cobranca_id,
+        )
+        return _do_retrato(cobranca, MOTIVO_NAO_COBRE_O_RETRATO)
     if abertas and _dado_suspeito(abertas, cobranca.mensalidades_abertas):
         log.warning("a conferência da cobrança %s trouxe dado suspeito; descartada", cobranca_id)
         return _do_retrato(cobranca, MOTIVO_DADO_SUSPEITO)
@@ -228,6 +249,7 @@ def conferir_antes_do_envio(
     return {
         MOTIVO_SEM_LANCAMENTOS: ResultadoConferencia.SEM_LANCAMENTOS,
         MOTIVO_DADO_SUSPEITO: ResultadoConferencia.DADO_SUSPEITO,
+        MOTIVO_NAO_COBRE_O_RETRATO: ResultadoConferencia.DADO_SUSPEITO,
     }.get(conferencia.motivo, ResultadoConferencia.NAO_CONFERIDA)
 
 

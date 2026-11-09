@@ -305,9 +305,9 @@ propensão ao cartão (D36). É **uma vez por dia por cobrança** (no fuso da ja
 | Estado | Quando | O disparo | O turno ativo |
 |---|---|---|---|
 | `CONFERIDA` | o CTN respondeu e o dado é crível | envia, com o valor conferido | cobra com o valor conferido |
-| `QUITADA` | havia rejeitadas e todas têm baixa | não envia; a cobrança fica ATIVA | não cobra e leva ao humano (handoff `CONCILIACAO`, a mensagem só na 1ª vez) |
+| `QUITADA` | havia rejeitadas, todas têm baixa e elas cobrem os meses do retrato (D54) | não envia; a cobrança fica ATIVA | não cobra e leva ao humano (handoff `CONCILIACAO`, a mensagem só na 1ª vez) |
 | `SEM_LANCAMENTOS` | nenhuma rejeitada, mas o retrato diz que há atraso | não envia | espera como a integração fora do ar; esgotadas as tentativas, vai ao humano (`INTEGRACAO_INDISPONIVEL`) |
-| `DADO_SUSPEITO` | mês repetido, valor zero, negativo ou acima de R$ 1.000, ou mais de 1 mês aberto além do retrato | não envia | idem |
+| `DADO_SUSPEITO` | mês repetido, valor zero, negativo ou acima de R$ 1.000, mais de 1 mês aberto além do retrato, ou rejeitadas todas pagas mas em menor número que os meses do retrato (D54) | não envia | idem |
 | `NAO_CONFERIDA` | o CTN caiu | não envia | idem |
 
 Regra de ouro: **só `CONFERIDA` deixa citar valor.** O valor do retrato é estimativa e nunca vai ao
@@ -327,7 +327,7 @@ Quem paga por outro caminho (boleto, cartão, balcão) aparece no `lancamentos_b
 - **Leitura:** `baixas_desde(cursor)`, com o cursor `baixas` na tabela `cursor_ctn` (a `coletado_em` da
   última baixa lida; inclusivo, por isso idempotente). Sem cursor, a 1ª leitura recua 3 horas. A rotina não
   levanta se o CTN ou a gravação falharem: o cursor não anda. Baixa com campo acima do tamanho da coluna é
-  pulada.
+  pulada, mas deixa o rastro `malformada`.
 - **Registro:** cada baixa vai para a tabela `baixa_ctn`, única pelo `id` da API. O campo `efeito` diz o que
   a rotina fez (`quitou`, `abateu`, `ignorada`, `ja_paga`, `sem_cobranca`, ...). A baixa que não pôde ser
   tratada porque o CTN estava fora fica sem `aplicada_em` e é refeita no ciclo seguinte, por até 24 horas;
@@ -348,7 +348,11 @@ Quem paga por outro caminho (boleto, cartão, balcão) aparece no `lancamentos_b
 - **Ignoradas:** a baixa do mês corrente (ou futuro) que **não** está entre os meses em aberto da cobrança
   (ainda não venceu); se o mês corrente está em atraso, ou a cobrança ainda não tem a lista de meses, a baixa é
   conferida. A cobrança já PAGA (D39) e o cliente sem cobrança ATIVA são só registrados.
-- Na quitação, um Pix nosso pendente não é tocado. Se for pago depois, cai no fluxo do pagamento em dobro (D39).
+- Na quitação, um Pix nosso pendente não é tocado. Se for pago depois, **e** a baixa que quitou for a dele (nenhum
+  outro pagamento nosso pago, e alguma baixa da cobrança com `pago_em` a menos de 1 dia do dele), ele só fica pago,
+  sem aviso de dobro; se não, cai no fluxo do pagamento em dobro (D39). Padrão assumido: D54.
+- **Baixa malformada** (campo acima da coluna): não é tratada, mas deixa uma linha com `efeito = malformada` e
+  entra em `puladas` do `ResumoBaixas`; o cursor passa por ela.
 - A chamada ao Chatwoot (aviso e nota) vem sempre depois do commit; as travas de linha seguem a ordem do
   webhook do Pix (conversas, cobrança, pagamento; `db/travas.py`).
 - Nenhum log leva matrícula, nome nem telefone, nem o texto do erro do SQL (traz os parâmetros): só o tipo

@@ -33,6 +33,7 @@ matrícula, nome nem telefone, nem o texto do erro do SQL (que traz os parâmetr
 erro e ids do banco.
 """
 
+import hashlib
 import logging
 from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime, timedelta
@@ -47,7 +48,7 @@ from agente.db.historico import registrar_mensagem, transicionar
 from agente.db.modelos import BaixaCTNRegistro, Cliente, Cobranca, Conversa, CursorCTN, Mensagem
 from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, BaixaCTN, ClienteNaoEncontrado, CTNIndisponivel
-from agente.pagamento.confirmar import dentro_das_24h
+from agente.pagamento.confirmar import MOTIVO_BAIXA_EXTERNA, dentro_das_24h
 from agente.pagamento.expirar import expirar_de_outro_valor
 from agente.politica import Politica
 from agente.tipos import (
@@ -78,7 +79,6 @@ PRAZO_DA_CONFERENCIA = timedelta(hours=24)
 # Quantas matrículas a rotina confere no CTN por passada (2 chamadas cada, no mesmo fio dos turnos,
 # com 60 chamadas por minuto de cota). As que passam do teto ficam por tratar para o ciclo seguinte.
 MAX_CONFERENCIAS_POR_CICLO = 10
-MOTIVO_BAIXA_EXTERNA = "baixa_externa"
 
 # O que a rotina fez com a baixa (`baixa_ctn.efeito`).
 QUITOU = "quitou"  # a cobrança virou PAGA e o aviso saiu
@@ -97,6 +97,8 @@ JA_PAGA = "ja_paga"  # a cobrança já estava PAGA (D39)
 SEM_COBRANCA = "sem_cobranca"  # o cliente não tem cobrança ATIVA
 CONFERIDA_JUNTO = "conferida_junto"  # outra baixa da mesma matrícula, na mesma conferência
 NAO_CONFERIDA = "nao_conferida"  # a conferência não rodou em `PRAZO_DA_CONFERENCIA`
+# A API trouxe a baixa com um campo acima da coluna: fica só o rastro, sem tratamento.
+MALFORMADA = "malformada"
 
 _EFEITOS_IGNORADOS = {IGNORADA, JA_PAGA, SEM_COBRANCA, SEM_MUDANCA}
 # Os efeitos com um envio por fazer: a rotina os refaz a cada passada.
@@ -119,13 +121,15 @@ class ResumoBaixas:
     """Os totais de uma passada; só contagens. `lidas` são as baixas novas gravadas (as que o
     cursor inclusivo devolve de novo não contam); `aplicadas` são as que ganharam um efeito
     nesta passada; `ignoradas`, as que não mudaram nada (mês corrente, cobrança já paga ou
-    inexistente, ou conferência sem mudança)."""
+    inexistente, ou conferência sem mudança); `puladas`, as baixas novas malformadas, que deixam
+    só o rastro de efeito `malformada` em `baixa_ctn`."""
 
     lidas: int = 0
     aplicadas: int = 0
     quitadas: int = 0
     abatidas: int = 0
     ignoradas: int = 0
+    puladas: int = 0
 
 
 def _cursor(sessao: Session, agora: datetime) -> datetime:
@@ -177,17 +181,26 @@ def _cabe_no_banco(baixa: BaixaCTN) -> bool:
     )
 
 
-def _gravar_baixas(sessao: Session, baixas: list[BaixaCTN]) -> int:
-    """Grava as baixas que o banco ainda não tem e devolve quantas eram novas. A baixa com um
-    campo que não cabe na coluna é pulada (o cursor passa por ela) e só a contagem é logada."""
-    validas = [baixa for baixa in baixas if _cabe_no_banco(baixa)]
-    if len(validas) < len(baixas):
-        log.warning(
-            "%s baixas do CTN têm campo acima da coluna e foram puladas", len(baixas) - len(validas)
-        )
-    baixas = validas
+def _rastro_da_malformada(baixa: BaixaCTN, agora: datetime) -> BaixaCTNRegistro:
+    """A linha que a baixa malformada deixa em `baixa_ctn`: o `id` da API não cabe na coluna, então
+    o `id_externo` é um resumo dele (estável: a leitura repetida não grava de novo) e os campos
+    longos vão cortados. `aplicada_em` preenchido a tira da fila das por tratar."""
+    resumo = hashlib.sha256(baixa.id_externo.encode()).hexdigest()[:32]
+    return BaixaCTNRegistro(
+        id_externo=f"{MALFORMADA}:{resumo}",
+        matricula=baixa.matricula[: _COLUNAS.matricula.type.length],
+        mes_ref=baixa.mes_ref[: _COLUNAS.mes_ref.type.length],
+        valor_centavos=max(-_MAIOR_INTEIRO, min(_MAIOR_INTEIRO, baixa.valor_centavos)),
+        forma=baixa.forma,
+        pago_em=baixa.pago_em,
+        coletado_em=baixa.coletado_em,
+        efeito=MALFORMADA,
+        aplicada_em=agora,
+    )
+
+
+def _conhecidas(sessao: Session, ids: list[str]) -> set[str]:
     conhecidas: set[str] = set()
-    ids = [baixa.id_externo for baixa in baixas]
     for inicio in range(0, len(ids), 500):
         conhecidas.update(
             sessao.scalars(
@@ -196,28 +209,52 @@ def _gravar_baixas(sessao: Session, baixas: list[BaixaCTN]) -> int:
                 )
             )
         )
+    return conhecidas
+
+
+def _adicionar(sessao: Session, registro: BaixaCTNRegistro) -> bool:
+    """False se outra instância gravou a mesma baixa entre a leitura e agora."""
+    try:
+        with sessao.begin_nested():
+            sessao.add(registro)
+    except IntegrityError:
+        return False
+    return True
+
+
+def _gravar_baixas(
+    sessao: Session, baixas: list[BaixaCTN], agora: datetime, resumo: ResumoBaixas
+) -> int:
+    """Grava as baixas que o banco ainda não tem e devolve quantas eram novas. A baixa com um
+    campo que não cabe na coluna não é gravada como as outras (o cursor passa por ela): deixa o
+    rastro de efeito `malformada` (uma vez só) e entra em `resumo.puladas`; o log leva só a
+    contagem."""
+    validas = [baixa for baixa in baixas if _cabe_no_banco(baixa)]
+    malformadas = [baixa for baixa in baixas if not _cabe_no_banco(baixa)]
+    if malformadas:
+        log.warning("%s baixas do CTN têm campo acima da coluna e foram puladas", len(malformadas))
+        rastros = {baixa.id_externo: _rastro_da_malformada(baixa, agora) for baixa in malformadas}
+        conhecidas = _conhecidas(sessao, [r.id_externo for r in rastros.values()])
+        for registro in rastros.values():
+            if registro.id_externo not in conhecidas and _adicionar(sessao, registro):
+                resumo.puladas += 1
+    conhecidas = _conhecidas(sessao, [baixa.id_externo for baixa in validas])
     novas = 0
-    for baixa in baixas:
+    for baixa in validas:
         if baixa.id_externo in conhecidas:
             continue
         conhecidas.add(baixa.id_externo)
-        try:
-            # Outra instância pode ter gravado a mesma baixa entre a leitura e agora.
-            with sessao.begin_nested():
-                sessao.add(
-                    BaixaCTNRegistro(
-                        id_externo=baixa.id_externo,
-                        matricula=baixa.matricula,
-                        mes_ref=baixa.mes_ref,
-                        valor_centavos=baixa.valor_centavos,
-                        forma=baixa.forma,
-                        pago_em=baixa.pago_em,
-                        coletado_em=baixa.coletado_em,
-                    )
-                )
-        except IntegrityError:
-            continue
-        novas += 1
+        registro = BaixaCTNRegistro(
+            id_externo=baixa.id_externo,
+            matricula=baixa.matricula,
+            mes_ref=baixa.mes_ref,
+            valor_centavos=baixa.valor_centavos,
+            forma=baixa.forma,
+            pago_em=baixa.pago_em,
+            coletado_em=baixa.coletado_em,
+        )
+        if _adicionar(sessao, registro):
+            novas += 1
     return novas
 
 
@@ -231,7 +268,7 @@ def _ler_do_ctn(sessao: Session, ctn: CTN, agora: datetime, resumo: ResumoBaixas
             "a leitura das baixas do CTN falhou (%s); o cursor não anda", type(erro).__name__
         )
         return False
-    novas = _gravar_baixas(sessao, baixas)
+    novas = _gravar_baixas(sessao, baixas, agora, resumo)
     if baixas:
         # Nunca além de `agora`: o relógio errado do coletor (`coletado_em` no futuro) levaria o
         # cursor junto e as baixas coletadas de agora até aquela data nunca seriam lidas.

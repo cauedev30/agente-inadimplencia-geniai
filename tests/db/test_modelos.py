@@ -247,6 +247,23 @@ def test_migracao_0015_indexa_a_aplicacao_e_o_efeito_das_baixas(tmp_path):
     motor.dispose()
 
 
+def test_migracao_0016_cria_os_meses_do_retrato_na_cobranca(tmp_path):
+    url = f"sqlite:///{(tmp_path / 'm16.db').as_posix()}"
+    config = alembic_config(url)
+
+    command.upgrade(config, "0015")
+    motor = create_engine(url)
+    assert "mensalidades_retrato" not in {c["name"] for c in inspect(motor).get_columns("cobranca")}
+
+    command.upgrade(config, "0016")
+    colunas = {c["name"]: c for c in inspect(motor).get_columns("cobranca")}
+    assert colunas["mensalidades_retrato"]["nullable"] is True
+
+    command.downgrade(config, "0015")
+    assert "mensalidades_retrato" not in {c["name"] for c in inspect(motor).get_columns("cobranca")}
+    motor.dispose()
+
+
 def test_o_modelo_das_baixas_tem_os_mesmos_indices_da_migracao(sessao):
     indices = {i["name"] for i in inspect(sessao.get_bind()).get_indexes("baixa_ctn")}
     assert {"ix_baixa_ctn_aplicada_em", "ix_baixa_ctn_efeito"} <= indices

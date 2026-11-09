@@ -28,7 +28,7 @@ from agente.carteira.importar import importar_carteira
 from agente.config import Config
 from agente.db.modelos import Cliente, Cobranca, Conversa, Turno
 from agente.db.sessao import criar_sessao
-from agente.dominio.telefone import normalizar_telefone
+from agente.dominio.telefone import variantes_telefone
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
@@ -248,8 +248,9 @@ def reproduzir(
     relatorio.conversas_lidas = len(conversas)
     relatorio.nomes_dos_contatos = {lida.id: lida.nome for lida in conversas if lida.nome}
     relatorio.conversas_sem_telefone = sum(1 for lida in conversas if not lida.telefone)
+    # A carteira guarda o celular como o CTN dá (com o 9) e o Chatwoot às vezes o manda sem (A1).
     relatorio.conversas_cruzadas = sum(
-        1 for lida in conversas if normalizar_telefone(lida.telefone or "") in telefones
+        1 for lida in conversas if not variantes_telefone(lida.telefone or "").isdisjoint(telefones)
     )
     eventos = _eventos(leitura, conversas, relatorio)
 

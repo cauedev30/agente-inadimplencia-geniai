@@ -160,6 +160,7 @@ def _gravar(
     valores = {
         "regua": classificar_regua(linha.mensalidades_abertas, linha.regua, politica),
         "mensalidades_abertas": linha.mensalidades_abertas,
+        "mensalidades_retrato": linha.mensalidades_abertas,
         "divida_centavos": calcular_divida(linha.mensalidades_abertas, politica),
         "campanha": campanha,
     }

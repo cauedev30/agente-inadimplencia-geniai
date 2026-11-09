@@ -178,6 +178,20 @@ def test_cobranca_conferida_hoje_mantem_os_numeros_da_conferencia(sessao, politi
     assert cobranca.cliente.nome == "Nome Novo"
 
 
+def test_o_retrato_guarda_o_numero_de_meses_que_a_conferencia_nao_altera(sessao, politica):
+    _importar(sessao, politica, _ctn(_linha("M-1", 3)))
+    cobranca = _cobrancas(sessao)[0]
+    assert cobranca.mensalidades_retrato == 3
+    # A conferência de hoje muda `mensalidades_abertas`; o retrato seguinte atualiza só o seu.
+    cobranca.conferida_em = datetime(2026, 11, 9, 11, tzinfo=UTC)
+    cobranca.mensalidades_abertas = 2
+    sessao.commit()
+
+    _importar(sessao, politica, _ctn(_linha("M-1", 4)))
+
+    assert (cobranca.mensalidades_abertas, cobranca.mensalidades_retrato) == (2, 4)
+
+
 def test_conferida_hoje_vale_pelo_dia_do_negocio_e_nao_pelo_utc(sessao, politica):
     _importar(sessao, politica, _ctn(_linha("M-1", 1)))
     cobranca = _cobrancas(sessao)[0]

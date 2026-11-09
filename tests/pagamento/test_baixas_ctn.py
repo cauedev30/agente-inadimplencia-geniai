@@ -209,6 +209,25 @@ def test_varias_baixas_da_mesma_matricula_quitam_uma_vez_e_avisam_uma_vez(sessao
     assert _registro(sessao, "b-3").efeito == "conferida_junto"
 
 
+def test_rejeitadas_pagas_que_nao_cobrem_o_retrato_nao_quitam_a_cobranca(sessao, ligada, politica):
+    # O retrato diz 3 meses em atraso e o CTN só tem 2 lançamentos rejeitados, ambos pagos: o 3º
+    # mês é desconhecido. A cobrança segue ATIVA, nada é enviado, e a baixa não é tratada de novo.
+    ctn = _ctn([_baixa()], rejeitadas=2)
+    deps = _deps(politica, ctn)
+
+    resumo = ler_baixas(sessao, deps, AGORA)
+
+    assert resumo.quitadas == 0 and resumo.abatidas == 0
+    cobranca = ligada.cobranca
+    assert cobranca.status is StatusCobranca.ATIVA
+    assert cobranca.encerrada_motivo is None
+    assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
+    assert deps.chatwoot.enviadas(555) == []
+    assert _fixas(sessao) == []
+    assert _registro(sessao).efeito == "nao_conferida"
+    assert _registro(sessao).aplicada_em == AGORA
+
+
 # ---- pagou parte ----
 
 
@@ -1179,9 +1198,37 @@ def test_baixa_com_campo_acima_da_coluna_e_pulada_sem_travar_as_outras(
         segunda = ler_baixas(sessao, deps, AGORA + timedelta(minutes=10))
 
     assert resumo.lidas == 2 and segunda.lidas == 0
-    assert {r.id_externo for r in sessao.scalars(select(BaixaCTNRegistro))} == {"b-1", "b-3"}
+    assert resumo.puladas == 1 and segunda.puladas == 0
+    gravadas = {r.id_externo for r in sessao.scalars(select(BaixaCTNRegistro))}
+    assert {"b-1", "b-3"} <= gravadas
+    # A malformada deixa só o rastro, com o id resumido (o original não cabe na coluna).
+    [rastro] = gravadas - {"b-1", "b-3"}
+    assert rastro.startswith("malformada:")
     assert sessao.get(CursorCTN, CURSOR_BAIXAS).valor == (AGORA - timedelta(minutes=20)).isoformat()
     assert "i" * 65 not in caplog.text
+
+
+def test_baixa_malformada_deixa_uma_linha_ignorada_e_conta_nas_puladas(sessao, ligada, politica):
+    comprida = _baixa("i" * 65, matricula="m" * 70, minutos=5, valor=2**40)
+    ctn = _ctn([_baixa("b-1", minutos=30), comprida])
+    deps = _deps(politica, ctn)
+
+    primeira = ler_baixas(sessao, deps, AGORA)
+    # O cursor para na malformada (a mais nova), então a leitura seguinte a devolve de novo.
+    segunda = ler_baixas(sessao, deps, AGORA + timedelta(minutes=10))
+
+    assert primeira.lidas == 1 and primeira.puladas == 1
+    assert segunda.lidas == 0 and segunda.puladas == 0  # já tem a linha: não conta duas vezes
+    [rastro] = sessao.scalars(
+        select(BaixaCTNRegistro).where(BaixaCTNRegistro.efeito == "malformada")
+    ).all()
+    assert rastro.aplicada_em == AGORA  # nunca fica por tratar
+    assert rastro.cobranca_id is None
+    assert rastro.coletado_em == comprida.coletado_em
+    assert rastro.id_externo.startswith("malformada:") and "i" * 65 not in rastro.id_externo
+    assert len(rastro.matricula) <= 64
+    assert _registro(sessao, "b-1").efeito == "quitou"  # as boas seguem o caminho de sempre
+    assert sessao.get(CursorCTN, CURSOR_BAIXAS).valor == comprida.coletado_em.isoformat()
 
 
 def test_erro_no_tratamento_da_matricula_loga_so_o_tipo_e_os_ids(

@@ -83,6 +83,10 @@ class Cobranca(Base):
     divida_centavos: Mapped[int]
     propenso_cartao: Mapped[bool]
     campanha: Mapped[str] = mapped_column(String(100))
+    # Os meses em atraso que o retrato da importação trouxe (a importação diária o atualiza). Só a
+    # importação mexe nele: a conferência reescreve `mensalidades_abertas`, e a rotina das baixas
+    # precisa do retrato para só quitar quem pagou tudo o que ele dizia. Nulo = anterior à coluna.
+    mensalidades_retrato: Mapped[int | None]
     status: Mapped[StatusCobranca] = mapped_column(
         _enum(StatusCobranca), default=StatusCobranca.ATIVA
     )

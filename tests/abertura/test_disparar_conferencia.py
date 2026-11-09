@@ -166,7 +166,7 @@ def _lote(sessao, quitadas, total):
     for n in range(1, total + 1):
         _cobranca(sessao, f"F-{n}")
         abertas[f"F-{n}"] = [] if n <= quitadas else [("2026/10", 3340)]
-    rejeitadas = {f"F-{n}": 2 for n in range(1, quitadas + 1)}
+    rejeitadas = {f"F-{n}": 3 for n in range(1, quitadas + 1)}
     return _ctn(rejeitadas=rejeitadas, **abertas)
 
 

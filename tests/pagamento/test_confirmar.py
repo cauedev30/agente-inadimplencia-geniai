@@ -9,7 +9,16 @@ from sqlalchemy import event, select, update
 from sqlalchemy.dialects import postgresql
 
 from agente.db.historico import mensagens_no_teto, registrar_mensagem
-from agente.db.modelos import Base, Cliente, Cobranca, Conversa, Mensagem, Pagamento, Transicao
+from agente.db.modelos import (
+    BaixaCTNRegistro,
+    Base,
+    Cliente,
+    Cobranca,
+    Conversa,
+    Mensagem,
+    Pagamento,
+    Transicao,
+)
 from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
@@ -23,6 +32,7 @@ from agente.politica import Regua
 from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
+    FormaHistorico,
     Modo,
     MotivoHumano,
     OrigemMensagem,
@@ -791,6 +801,114 @@ def test_o_aviso_do_pagamento_em_dobro_nao_se_perde_com_o_chatwoot_fora(sessao, 
     concluir_pagamentos(sessao, deps, AGORA + deps.politica.espera_integracao(1))
     assert segundo.pendencias == []
     assert [c[0] for c in deps.chatwoot.chamadas if c[0] == "nota_privada"] == ["nota_privada"]
+
+
+def _fechada_pela_baixa_do_ctn(sessao, cobranca, pago_em, id_externo="b-1"):
+    """O que a rotina das baixas deixa quando a baixa chega ao CTN antes do nosso webhook."""
+    cobranca.status = StatusCobranca.PAGA
+    cobranca.encerrada_motivo = "baixa_externa"
+    cobranca.encerrada_em = AGORA
+    sessao.add(
+        BaixaCTNRegistro(
+            id_externo=id_externo,
+            matricula=cobranca.cliente.matricula_ctn,
+            mes_ref="2026/10",
+            valor_centavos=DIVIDA,
+            forma=FormaHistorico.OUTRO,
+            pago_em=pago_em,
+            coletado_em=AGORA,
+            cobranca_id=cobranca.id,
+            aplicada_em=AGORA,
+            efeito="quitou",
+        )
+    )
+    sessao.commit()
+
+
+def test_o_link_pago_depois_da_baixa_do_ctn_nao_e_pagamento_em_dobro(sessao, ligada, deps):
+    link = _link(sessao, ligada, deps)
+    _fechada_pela_baixa_do_ctn(sessao, ligada.cobranca, PAGO_EM + timedelta(minutes=1))
+
+    resultado = _pagar(sessao, deps, link, DIVIDA)
+
+    assert resultado is ResultadoConfirmacao.CONFIRMADO
+    pagamento = sessao.scalars(select(Pagamento).where(Pagamento.referencia == link)).one()
+    assert pagamento.status is StatusPagamento.PAGO
+    assert pagamento.pago_em == PAGO_EM
+    # Sem aviso de dobro, sem nova baixa (o CTN já a tem) e sem nova mensagem: a baixa externa já
+    # avisou o cliente.
+    assert pagamento.pendencias == []
+    assert pagamento.proxima_tentativa_em is None
+    assert [c for c in deps.chatwoot.chamadas if c[0] in ("nota_privada", "etiquetar")] == []
+    assert _enviadas(deps) == []
+    assert ligada.cobranca.encerrada_motivo == "baixa_externa"
+
+
+def test_o_pix_pago_depois_da_baixa_do_ctn_do_mesmo_instante_tambem_nao_e_em_dobro(
+    sessao, ligada, deps
+):
+    txid = _pix(sessao, ligada, deps)
+    _fechada_pela_baixa_do_ctn(sessao, ligada.cobranca, PAGO_EM)
+
+    _pagar(sessao, deps, txid, DIVIDA)
+
+    pagamento = sessao.scalars(select(Pagamento).where(Pagamento.referencia == txid)).one()
+    assert pagamento.status is StatusPagamento.PAGO and pagamento.pendencias == []
+    assert [c for c in deps.chatwoot.chamadas if c[0] in ("nota_privada", "etiquetar")] == []
+
+
+def test_o_pagamento_nosso_dias_depois_da_baixa_do_ctn_continua_em_dobro(sessao, ligada, deps):
+    # O cliente pagou no boleto há 3 dias e agora pagou o nosso Pix: aí sim há o que devolver.
+    txid = _pix(sessao, ligada, deps)
+    _fechada_pela_baixa_do_ctn(sessao, ligada.cobranca, PAGO_EM - timedelta(days=3))
+
+    _confirmar = confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+
+    pagamento = sessao.scalars(select(Pagamento).where(Pagamento.referencia == txid)).one()
+    assert _confirmar is ResultadoConfirmacao.CONFIRMADO
+    assert pagamento.pendencias == [Pendencia.AVISO_DUPLICADO.value]
+
+
+def test_a_baixa_do_ctn_de_outra_cobranca_nao_apaga_o_dobro(sessao, ligada, deps):
+    txid = _pix(sessao, ligada, deps)
+    _fechada_pela_baixa_do_ctn(sessao, ligada.cobranca, PAGO_EM)
+    sessao.execute(update(BaixaCTNRegistro).values(cobranca_id=None))
+    sessao.commit()
+
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+
+    pagamento = sessao.scalars(select(Pagamento).where(Pagamento.referencia == txid)).one()
+    assert pagamento.pendencias == [Pendencia.AVISO_DUPLICADO.value]
+
+
+def test_se_o_nosso_pix_ja_tinha_sido_pago_o_link_depois_da_baixa_do_ctn_e_em_dobro(
+    sessao, ligada, deps
+):
+    txid = _pix(sessao, ligada, deps)
+    link = _link(sessao, ligada, deps)
+    _pagar(sessao, deps, txid, DIVIDA)
+    # A rotina das baixas só registra a baixa do mesmo pagamento; com o Pix pago a cobrança já era
+    # PAGA pelo webhook, e o motivo da baixa externa nem chega a existir. Forçado aqui só para
+    # provar a regra: outro pagamento nosso já pago impede o "mesmo pagamento".
+    ligada.cobranca.encerrada_motivo = "baixa_externa"
+    sessao.add(
+        BaixaCTNRegistro(
+            id_externo="b-9",
+            matricula=ligada.cobranca.cliente.matricula_ctn,
+            mes_ref="2026/10",
+            valor_centavos=DIVIDA,
+            forma=FormaHistorico.OUTRO,
+            pago_em=PAGO_EM,
+            coletado_em=AGORA,
+            cobranca_id=ligada.cobranca.id,
+        )
+    )
+    sessao.commit()
+
+    confirmar_pagamento(sessao, deps, link, DIVIDA, PAGO_EM)
+
+    segundo = sessao.scalars(select(Pagamento).where(Pagamento.referencia == link)).one()
+    assert segundo.pendencias == [Pendencia.AVISO_DUPLICADO.value]
 
 
 def test_o_valor_divergente_fica_gravado_no_pagamento_mesmo_sem_conversa(sessao, conversa, deps):

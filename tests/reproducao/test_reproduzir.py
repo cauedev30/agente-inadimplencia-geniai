@@ -376,3 +376,14 @@ def test_a_amostra_real_passa_pela_reproducao_sem_erro(tmp_path, banco, politica
     gravados = len(_turnos(banco))
     assert sum(relatorio.turnos_por_resultado.values()) == gravados > 0
     assert (relatorio.chamadas_ao_chatwoot, relatorio.templates_enviados) == (0, 0)
+
+
+def test_telefone_do_chatwoot_sem_o_9_cruza_com_a_carteira_que_tem_o_9(banco, politica, config):
+    # A carteira guarda o celular como o CTN dá (com o 9); o Chatwoot às vezes manda sem (A1).
+    sem_o_9 = "+558399990001"
+    bruta = conversa(908, T + 60, telefone=sem_o_9)
+    servidor = ChatwootSimulado([bruta], {908: [mensagem(9701, 908, 0, "oi", T)]})
+
+    relatorio = _reproduzir(servidor, banco, politica, config)
+
+    assert (relatorio.conversas_lidas, relatorio.conversas_cruzadas) == (1, 1)

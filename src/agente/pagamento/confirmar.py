@@ -10,7 +10,7 @@ tentativas. Quem chama decide o commit; a função só faz flush.
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Protocol
 
@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from agente.db.historico import registrar_mensagem, transicionar
-from agente.db.modelos import Cliente, Conversa, Mensagem, Pagamento
+from agente.db.modelos import BaixaCTNRegistro, Cliente, Cobranca, Conversa, Mensagem, Pagamento
 from agente.db.travas import travar_conversas_e_cobranca
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.chatwoot import Chatwoot
@@ -41,6 +41,12 @@ from agente.turno.catalogo import DadosFixa, MensagemPronta, mensagem_fixa
 from agente.turno.gates import JANELA_WHATSAPP, humano_na_conversa
 
 log = logging.getLogger(__name__)
+
+# O motivo com que a rotina das baixas (`baixas_ctn.py`) fecha a cobrança quitada por fora.
+MOTIVO_BAIXA_EXTERNA = "baixa_externa"
+# Quanto o `pago_em` do nosso pagamento pode distar do da baixa do CTN para valerem como o mesmo
+# pagamento. O `dt_baixa` pode vir só com a data (meia-noite UTC): menos que um dia não serve.
+TOLERANCIA_DA_MESMA_BAIXA = timedelta(days=1)
 
 
 class DependenciasConfirmar(Protocol):
@@ -215,6 +221,33 @@ def _gravar_confirmacao(
     )
 
 
+def _como_utc(instante: datetime) -> datetime:
+    return instante if instante.tzinfo is not None else instante.replace(tzinfo=UTC)
+
+
+def _baixa_do_proprio_pagamento(sessao: Session, pagamento: Pagamento, cobranca: Cobranca) -> bool:
+    """A cobrança foi fechada pela rotina das baixas, e a baixa que a fechou é, tudo indica, a
+    deste mesmo pagamento: o cliente pagou o nosso link ou Pix, o CTN deu a baixa e a rotina leu
+    antes de o nosso webhook chegar. Não é pagamento em dobro (D39).
+
+    Vale quando (a) o motivo do fechamento é `baixa_externa`, (b) nenhum outro pagamento nosso da
+    cobrança está pago, e (c) alguma baixa do CTN aplicada a esta cobrança tem `pago_em` a menos de
+    `TOLERANCIA_DA_MESMA_BAIXA` do pagamento. Um pagamento nosso dias depois do boleto continua
+    sendo em dobro."""
+    if cobranca.encerrada_motivo != MOTIVO_BAIXA_EXTERNA or pagamento.pago_em is None:
+        return False
+    if any(
+        outro.id != pagamento.id and outro.status is StatusPagamento.PAGO
+        for outro in cobranca.pagamentos
+    ):
+        return False
+    pago_em = _como_utc(pagamento.pago_em)
+    baixas_em = sessao.scalars(
+        select(BaixaCTNRegistro.pago_em).where(BaixaCTNRegistro.cobranca_id == cobranca.id)
+    )
+    return any(abs(_como_utc(em) - pago_em) <= TOLERANCIA_DA_MESMA_BAIXA for em in baixas_em)
+
+
 def _travar(sessao: Session, pagamento: Pagamento) -> Pagamento:
     """Trava as conversas, a cobrança e o pagamento, nessa ordem, e os relê já travados.
 
@@ -268,6 +301,16 @@ def confirmar_pagamento(
     cobranca = pagamento.cobranca
     pagamento.status = StatusPagamento.PAGO
     pagamento.pago_em = pago_em
+    if cobranca.status is StatusCobranca.PAGA and _baixa_do_proprio_pagamento(
+        sessao, pagamento, cobranca
+    ):
+        # O CTN deu a baixa deste pagamento e a rotina das baixas a leu antes do webhook: a cobrança
+        # já está fechada e o cliente já foi avisado. Fica pago, sem nova baixa, mensagem ou aviso.
+        log.info("o pagamento %s é a baixa que fechou a cobrança %s", pagamento.id, cobranca.id)
+        pagamento.pendencias = []
+        pagamento.proxima_tentativa_em = None
+        sessao.flush()
+        return ResultadoConfirmacao.CONFIRMADO
     if cobranca.status is StatusCobranca.PAGA:
         # Pagamento em dobro (D39): fica pago, sem nova baixa nem mensagem, e o atendente é avisado.
         log.warning("segundo pagamento (%s) da cobrança %s já paga", pagamento.id, cobranca.id)

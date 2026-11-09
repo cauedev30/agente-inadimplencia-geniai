@@ -7,6 +7,7 @@ import pytest
 
 from agente.carteira.conferir import (
     MOTIVO_DADO_SUSPEITO,
+    MOTIVO_NAO_COBRE_O_RETRATO,
     MOTIVO_SEM_LANCAMENTOS,
     TETO_SANITARIO_MENSALIDADE_CENTAVOS,
     Conferencia,
@@ -172,6 +173,59 @@ def test_rejeitadas_todas_pagas_e_quitada_e_nao_mexe_na_divida(sessao, politica)
     assert ctn.chamadas == ["mensalidades"]
 
 
+def test_rejeitadas_pagas_que_nao_cobrem_o_retrato_nao_quitam(sessao, politica):
+    # O retrato diz 5 meses e o CTN só tem 3 lançamentos rejeitados, todos pagos: sobram 2 meses de
+    # que a conferência não sabe o mês nem o valor. Não é "quitada" e nada é gravado.
+    cobranca = _cobranca(sessao, meses=5, divida=16700, regua=Regua.R3)
+    ctn = _ctn([], rejeitadas=3)
+
+    conferencia = conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA)
+
+    assert conferencia.conferida is False
+    assert conferencia.quitada_no_ctn is False
+    assert conferencia.motivo == MOTIVO_NAO_COBRE_O_RETRATO
+    assert conferencia.divida_centavos == 16700  # o do retrato, que o chamador não cita
+    assert cobranca.conferida_em is None
+    assert cobranca.meses_em_aberto is None
+    assert cobranca.mensalidades_abertas == 5
+
+
+def test_o_retrato_guardado_vale_mesmo_depois_de_a_conferencia_mexer_nas_mensalidades(
+    sessao, politica
+):
+    # A conferência de ontem baixou `mensalidades_abertas` para 3; o retrato continua sendo 5.
+    cobranca = _cobranca(sessao, meses=3, divida=10020)
+    cobranca.mensalidades_retrato = 5
+    sessao.commit()
+    ctn = _ctn([], rejeitadas=3)
+
+    conferencia = conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA)
+
+    assert conferencia.quitada_no_ctn is False
+    assert conferencia.motivo == MOTIVO_NAO_COBRE_O_RETRATO
+
+
+def test_rejeitadas_pagas_que_cobrem_o_retrato_com_folga_quitam(sessao, politica):
+    # Há mais rejeitadas lidas que meses no retrato (as antigas, já pagas): cobre.
+    cobranca = _cobranca(sessao, meses=2, divida=6680, regua=Regua.R2)
+    cobranca.mensalidades_retrato = 2
+    sessao.commit()
+
+    conferencia = conferir_cobranca(sessao, _ctn([], rejeitadas=7), politica, cobranca.id, AGORA)
+
+    assert conferencia.quitada_no_ctn is True
+
+
+def test_antes_do_envio_trata_o_retrato_nao_coberto_como_dado_suspeito(sessao, politica):
+    cobranca = _cobranca(sessao, meses=5, divida=16700)
+    ctn = _ctn([], rejeitadas=3)
+
+    resultado = conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA)
+
+    assert resultado is ResultadoConferencia.DADO_SUSPEITO
+    assert cobranca.conferida_em is None  # tenta de novo no próximo envio
+
+
 def test_matricula_desconhecida_nao_e_quitada_e_nao_marca_conferida(sessao, politica):
     # Nenhuma rejeitada veio (o CTN não conhece a matrícula, ou ela não casa com a dos lançamentos)
     # e o retrato diz que há 3 meses em atraso: contradição, não "quitada".
@@ -315,7 +369,7 @@ def test_antes_do_envio_so_confere_uma_vez_por_dia(sessao, politica):
 
 def test_antes_do_envio_marca_a_quitada_no_ctn_no_mesmo_dia(sessao, politica):
     cobranca = _cobranca(sessao)
-    ctn = _ctn([], rejeitadas=2)
+    ctn = _ctn([], rejeitadas=3)
 
     primeira = conferir_antes_do_envio(sessao, ctn, politica, cobranca.id, AGORA)
     # Mesmo dia: não chama o CTN de novo e continua quitada.

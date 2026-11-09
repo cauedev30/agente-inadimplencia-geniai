@@ -302,8 +302,8 @@ def test_sem_a_chave_do_ctn_real_o_turno_nao_confere(sessao, ligada, politica):
 
 
 def _quitada():
-    """O CTN devolveu 2 rejeitadas e as duas foram pagas."""
-    return _ctn(abertas=(), rejeitadas=2)
+    """O CTN devolveu 3 rejeitadas (os 3 meses do retrato) e as três foram pagas."""
+    return _ctn(abertas=(), rejeitadas=3)
 
 
 def _saidas_para_o_humano(sessao):
