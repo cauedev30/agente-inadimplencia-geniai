@@ -17,7 +17,13 @@ import httpx
 
 from agente.abertura.disparar import disparar_aberturas
 from agente.carteira.importar import importar_carteira
-from agente.carteira.importar_ctn import SEM_ENCERRAR_INCOMPLETO, importar_do_ctn
+from agente.carteira.importar_ctn import (
+    SEM_ENCERRAR_EXCESSIVO,
+    SEM_ENCERRAR_INCOMPLETO,
+    SEM_ENCERRAR_SUSPEITO,
+    SEM_ENCERRAR_VAZIO,
+    importar_do_ctn,
+)
 from agente.comparacao import (
     Candidato,
     comparar_redatores,
@@ -349,23 +355,43 @@ def _importar_ctn(argumentos: argparse.Namespace) -> int:
         _abrir_ctn(config) as ctn,
     ):
         resumo = importar_do_ctn(
-            sessao, ctn, politica, data_ref, argumentos.campanha, argumentos.simular
+            sessao, ctn, politica, data_ref, argumentos.campanha, argumentos.simular, _agora()
         )
     print(f"criadas: {resumo.criadas}")
     print(f"atualizadas: {resumo.atualizadas}")
+    print(f"reativadas: {resumo.reativadas}")
     print(f"encerradas: {resumo.encerradas}")
+    print(f"inadimplentes distintos (1 mês ou mais): {resumo.inadimplentes}")
     print(f"ignoradas Energisa: {resumo.ignoradas_energisa}")
     print(f"sem telefone: {resumo.sem_telefone}")
+    print(f"telefones compartilhados por mais de uma matrícula: {resumo.telefones_compartilhados}")
+    print(f"linhas inválidas: {resumo.linhas_invalidas}")
+    print(f"linhas de outra data: {resumo.data_ref_divergente}")
     print(f"mantidas por Pix pendente: {resumo.preservadas}")
     print(f"total do retrato: {resumo.total_retrato}")
-    if resumo.motivo_sem_encerrar == SEM_ENCERRAR_INCOMPLETO:
-        print("retrato incompleto: nada foi encerrado. O que veio foi gravado; rode de novo.")
+    motivo = resumo.motivo_sem_encerrar
+    if motivo is None:
+        return 0
+    print(f"motivo de não encerrar: {motivo}")
+    if motivo == SEM_ENCERRAR_INCOMPLETO:
+        print("retrato incompleto: nada foi gravado nem encerrado. Rode de novo.")
         return 1
-    if resumo.motivo_sem_encerrar:
-        print(
-            "retrato sem inadimplentes: nada foi encerrado (o retrato do dia pode não ter saído)."
-        )
-    return 0
+    print(_AVISO_SEM_ENCERRAR[motivo])
+    return 3
+
+
+_AVISO_SEM_ENCERRAR = {
+    SEM_ENCERRAR_VAZIO: (
+        "retrato sem inadimplentes: nada foi encerrado (o retrato do dia pode não ter saído)."
+    ),
+    SEM_ENCERRAR_SUSPEITO: (
+        "retrato suspeito (linhas de outra data ou nenhuma da data pedida): nada foi encerrado."
+    ),
+    SEM_ENCERRAR_EXCESSIVO: (
+        "o encerramento atingiria mais de 25% das ativas da campanha: nada foi encerrado. "
+        "Confira o retrato antes de rodar de novo."
+    ),
+}
 
 
 def main(argv: list[str] | None = None) -> int:

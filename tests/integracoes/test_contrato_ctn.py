@@ -17,6 +17,7 @@ from agente.integracoes.ctn import (
     BaixaCTN,
     ClienteCTN,
     ClienteNaoEncontrado,
+    ConsultaMensalidades,
     CTNComposto,
     CTNFalso,
     CTNIndisponivel,
@@ -76,6 +77,15 @@ class ContratoLeituraCTN:
             assert re.fullmatch(r"\d{4}/\d{2}", aberta.mes_ano)
             assert aberta.valor_centavos > 0
 
+    def test_consultar_mensalidades_traz_as_abertas_e_a_contagem_das_rejeitadas(
+        self, ctn_e_matricula
+    ):
+        ctn, matricula = ctn_e_matricula
+        consulta = ctn.consultar_mensalidades(matricula)
+        assert isinstance(consulta, ConsultaMensalidades)
+        assert consulta.abertas == ctn.mensalidades_em_aberto(matricula)
+        assert consulta.rejeitadas_lidas >= len(consulta.abertas) > 0
+
     def test_baixas_desde_o_cursor_vem_em_ordem_e_tipadas(self, ctn_e_matricula):
         ctn, _ = ctn_e_matricula
         baixas = ctn.baixas_desde(COLETADAS_DEPOIS_DE)
@@ -111,6 +121,7 @@ class ContratoLeituraCTN:
         ctn, _ = ctn_e_matricula
         assert ctn.historico_pagamentos("NAO-EXISTE", meses=12) == []
         assert ctn.mensalidades_em_aberto("NAO-EXISTE") == []
+        assert ctn.consultar_mensalidades("NAO-EXISTE") == ConsultaMensalidades([], 0)
 
     # A implementação real define a fixture `ctn_fora_do_ar_e_matricula`: o CTN sem resposta (rede
     # caída, prazo estourado ou 5xx). A falha tem de sair como CTNIndisponivel, que o turno trata.
@@ -121,9 +132,10 @@ class ContratoLeituraCTN:
             lambda ctn, m: ctn.historico_pagamentos(m, meses=12),
             lambda ctn, m: list(ctn.inadimplentes(DATA_REF)),
             lambda ctn, m: ctn.mensalidades_em_aberto(m),
+            lambda ctn, m: ctn.consultar_mensalidades(m),
             lambda ctn, m: ctn.baixas_desde(COLETADAS_DEPOIS_DE),
         ],
-        ids=["cliente", "historico", "retrato", "mensalidades", "baixas_desde"],
+        ids=["cliente", "historico", "retrato", "mensalidades", "consulta", "baixas_desde"],
     )
     def test_com_o_ctn_fora_do_ar_a_leitura_sai_como_indisponivel(
         self, ctn_fora_do_ar_e_matricula, chamada
@@ -260,6 +272,7 @@ class TestCTNComposto(ContratoCTN):
         ctn.historico_pagamentos(matricula, meses=12)
         list(ctn.inadimplentes(DATA_REF))
         ctn.mensalidades_em_aberto(matricula)
+        ctn.consultar_mensalidades(matricula)
         ctn.baixas_desde(COLETADAS_DEPOIS_DE)
         link = ctn.gerar_link_pagamento(matricula, valor_centavos=7020, cobranca_id=3)
         cartao = ctn.gerar_link_cadastro_cartao(matricula)
@@ -319,7 +332,18 @@ class TestCTNFalso(ContratoCTN):
         ctn = CTNFalso(aceita_qualquer_matricula=True)
         assert list(ctn.inadimplentes(DATA_REF)) == []
         assert ctn.mensalidades_em_aberto("DEMO-0001") == []
+        assert ctn.consultar_mensalidades("DEMO-0001") == ConsultaMensalidades([], 0)
         assert ctn.baixas_desde(COLETADAS_DEPOIS_DE) == []
+
+
+def test_a_falsa_diz_quantas_rejeitadas_leu_quando_o_teste_configura():
+    ctn = CTNFalso(
+        mensalidades_abertas={"M-1": [MensalidadeAberta("2026/10", 3340)]},
+        rejeitadas_lidas={"M-1": 3, "M-2": 2},
+    )
+    assert ctn.consultar_mensalidades("M-1").rejeitadas_lidas == 3
+    # Todas pagas: havia rejeitadas e nenhuma aberta.
+    assert ctn.consultar_mensalidades("M-2") == ConsultaMensalidades([], 2)
 
 
 def test_a_falsa_aberta_aceita_qualquer_matricula_e_gera_o_link():

@@ -10,7 +10,9 @@ do arquivo, e uma confirmação de pagamento dessas cobranças espera o commit.
 import csv
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,6 +24,13 @@ from agente.dominio.telefone import normalizar_telefone
 from agente.integracoes.ctn import CTN
 from agente.politica import Politica, Regua
 from agente.tipos import StatusCobranca
+
+# O motivo da cobrança que a importação do CTN encerra por ter saído do retrato, e quantos dias
+# depois (no fuso da janela) ela ainda é reativada se voltar, em vez de nascer uma nova.
+MOTIVO_SAIU_DO_RETRATO = "saiu_do_retrato"
+DIAS_PARA_REATIVAR = 3
+
+ResultadoGravacao = Literal["criada", "atualizada", "reativada"]
 
 
 @dataclass
@@ -93,13 +102,52 @@ def _propenso(ctn: CTN, matricula: str, politica: Politica) -> bool:
     return eh_propenso(historico, politica)
 
 
+def _dia(momento: datetime, politica: Politica):
+    return momento.astimezone(politica.janela.zona).date()
+
+
+def _recem_encerrada(
+    sessao: Session, cliente: Cliente, campanha: str, politica: Politica, agora: datetime
+) -> Cobranca | None:
+    """A cobrança que a importação encerrou por `saiu_do_retrato` há no máximo
+    `DIAS_PARA_REATIVAR` dias (no fuso da janela), da mesma campanha. A encerrada por outro motivo
+    e a PAGA nunca voltam."""
+    recente = sessao.scalar(
+        select(Cobranca)
+        .where(
+            Cobranca.cliente_id == cliente.id,
+            Cobranca.status == StatusCobranca.ENCERRADA,
+            Cobranca.encerrada_motivo == MOTIVO_SAIU_DO_RETRATO,
+            Cobranca.campanha == campanha,
+            Cobranca.encerrada_em.is_not(None),
+        )
+        .order_by(Cobranca.encerrada_em.desc())
+        .limit(1)
+    )
+    if recente is None:
+        return None
+    if (_dia(agora, politica) - _dia(recente.encerrada_em, politica)).days > DIAS_PARA_REATIVAR:
+        return None
+    return recente
+
+
 def _gravar(
-    sessao: Session, linha: _Linha, politica: Politica, ctn: CTN | None, campanha: str
-) -> bool:
-    """Grava a linha. Devolve True se criou a cobrança e False se atualizou a ativa.
+    sessao: Session,
+    linha: _Linha,
+    politica: Politica,
+    ctn: CTN | None,
+    campanha: str,
+    agora: datetime | None = None,
+) -> ResultadoGravacao:
+    """Grava a linha. Devolve "criada", "atualizada" (a ativa) ou "reativada".
 
     Com `ctn=None` a propensão não é calculada: a cobrança nova nasce com `propenso_cartao` falso
     e a ativa mantém o valor que tinha (a importação do CTN deixa a propensão para a conferência).
+
+    Com `agora` (a importação do CTN): a ativa já CONFERIDA HOJE (dia do `agora` no fuso da janela)
+    mantém a régua, a dívida e as mensalidades que a conferência leu, porque o retrato é só uma
+    estimativa; e, sem ativa, a cobrança que saiu do retrato há até `DIAS_PARA_REATIVAR` dias é
+    reativada (mantém a conversa) em vez de nascer outra.
     """
     cliente = sessao.scalar(select(Cliente).where(Cliente.matricula_ctn == linha.matricula))
     if cliente is None:
@@ -118,21 +166,36 @@ def _gravar(
     if ctn is not None:
         valores["propenso_cartao"] = _propenso(ctn, linha.matricula, politica)
     ativa = None
+    reativada = False
     if cliente.id is not None:
         ativa = sessao.scalar(
             select(Cobranca).where(
                 Cobranca.cliente_id == cliente.id, Cobranca.status == StatusCobranca.ATIVA
             )
         )
+        if ativa is None and agora is not None:
+            ativa = _recem_encerrada(sessao, cliente, campanha, politica, agora)
+            if ativa is not None:
+                ativa.status = StatusCobranca.ATIVA
+                ativa.encerrada_motivo = None
+                ativa.encerrada_em = None
+                reativada = True
     if ativa is None:
         valores.setdefault("propenso_cartao", False)
         sessao.add(Cobranca(cliente=cliente, **valores))
         sessao.flush()
-        return True
+        return "criada"
+    if (
+        agora is not None
+        and ativa.conferida_em is not None
+        and _dia(ativa.conferida_em, politica) == _dia(agora, politica)
+    ):
+        for nome in ("regua", "mensalidades_abertas", "divida_centavos"):
+            del valores[nome]
     for nome, valor in valores.items():
         setattr(ativa, nome, valor)
     sessao.flush()
-    return False
+    return "reativada" if reativada else "atualizada"
 
 
 def importar_carteira(
@@ -154,7 +217,7 @@ def importar_carteira(
             except _LinhaInvalida as erro:
                 relatorio.rejeitadas.append((numero, str(erro)))
                 continue
-            if _gravar(sessao, linha, politica, ctn, campanha):
+            if _gravar(sessao, linha, politica, ctn, campanha) == "criada":
                 relatorio.criadas += 1
             else:
                 relatorio.atualizadas += 1

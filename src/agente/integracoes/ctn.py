@@ -52,6 +52,19 @@ class MensalidadeAberta:
 
 
 @dataclass(frozen=True)
+class ConsultaMensalidades:
+    """O que a leitura das mensalidades achou de uma matrícula.
+
+    `rejeitadas_lidas` é o nº de lançamentos rejeitados que o CTN devolveu para ela. Com `abertas`
+    vazia, separa os dois casos: 0 = o CTN não tem lançamento rejeitado (nada a cobrar, ou matrícula
+    que ele não conhece); maior que 0 = havia rejeitadas e todas casaram com baixas (quitou).
+    """
+
+    abertas: list[MensalidadeAberta]
+    rejeitadas_lidas: int
+
+
+@dataclass(frozen=True)
 class BaixaCTN:
     """Uma baixa que o CTN registrou, de qualquer caminho (não só as nossas). `mes_ref` é `AAAA/MM`;
     `coletado_em` é o cursor da rotina das baixas."""
@@ -83,14 +96,25 @@ class CTN(Protocol):
         matrícula"); só o `consultar_cliente` levanta ClienteNaoEncontrado."""
         ...
 
-    def inadimplentes(self, data_ref: date) -> Iterator[InadimplenteCTN]:
+    def inadimplentes(
+        self, data_ref: date, invalidas: list[str | None] | None = None
+    ) -> Iterator[InadimplenteCTN]:
         """O retrato da inadimplência de um dia, página a página. Se o CTN cair no meio, o
-        iterador levanta CTNIndisponivel: quem consome sabe que o retrato veio pela metade."""
+        iterador levanta CTNIndisponivel: quem consome sabe que o retrato veio pela metade.
+
+        A linha malformada é pulada e a matrícula dela (`None` se ilegível) entra em `invalidas`,
+        quando a lista é dada: quem importa a trata como vista para não encerrar quem continua no
+        retrato."""
         ...
 
     def mensalidades_em_aberto(self, matricula: str) -> list[MensalidadeAberta]:
         """As mensalidades recusadas e ainda sem baixa, do mês mais antigo ao mais novo. Matrícula
         desconhecida devolve a lista vazia, como no `historico_pagamentos`."""
+        ...
+
+    def consultar_mensalidades(self, matricula: str) -> ConsultaMensalidades:
+        """Como `mensalidades_em_aberto`, mais a contagem das rejeitadas lidas (ver
+        `ConsultaMensalidades`). Matrícula desconhecida devolve `ConsultaMensalidades([], 0)`."""
         ...
 
     def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
@@ -135,6 +159,7 @@ class CTNFalso:
         retrato: Iterable[InadimplenteCTN] = (),
         mensalidades_abertas: dict[str, list[MensalidadeAberta]] | None = None,
         baixas_externas: Iterable[BaixaCTN] = (),
+        rejeitadas_lidas: dict[str, int] | None = None,
     ):
         # Até a T9 o serviço no ar usa o CTN falso sem a carteira carregada nele: com isto ligado,
         # a matrícula desconhecida vira um cliente sem CPF, e o link falso (ctn.invalid) sai.
@@ -145,6 +170,9 @@ class CTNFalso:
         self.retrato = list(retrato)
         self.mensalidades_abertas = mensalidades_abertas or {}
         self.baixas_externas = list(baixas_externas)
+        # Quantas rejeitadas o falso "leu" por matrícula; sem a entrada, são as abertas (o falso só
+        # conhece as abertas). Serve a quem testa o caso "havia rejeitadas e todas foram pagas".
+        self.rejeitadas_lidas = rejeitadas_lidas or {}
         self.links: dict[str, tuple[str, int | None, int | None]] = {}
         # O contador volta a 1 a cada processo, e o banco da demo guarda links de rodadas antigas:
         # sem um lote único, o 1º link depois de reiniciar repetia o `id_externo` e quebrava o
@@ -179,13 +207,20 @@ class CTNFalso:
             key=lambda pagamento: pagamento.data,
         )
 
-    def inadimplentes(self, data_ref: date) -> Iterator[InadimplenteCTN]:
+    def inadimplentes(
+        self, data_ref: date, invalidas: list[str | None] | None = None
+    ) -> Iterator[InadimplenteCTN]:
         self._exigir_no_ar()
         return iter([linha for linha in self.retrato if linha.data_ref == data_ref])
 
     def mensalidades_em_aberto(self, matricula: str) -> list[MensalidadeAberta]:
         self._exigir_no_ar()
         return sorted(self.mensalidades_abertas.get(matricula, []), key=lambda m: m.mes_ano)
+
+    def consultar_mensalidades(self, matricula: str) -> ConsultaMensalidades:
+        abertas = self.mensalidades_em_aberto(matricula)
+        lidas = self.rejeitadas_lidas.get(matricula, len(abertas))
+        return ConsultaMensalidades(abertas, max(lidas, len(abertas)))
 
     def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
         self._exigir_no_ar()
@@ -239,11 +274,16 @@ class CTNComposto:
     def historico_pagamentos(self, matricula: str, meses: int) -> list[PagamentoHistorico]:
         return self.leitura.historico_pagamentos(matricula, meses)
 
-    def inadimplentes(self, data_ref: date) -> Iterator[InadimplenteCTN]:
-        return self.leitura.inadimplentes(data_ref)
+    def inadimplentes(
+        self, data_ref: date, invalidas: list[str | None] | None = None
+    ) -> Iterator[InadimplenteCTN]:
+        return self.leitura.inadimplentes(data_ref, invalidas)
 
     def mensalidades_em_aberto(self, matricula: str) -> list[MensalidadeAberta]:
         return self.leitura.mensalidades_em_aberto(matricula)
+
+    def consultar_mensalidades(self, matricula: str) -> ConsultaMensalidades:
+        return self.leitura.consultar_mensalidades(matricula)
 
     def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
         return self.leitura.baixas_desde(coletado_desde)

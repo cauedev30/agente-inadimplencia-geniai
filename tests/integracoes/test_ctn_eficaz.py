@@ -13,11 +13,13 @@ import pytest
 from agente.integracoes.ctn import (
     ClienteCTN,
     ClienteNaoEncontrado,
+    ConsultaMensalidades,
     CTNIndisponivel,
     InadimplenteCTN,
     MensalidadeAberta,
 )
 from agente.integracoes.ctn_eficaz import (
+    CACHE_BAIXAS_MAXIMO,
     PAGINAS_MAXIMAS_POR_ROTA,
     CTNEficaz,
     forma_do_historico,
@@ -279,11 +281,59 @@ def test_o_retrato_que_falha_na_segunda_pagina_entrega_a_primeira_e_levanta():
         next(iterador)
 
 
-def test_linha_do_retrato_sem_meses_de_atraso_e_resposta_invalida():
+def _retrato_com_a_primeira_linha_estragada(estrago):
+    tabelas = tabelas_padrao()
+    estrago(tabelas["/v1/ctn/inadimplencia"][0])
+    invalidas = []
+    retrato = list(cliente(servidor(tabelas)).inadimplentes(DATA_REF, invalidas=invalidas))
+    return retrato, invalidas
+
+
+@pytest.mark.parametrize(
+    "estrago",
+    [
+        lambda linha: linha.pop("meses_atraso"),
+        lambda linha: linha.update(nome=None),
+        lambda linha: linha.update(nome="  "),
+        lambda linha: linha.update(meses_ate_corte=None),
+    ],
+    ids=["sem_meses_atraso", "nome_nulo", "nome_vazio", "ate_corte_nulo"],
+)
+def test_linha_malformada_do_retrato_e_pulada_e_contada_sem_interromper(estrago):
+    retrato, invalidas = _retrato_com_a_primeira_linha_estragada(estrago)
+    # A linha estragada some; a outra do dia continua; a matrícula legível vai para a lista.
+    assert [i.matricula for i in retrato] == ["xx000000002"]
+    assert invalidas == [MATRICULA]
+
+
+def test_linha_malformada_sem_matricula_legivel_entra_como_none():
+    retrato, invalidas = _retrato_com_a_primeira_linha_estragada(
+        lambda linha: linha.update(matricula=None, nome=None)
+    )
+    assert [i.matricula for i in retrato] == ["xx000000002"]
+    assert invalidas == [None]
+
+
+def test_telefone_ausente_no_retrato_nao_e_linha_invalida():
+    retrato, invalidas = _retrato_com_a_primeira_linha_estragada(
+        lambda linha: linha.update(telefone=None)
+    )
+    assert len(retrato) == 2 and invalidas == []
+    assert next(i for i in retrato if i.matricula == MATRICULA).telefone == ""
+
+
+def test_o_retrato_sem_coletor_de_invalidas_tambem_pula_a_linha_ruim():
     tabelas = tabelas_padrao()
     del tabelas["/v1/ctn/inadimplencia"][0]["meses_atraso"]
+    assert [i.matricula for i in cliente(servidor(tabelas)).inadimplentes(DATA_REF)] == [
+        "xx000000002"
+    ]
+
+
+def test_formato_geral_do_retrato_continua_levantando():
+    ctn = cliente(_resposta_fixa({"mais": False}))
     with pytest.raises(CTNIndisponivel, match="formato"):
-        list(cliente(servidor(tabelas)).inadimplentes(DATA_REF))
+        list(ctn.inadimplentes(DATA_REF, invalidas=[]))
 
 
 def test_historico_filtra_pelos_meses_e_ordena_do_mais_antigo_ao_mais_novo():
@@ -511,6 +561,141 @@ def test_baixa_sem_coletado_em_e_resposta_invalida():
     tabelas["/v1/ctn/lancamentos_bx"][4]["coletado_em"] = None
     with pytest.raises(CTNIndisponivel, match="formato"):
         cliente(servidor(tabelas)).baixas_desde(datetime(2026, 11, 6, tzinfo=UTC))
+
+
+# ---- sem rejeitadas x todas pagas, e outra matrícula na resposta ----
+
+
+def test_sem_lancamentos_rejeitados_a_consulta_diz_zero_lidas():
+    tabelas = tabelas_padrao()
+    tabelas["/v1/ctn/lancamentos"] = [_lanc(1, "2026/08", "arrecadada", data_baixa="2026-08-12")]
+    consulta = cliente(servidor(tabelas)).consultar_mensalidades(MATRICULA)
+    assert consulta == ConsultaMensalidades(abertas=[], rejeitadas_lidas=0)
+
+
+def test_todas_as_rejeitadas_pagas_a_consulta_diz_que_havia_rejeitadas_e_nenhuma_aberta():
+    lancamentos = [_lanc(1, "2026/10", "rejeitada", valor="99.99", data_baixa="2026-10-12")]
+    baixas = [_bx(30, MATRICULA, "PIX", "2026/10", "2026-11-06", "99.99", "2026-11-06T09:00:00Z")]
+    tabelas = tabelas_padrao()
+    tabelas["/v1/ctn/lancamentos"] = lancamentos
+    tabelas["/v1/ctn/lancamentos_bx"] = baixas
+    consulta = cliente(servidor(tabelas)).consultar_mensalidades(MATRICULA)
+    assert consulta.abertas == []
+    assert consulta.rejeitadas_lidas == 1
+
+
+def test_consultar_mensalidades_com_abertas_conta_todas_as_rejeitadas_lidas():
+    consulta = cliente(servidor()).consultar_mensalidades(MATRICULA)
+    assert consulta.abertas == [
+        MensalidadeAberta("2026/09", 3340),
+        MensalidadeAberta("2026/10", 3340),
+    ]
+    assert consulta.rejeitadas_lidas == 2
+
+
+def _servidor_que_devolve_tudo(tabelas):
+    """Ignora os filtros por coluna: devolve a tabela inteira, como um CTN que se confundisse."""
+
+    def tratar(requisicao):
+        corpo = {"dados": list(tabelas[requisicao.url.path]), "mais": False}
+        return httpx.Response(200, json=corpo)
+
+    return tratar
+
+
+def test_linhas_de_outra_matricula_na_resposta_sao_ignoradas():
+    outra = "xx000000002"
+    tabelas = {
+        "/v1/ctn/lancamentos": [
+            _lanc(1, "2026/10", "rejeitada", data_baixa="2026-10-12"),
+            _lanc(2, "2026/09", "rejeitada", data_baixa="2026-09-12", matricula=outra),
+        ],
+        "/v1/ctn/lancamentos_bx": [
+            # Esta baixa é da outra matrícula e não pode pagar o lançamento de MATRICULA.
+            _bx(30, outra, "PIX", "2026/10", "2026-11-06", 33.4, "2026-11-06T09:00:00Z"),
+            _bx(31, MATRICULA, "PIX", "2026/05", "2026-08-06", 33.4, "2026-08-06T09:00:00Z"),
+        ],
+    }
+    ctn = cliente(_servidor_que_devolve_tudo(tabelas))
+    consulta = ctn.consultar_mensalidades(MATRICULA)
+    assert consulta.abertas == [MensalidadeAberta("2026/10", 3340)]
+    assert consulta.rejeitadas_lidas == 1
+    assert [p.data for p in ctn.historico_pagamentos(MATRICULA, meses=12)] == [date(2026, 8, 6)]
+
+
+def test_mensalidades_em_aberto_continua_devolvendo_so_a_lista():
+    ctn = cliente(servidor())
+    assert ctn.mensalidades_em_aberto(MATRICULA) == ctn.consultar_mensalidades(MATRICULA).abertas
+
+
+# ---- a cota: uma conferência faz no máximo 2 consultas de rede ----
+
+
+def _rotas(chamadas):
+    return [c.url.path for c in chamadas]
+
+
+def test_uma_conferencia_faz_so_duas_consultas_lancamentos_e_baixas():
+    chamadas = []
+    ctn = cliente(servidor(chamadas=chamadas))
+    ctn.consultar_mensalidades(MATRICULA)
+    ctn.historico_pagamentos(MATRICULA, meses=13)
+    assert sorted(_rotas(chamadas)) == ["/v1/ctn/lancamentos", "/v1/ctn/lancamentos_bx"]
+
+
+def test_o_historico_antes_das_mensalidades_tambem_le_as_baixas_uma_vez():
+    chamadas = []
+    ctn = cliente(servidor(chamadas=chamadas))
+    ctn.historico_pagamentos(MATRICULA, meses=13)
+    ctn.consultar_mensalidades(MATRICULA)
+    assert _rotas(chamadas).count("/v1/ctn/lancamentos_bx") == 1
+
+
+def test_o_cache_das_baixas_e_por_matricula():
+    chamadas = []
+    ctn = cliente(servidor(chamadas=chamadas))
+    ctn.historico_pagamentos(MATRICULA, meses=13)
+    ctn.historico_pagamentos("xx000000002", meses=13)
+    assert _rotas(chamadas).count("/v1/ctn/lancamentos_bx") == 2
+
+
+def test_o_cache_das_baixas_expira_em_60_segundos():
+    chamadas = []
+    hora = [1000.0]
+    ctn = cliente(servidor(chamadas=chamadas), relogio=lambda: hora[0])
+    ctn.historico_pagamentos(MATRICULA, meses=13)
+    hora[0] += 59
+    ctn.historico_pagamentos(MATRICULA, meses=13)
+    assert _rotas(chamadas).count("/v1/ctn/lancamentos_bx") == 1
+    hora[0] += 2
+    ctn.historico_pagamentos(MATRICULA, meses=13)
+    assert _rotas(chamadas).count("/v1/ctn/lancamentos_bx") == 2
+
+
+def test_o_cache_das_baixas_nao_cresce_sem_limite():
+    hora = [0.0]
+    ctn = cliente(servidor(), relogio=lambda: hora[0], limite_minuto=100_000)
+    for n in range(CACHE_BAIXAS_MAXIMO + 20):
+        ctn.historico_pagamentos(f"xx{n:09d}", meses=13)
+    assert len(ctn._baixas_em_cache) <= CACHE_BAIXAS_MAXIMO
+
+
+def test_falha_na_leitura_das_baixas_nao_fica_no_cache():
+    chamadas = []
+    ok = servidor(chamadas=chamadas)
+    falhas = [True]
+
+    def tratar(requisicao):
+        if requisicao.url.path.endswith("lancamentos_bx") and falhas[0]:
+            chamadas.append(requisicao)
+            return httpx.Response(500)
+        return ok(requisicao)
+
+    ctn = cliente(tratar)
+    with pytest.raises(CTNIndisponivel):
+        ctn.historico_pagamentos(MATRICULA, meses=13)
+    falhas[0] = False
+    assert ctn.historico_pagamentos(MATRICULA, meses=13)
 
 
 # ---- a paginação falha fechada ----

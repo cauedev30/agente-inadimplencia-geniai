@@ -31,6 +31,7 @@ from agente.integracoes.ctn import (
     BaixaCTN,
     ClienteCTN,
     ClienteNaoEncontrado,
+    ConsultaMensalidades,
     CTNIndisponivel,
     InadimplenteCTN,
     MensalidadeAberta,
@@ -61,6 +62,10 @@ DIAS_POR_JANELA = 31
 # 55 de 60: sobra folga para o relógio do servidor e para a chamada recusada que também conta.
 LIMITE_POR_MINUTO = 55
 JANELA_DO_LIMITE = 60.0
+# As baixas de uma pessoa ficam em cache por pouco tempo: a conferência as usa duas vezes (o
+# casamento com os lançamentos e o histórico da propensão) e a cota diária é de 5.000 chamadas.
+VALIDADE_DO_CACHE_DE_BAIXAS = 60.0
+CACHE_BAIXAS_MAXIMO = 256
 # A API corta a consulta em 15 s; o prazo total do cliente fica abaixo disso.
 PRAZO_PADRAO = 12.0
 
@@ -204,6 +209,13 @@ def _inadimplente(linha: Mapping) -> InadimplenteCTN:
     )
 
 
+def _matricula_legivel(linha: Mapping) -> str | None:
+    try:
+        return _texto(linha["matricula"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _baixa(linha: Mapping) -> BaixaCTN:
     return BaixaCTN(
         id_externo=_texto(str(linha["id"])),
@@ -261,6 +273,9 @@ class CTNEficaz:
         # O laço das rotinas e os turnos chamam de threads diferentes: o limite é um só.
         self._trava_taxa = threading.Lock()
         self._chamadas: deque[float] = deque()
+        # matrícula -> (instante do `relogio` em que expira, as baixas da pessoa)
+        self._trava_cache = threading.Lock()
+        self._baixas_em_cache: dict[str, tuple[float, tuple[BaixaCTN, ...]]] = {}
         self._cliente = httpx.Client(
             base_url=url.rstrip("/"),
             headers={"Authorization": f"Bearer {chave}", "Accept": "application/json"},
@@ -313,37 +328,53 @@ class CTNEficaz:
         matrícula"); só o `consultar_cliente` levanta ClienteNaoEncontrado."""
         mes_atual = self._hoje().year * 12 + self._hoje().month
         pagamentos = []
-        for linha in self._linhas(ROTA_BAIXAS, {"matricula": matricula}, "id"):
-            baixa = _converter(linha, _baixa)
+        for baixa in self._baixas_da_pessoa(matricula):
             if mes_atual - (baixa.pago_em.year * 12 + baixa.pago_em.month) < meses:
                 pagamentos.append(
                     PagamentoHistorico(baixa.pago_em.date(), baixa.forma, baixa.valor_centavos)
                 )
         return sorted(pagamentos, key=lambda pagamento: pagamento.data)
 
-    def inadimplentes(self, data_ref: date) -> Iterator[InadimplenteCTN]:
+    def inadimplentes(
+        self, data_ref: date, invalidas: list[str | None] | None = None
+    ) -> Iterator[InadimplenteCTN]:
+        """Uma linha malformada (sem nome, com `meses_ate_corte` nulo, data ruim...) não interrompe
+        o retrato: é pulada, e a matrícula dela, se legível (senão `None`), vai para `invalidas`.
+        A falha geral de formato (corpo sem `dados`, `mais` que não é booleano) segue levantando."""
         dia = data_ref.isoformat()
         for linha in self._linhas(ROTA_INADIMPLENCIA, {"de": dia, "ate": dia}, "matricula"):
-            yield _converter(linha, _inadimplente)
+            try:
+                inadimplente = _inadimplente(linha)
+            except (KeyError, TypeError, ValueError, ArithmeticError):
+                if invalidas is not None:
+                    invalidas.append(_matricula_legivel(linha))
+                continue
+            yield inadimplente
 
     def mensalidades_em_aberto(self, matricula: str) -> list[MensalidadeAberta]:
-        """Matrícula desconhecida: lista vazia (a API não distingue "sem lançamentos" de "sem a
-        matrícula"). As `rejeitada` menos as pagas depois da recusa: o `lancamentos` não muda no
-        mesmo dia (spec, seção 2), e a baixa nova está no `lancamentos_bx`. Cada baixa paga um
-        lançamento só: a do mesmo mês, de data igual ou posterior à do lançamento e de valor igual
-        ou maior (a parcial não tira o mês). Os lançamentos mais antigos casam primeiro."""
+        return self.consultar_mensalidades(matricula).abertas
+
+    def consultar_mensalidades(self, matricula: str) -> ConsultaMensalidades:
+        """Matrícula desconhecida: `ConsultaMensalidades([], 0)` (a API não distingue "sem
+        lançamentos" de "sem a matrícula"). As `rejeitada` menos as pagas depois da recusa: o
+        `lancamentos` não muda no mesmo dia (spec, seção 2), e a baixa nova está no
+        `lancamentos_bx`. Cada baixa paga um lançamento só: a do mesmo mês, de data igual ou
+        posterior à do lançamento e de valor igual ou maior (a parcial não tira o mês). Os
+        lançamentos mais antigos casam primeiro. `rejeitadas_lidas` separa "nenhuma rejeitada" (0)
+        de "todas pagas" (maior que 0, com `abertas` vazia).
+
+        Só valem as linhas da matrícula pedida (`matricula_titular` nos lançamentos e `matricula`
+        nas baixas): a resposta de outra pessoa nunca paga nem abre um mês desta."""
         filtros = {"matricula_titular": matricula, "status_lancamento": STATUS_REJEITADA}
         rejeitadas = [
             _converter(linha, _lancamento)
             for linha in self._linhas(ROTA_LANCAMENTOS, filtros, "id")
             if linha.get("status_lancamento") == STATUS_REJEITADA
+            and linha.get("matricula_titular") == matricula
         ]
         if not rejeitadas:
-            return []
-        baixas = [
-            _converter(linha, _baixa)
-            for linha in self._linhas(ROTA_BAIXAS, {"matricula": matricula}, "id")
-        ]
+            return ConsultaMensalidades([], 0)
+        baixas = self._baixas_da_pessoa(matricula)
 
         # Na API real todo lançamento rejeitado traz a `data_baixa`; sem ela (só nos testes e em
         # dado malformado), qualquer baixa do mês vale, e o lançamento casa primeiro.
@@ -378,7 +409,9 @@ class CTNEficaz:
             casar(indice, set())
         pagas = set(dono_da_baixa.values())
         abertas = [m for i, (m, _) in enumerate(pendentes) if i not in pagas]
-        return sorted(abertas, key=lambda mensalidade: mensalidade.mes_ano)
+        return ConsultaMensalidades(
+            sorted(abertas, key=lambda mensalidade: mensalidade.mes_ano), len(rejeitadas)
+        )
 
     def baixas_desde(self, coletado_desde: datetime) -> list[BaixaCTN]:
         """As baixas com `coletado_em` a partir do cursor, inclusive (uma baixa coletada no mesmo
@@ -400,6 +433,32 @@ class CTNEficaz:
         return sorted(achadas.values(), key=lambda b: (b.coletado_em, b.id_externo))
 
     # ---- HTTP ----
+
+    def _baixas_da_pessoa(self, matricula: str) -> tuple[BaixaCTN, ...]:
+        """As baixas da matrícula, lidas uma vez e reaproveitadas por `VALIDADE_DO_CACHE_DE_BAIXAS`
+        (hora do `relogio`): servem ao casamento dos lançamentos e ao histórico. A consulta não leva
+        período: o `de`/`ate` da rota filtra o `dia_relatorio` (não a `dt_baixa`) e vai a 31 dias, e
+        uma leitura só da pessoa cobre o casamento e os 12 meses do histórico. Só as linhas da
+        matrícula pedida entram. A falha não fica no cache. O cache guarda no máximo
+        `CACHE_BAIXAS_MAXIMO` pessoas."""
+        agora = self._relogio()
+        with self._trava_cache:
+            achado = self._baixas_em_cache.get(matricula)
+            if achado is not None and agora < achado[0]:
+                return achado[1]
+        baixas = tuple(
+            _converter(linha, _baixa)
+            for linha in self._linhas(ROTA_BAIXAS, {"matricula": matricula}, "id")
+            if linha.get("matricula") == matricula
+        )
+        with self._trava_cache:
+            self._baixas_em_cache = {
+                chave: valor for chave, valor in self._baixas_em_cache.items() if agora < valor[0]
+            }
+            while len(self._baixas_em_cache) >= CACHE_BAIXAS_MAXIMO:
+                del self._baixas_em_cache[next(iter(self._baixas_em_cache))]
+            self._baixas_em_cache[matricula] = (agora + VALIDADE_DO_CACHE_DE_BAIXAS, baixas)
+        return baixas
 
     def _hoje(self) -> date:
         return _como_utc(self._agora()).astimezone(FUSO_DO_NEGOCIO).date()

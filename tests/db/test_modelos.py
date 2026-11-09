@@ -134,6 +134,33 @@ def test_migracao_0012_cria_as_colunas_da_conferencia_e_o_cursor(tmp_path):
     motor.dispose()
 
 
+def test_migracao_0013_cria_a_coluna_encerrada_em(tmp_path):
+    url = f"sqlite:///{(tmp_path / 'm13.db').as_posix()}"
+    config = alembic_config(url)
+
+    command.upgrade(config, "0012")
+    motor = create_engine(url)
+    assert "encerrada_em" not in {c["name"] for c in inspect(motor).get_columns("cobranca")}
+
+    command.upgrade(config, "0013")
+    colunas = {c["name"]: c for c in inspect(motor).get_columns("cobranca")}
+    assert colunas["encerrada_em"]["nullable"] is True
+
+    command.downgrade(config, "0012")
+    assert "encerrada_em" not in {c["name"] for c in inspect(motor).get_columns("cobranca")}
+    motor.dispose()
+
+
+def test_cobranca_guarda_quando_foi_encerrada(sessao, conversa):
+    cobranca = conversa.cobranca
+    assert cobranca.encerrada_em is None
+    cobranca.encerrada_em = datetime(2026, 11, 9, 15, 0, tzinfo=UTC)
+    sessao.commit()
+    sessao.expire_all()
+
+    assert cobranca.encerrada_em == datetime(2026, 11, 9, 15, 0, tzinfo=UTC)
+
+
 def test_cobranca_guarda_a_conferencia_e_o_cursor_grava_o_valor(sessao, conversa):
     cobranca = conversa.cobranca
     cobranca.conferida_em = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)

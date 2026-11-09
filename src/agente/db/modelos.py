@@ -101,6 +101,8 @@ class Cobranca(Base):
     meses_em_aberto: Mapped[list[Any] | None] = mapped_column(JSON(none_as_null=True))
     # Por que a cobrança deixou de ser ATIVA sem pagamento nosso (ex.: "saiu_do_retrato").
     encerrada_motivo: Mapped[str | None] = mapped_column(String(40))
+    # Quando a importação a encerrou; a que voltou ao retrato em poucos dias é reativada.
+    encerrada_em: Mapped[datetime | None]
 
     cliente: Mapped[Cliente] = relationship(back_populates="cobrancas")
     conversas: Mapped[list["Conversa"]] = relationship(back_populates="cobranca")
