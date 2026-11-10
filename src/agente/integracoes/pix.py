@@ -5,10 +5,12 @@ A implementação real depende da T1 (tarefa 6.4). Até lá, o sistema roda com 
 
 import secrets
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Protocol
+
+from agente.dominio.dinheiro import formatar_reais
 
 
 class StatusPix(StrEnum):
@@ -88,3 +90,22 @@ class PixFalso:
         if txid not in self.cobrancas:
             raise KeyError(f"não há cobrança com o txid {txid}")
         self.pagos.add(txid)
+
+
+class PixDeTeste(PixFalso):
+    """O Pix do modo teste (D56): o txid e o resto são os do falso, mas o "copia e cola" é um texto
+    `[TESTE]` que diz o valor e como simular o pagamento. Nada vai a um banco."""
+
+    def criar_cobranca(
+        self, txid: str, valor_centavos: int, validade: timedelta, devedor_nome: str
+    ) -> CobrancaPix:
+        cobranca = super().criar_cobranca(txid, valor_centavos, validade, devedor_nome)
+        cobranca = replace(
+            cobranca,
+            br_code=(
+                f"[TESTE] aqui viria o código Pix de {formatar_reais(valor_centavos)}. "
+                "Para simular o pagamento, mande /paguei"
+            ),
+        )
+        self.cobrancas[txid] = cobranca
+        return cobranca
