@@ -345,6 +345,12 @@ ficou sem resposta, para o dev (a leitura é só GET; a escrita segue falsa):
     2.900 linhas (a página é de 50 e a API ignora `limite` maior), e a cota é de 20.000 linhas por dia.
 17. **Por LGPD, uma chave que não veja endereço e e-mail** (o agente usa matrícula, nome, telefone, CPF e
     lançamentos).
+18. **Os lançamentos `rejeitada` do mês do `ult_mesref` ou de antes são dívida?** (2026-11-10, ensaio com a API
+    real, 35 cobranças: 5 trazem de 6 a 11 lançamentos rejeitados em aberto contra `meses_atraso` de 3 a 7. O número
+    dos rejeitados **depois** do `ult_mesref` é exatamente o `meses_atraso`, nas 5; os outros, de 2 a 8 por pessoa e
+    de até 26 meses atrás, têm buracos.) Esses meses velhos são dívida antiga baixada, cancelada ou cadastro velho?
+    **Padrão do agente:** cobrar só o que vem depois do `ult_mesref`. Enquanto isso, o agente não cobra essas pessoas
+    (a conferência as marca `dado_suspeito`).
 
 ### T10. Jev a partir do Python
 

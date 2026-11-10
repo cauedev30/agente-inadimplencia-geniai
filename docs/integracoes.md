@@ -382,6 +382,28 @@ O histórico de pagamento usa a `forma` da baixa:
 
 O `DIRETO NO CARTAO - CORPORATIVO` cai em `CARTAO` (o nome tem "CARTAO").
 
+### O ensaio em sombra com a API real (PARADA 3, 2026-11-10, parcial)
+
+Script `ferramentas/ctn/ensaio_sombra.py`: banco descartável em `pre-sombra/`, Chatwoot falso (nada sai), só
+contagens. Feito: importar, baixas (1 passada) e conferir 35 cobranças. **Falta** medir o atraso das baixas em
+horário comercial (fase `ciclos`), que decide a `MARGEM_DE_RELEITURA`.
+
+- **Cota:** a da chave volta a zero na virada do dia (o campo `uso` mostrou `linhas_hoje=50` às 00:21 de 10/11).
+  Importar o retrato custou 58 chamadas e 2.898 linhas; cada conferência, cerca de 3 chamadas e 80 linhas.
+- **Retrato do dia:** às 00:21 ainda não existe (sai por volta das 07h05): a importação devolveu `retrato_vazio` e
+  não encerrou ninguém. O `importar-ctn` agendado tem de rodar depois desse horário.
+- **Importação:** o retrato de 09/11 deu 2.898 linhas, 2.765 distintos com 1 mês ou mais e 133 da Energisa, como
+  na PARADA 2.
+- **Conferência de 35 cobranças:** 30 conferidas (meses em aberto no CTN iguais aos do retrato) e **5 com
+  `dado_suspeito` (14%)**. Nas 5, os lançamentos `rejeitada` em aberto passam de `meses_atraso + 1` (de 6 a 11
+  contra 3 a 7) e têm buracos.
+- **Causa provável (5 de 5):** o número de lançamentos rejeitados **depois** do mês do `ult_mesref` do retrato é
+  exatamente o `meses_atraso`. Os demais (de 2 a 8 por pessoa, de até 26 meses atrás) são rejeitados do mês do
+  `ult_mesref` ou de antes, que o retrato não conta como atraso. Cobrar pelo total diria à pessoa que ela deve de
+  6 a 11 meses em vez de 3 a 7; por isso o `dado_suspeito` barra, e o certo é **conferir só o que vem depois do
+  `ult_mesref`**. **Pergunta ao dev** (`duvidas.md`, T9.18): esses meses velhos são dívida antiga baixada,
+  cancelada ou cadastro velho? Sem a resposta, o agente deixa de cobrar essas pessoas (seguro).
+
 ### Pronto quando
 
 - Uma leitura real de 3 matrículas confere nos formatos e nas contagens (nada de dado pessoal no relatório).
