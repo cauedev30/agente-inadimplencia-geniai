@@ -3,7 +3,7 @@ from datetime import date, time, timedelta
 import pytest
 
 from agente.politica import PoliticaInvalida, Regua, carregar_politica
-from agente.tipos import MotivoHumano
+from agente.tipos import FormaHistorico, MotivoHumano
 
 from .conftest import RAIZ
 
@@ -231,3 +231,144 @@ def test_o_aviso_da_baixa_externa_nao_pode_ser_vazio(tmp_path):
     caminho = _arquivo_com(tmp_path, 'texto_baixa_externa = "', 'texto_baixa_externa = ""  # "')
     with pytest.raises(PoliticaInvalida, match="texto_baixa_externa"):
         carregar_politica(caminho)
+
+
+# O modo teste (D56): o `[teste]` e o cardápio de casos inventados.
+CARDAPIO = RAIZ / "cardapio-teste.toml"
+PILOTO = 'liberacao = { modo = "piloto", telefones = ["+5583900000001", "+5583900000002"] }'
+TESTE = """
+[teste]
+cardapio = "cardapio-teste.toml"
+texto_abertura = "Oi, {nome}! Há {mensalidades} mensalidades em aberto, {valor}."
+"""
+
+
+def _politica_de_teste(tmp_path, *, liberacao=PILOTO, teste=TESTE, cardapio=None):
+    texto = ARQUIVO_PADRAO.read_text(encoding="utf-8")
+    texto = texto.replace('liberacao = "sombra"', liberacao, 1) + teste
+    caminho = tmp_path / "politica.toml"
+    caminho.write_text(texto, encoding="utf-8")
+    (tmp_path / "cardapio-teste.toml").write_text(
+        CARDAPIO.read_text(encoding="utf-8") if cardapio is None else cardapio, encoding="utf-8"
+    )
+    return caminho
+
+
+def test_sem_o_bloco_teste_nada_muda(politica):
+    assert politica.teste is None
+
+
+def test_o_modo_teste_carrega_o_cardapio_dos_5_casos(tmp_path):
+    teste = carregar_politica(_politica_de_teste(tmp_path)).teste
+    assert teste.cardapio == tmp_path / "cardapio-teste.toml"
+    assert teste.campanha == "teste"
+    assert teste.caso_padrao == 1
+    assert [(c.numero, c.nome, c.meses_atraso) for c in teste.casos] == [
+        (1, "Ana", 3),
+        (2, "Bruno", 3),
+        (3, "Carla", 4),
+        (4, "Daniel", 5),
+        (5, "Elisa", 6),
+    ]
+    assert [c.cpf[:3] for c in teste.casos] == ["101", "202", "303", "404", "505"]
+    assert [len(c.historico) for c in teste.casos] == [3, 3, 3, 3, 0]
+    assert {h.forma for h in teste.casos[0].historico} == {FormaHistorico.CARTAO}
+    assert {h.forma for h in teste.casos[3].historico} == {
+        FormaHistorico.PIX,
+        FormaHistorico.BOLETO,
+        FormaHistorico.CARTAO,
+    }
+
+
+def test_o_exemplo_comentado_do_politica_toml_vale(tmp_path):
+    # O bloco `[teste]` comentado do politica.toml da raiz carrega depois de descomentado.
+    linhas = ARQUIVO_PADRAO.read_text(encoding="utf-8").splitlines()
+    inicio = linhas.index("# [teste]")
+    bloco = "\n".join(
+        linha.removeprefix("# ") for linha in linhas[inicio:] if linha.startswith("#")
+    )
+    caminho = _politica_de_teste(tmp_path, teste="\n" + bloco + "\n")
+    assert len(carregar_politica(caminho).teste.casos) == 5
+
+
+def test_o_teste_com_liberacao_em_sombra_e_recusado(tmp_path):
+    caminho = _politica_de_teste(tmp_path, liberacao='liberacao = "sombra"')
+    with pytest.raises(PoliticaInvalida, match="piloto"):
+        carregar_politica(caminho)
+
+
+def test_o_teste_com_liberacao_percentual_e_recusado(tmp_path):
+    caminho = _politica_de_teste(
+        tmp_path, liberacao='liberacao = { modo = "percentual", percentual = 10 }'
+    )
+    with pytest.raises(PoliticaInvalida, match="piloto"):
+        carregar_politica(caminho)
+
+
+def test_o_numero_do_caso_repetido_e_recusado(tmp_path):
+    cardapio = CARDAPIO.read_text(encoding="utf-8").replace("numero = 2", "numero = 1", 1)
+    with pytest.raises(PoliticaInvalida, match="casos"):
+        carregar_politica(_politica_de_teste(tmp_path, cardapio=cardapio))
+
+
+def test_os_numeros_do_cardapio_tem_de_comecar_em_1_e_seguir(tmp_path):
+    cardapio = CARDAPIO.read_text(encoding="utf-8").replace("numero = 5", "numero = 7", 1)
+    with pytest.raises(PoliticaInvalida, match="casos"):
+        carregar_politica(_politica_de_teste(tmp_path, cardapio=cardapio))
+
+
+def test_o_caso_padrao_inexistente_e_recusado(tmp_path):
+    teste = TESTE + "caso_padrao = 9\n"
+    with pytest.raises(PoliticaInvalida, match="caso_padrao"):
+        carregar_politica(_politica_de_teste(tmp_path, teste=teste))
+
+
+@pytest.mark.parametrize("sem", ["{valor}", "{nome}"])
+def test_o_texto_de_abertura_sem_nome_ou_valor_e_recusado(tmp_path, sem):
+    teste = TESTE.replace(sem, "")
+    with pytest.raises(PoliticaInvalida, match=r"texto_abertura.*" + sem.strip("{}")):
+        carregar_politica(_politica_de_teste(tmp_path, teste=teste))
+
+
+def test_o_texto_de_abertura_sem_mensalidades_e_aceito(tmp_path):
+    teste = TESTE.replace(" Há {mensalidades} mensalidades em aberto,", "")
+    assert carregar_politica(_politica_de_teste(tmp_path, teste=teste)).teste
+
+
+def test_o_cpf_com_digito_verificador_valido_e_recusado(tmp_path):
+    # 10123456703 é o CPF de base 101234567 com os dígitos certos.
+    cardapio = CARDAPIO.read_text(encoding="utf-8").replace("10123456711", "10123456703")
+    with pytest.raises(PoliticaInvalida, match=r"cardapio-teste\.toml.*caso\[0\]\.cpf"):
+        carregar_politica(_politica_de_teste(tmp_path, cardapio=cardapio))
+
+
+@pytest.mark.parametrize("cpf", ["1012345671", "101234567111", "1012345671a"])
+def test_o_cpf_que_nao_tem_11_digitos_e_recusado(tmp_path, cpf):
+    cardapio = CARDAPIO.read_text(encoding="utf-8").replace("10123456711", cpf)
+    with pytest.raises(PoliticaInvalida, match=r"caso\[0\]\.cpf"):
+        carregar_politica(_politica_de_teste(tmp_path, cardapio=cardapio))
+
+
+def test_o_erro_no_cardapio_diz_o_arquivo_e_o_campo(tmp_path):
+    cardapio = CARDAPIO.read_text(encoding="utf-8").replace("meses_atraso = 6", "meses_atraso = 7")
+    with pytest.raises(PoliticaInvalida, match=r"cardapio-teste\.toml.*caso\[4\]\.meses_atraso"):
+        carregar_politica(_politica_de_teste(tmp_path, cardapio=cardapio))
+
+
+def test_o_cardapio_com_forma_desconhecida_e_recusado(tmp_path):
+    cardapio = CARDAPIO.read_text(encoding="utf-8").replace('"CARTAO"', '"CHEQUE"', 1)
+    with pytest.raises(PoliticaInvalida, match=r"caso\[0\]\.historico\.0\.forma"):
+        carregar_politica(_politica_de_teste(tmp_path, cardapio=cardapio))
+
+
+def test_o_cardapio_que_nao_existe_e_recusado(tmp_path):
+    caminho = _politica_de_teste(tmp_path)
+    (tmp_path / "cardapio-teste.toml").unlink()
+    with pytest.raises(PoliticaInvalida, match=r"teste\.cardapio"):
+        carregar_politica(caminho)
+
+
+def test_dois_telefones_do_piloto_com_o_mesmo_final_sao_recusados(tmp_path):
+    piloto = 'liberacao = { modo = "piloto", telefones = ["+5583911110001", "+5583922220001"] }'
+    with pytest.raises(PoliticaInvalida, match="4 últimos"):
+        carregar_politica(_politica_de_teste(tmp_path, liberacao=piloto))

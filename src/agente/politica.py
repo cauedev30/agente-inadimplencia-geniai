@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from agente.dominio.telefone import normalizar_telefone
-from agente.tipos import MotivoHumano
+from agente.tipos import FormaHistorico, MotivoHumano
 
 
 class Regua(StrEnum):
@@ -127,6 +127,77 @@ Liberacao = Annotated[
 ]
 
 
+def _cpf_valido(cpf: str) -> bool:
+    """Os 2 dígitos verificadores do CPF batem com os 9 primeiros (a conta padrão)."""
+    digitos = [int(d) for d in cpf]
+    for tamanho in (9, 10):
+        soma = sum(d * (tamanho + 1 - i) for i, d in enumerate(digitos[:tamanho]))
+        if digitos[tamanho] != (soma * 10 % 11) % 10:
+            return False
+    return True
+
+
+class HistoricoDoCaso(_Imutavel):
+    """Um pagamento do histórico do caso: `meses_atras` meses antes do 1º mês em aberto."""
+
+    meses_atras: int = Field(ge=1)
+    dia: int = Field(ge=1, le=28)
+    forma: FormaHistorico
+
+
+class CasoTeste(_Imutavel):
+    """Um caso do cardápio do modo teste (D56): uma pessoa inventada com a dívida e o histórico."""
+
+    numero: int = Field(ge=1)
+    titulo: str = Field(min_length=1)
+    nome: str = Field(min_length=1)
+    cpf: str = Field(pattern=r"^\d{11}$")
+    meses_atraso: int = Field(ge=1, le=6)
+    historico: tuple[HistoricoDoCaso, ...] = ()
+
+    @field_validator("cpf")
+    @classmethod
+    def _cpf_ficticio(cls, valor: str) -> str:
+        # O CPF do cardápio nunca é o de uma pessoa: o dígito verificador é inválido de propósito.
+        if _cpf_valido(valor):
+            raise ValueError(
+                "o CPF do cardápio tem de ter o dígito verificador inválido (fictício)"
+            )
+        return valor
+
+
+class ModoTeste(_Imutavel):
+    """O modo teste (D56): os testadores recebem casos inventados no lugar da carteira.
+
+    `casos` vem do arquivo do `cardapio`, que o `carregar_politica` lê; não se escreve no `[teste]`.
+    """
+
+    cardapio: Path
+    campanha: str = Field(default="teste", min_length=1)
+    caso_padrao: int = Field(default=1, ge=1)
+    texto_abertura: str = Field(min_length=1)
+    casos: tuple[CasoTeste, ...] = ()
+
+    @field_validator("texto_abertura")
+    @classmethod
+    def _traz_nome_e_valor(cls, valor: str) -> str:
+        faltando = [marcador for marcador in ("{nome}", "{valor}") if marcador not in valor]
+        if faltando:
+            raise ValueError(f"texto_abertura: falta o marcador {' e '.join(faltando)}")
+        return valor
+
+    @model_validator(mode="after")
+    def _cardapio_coerente(self):
+        numeros = sorted(caso.numero for caso in self.casos)
+        if numeros != list(range(1, len(numeros) + 1)):
+            raise ValueError(
+                "casos: os números têm de ser únicos e seguir de 1 em 1, a partir do 1"
+            )
+        if self.caso_padrao not in numeros:
+            raise ValueError(f"caso_padrao: o caso {self.caso_padrao} não está no cardápio")
+        return self
+
+
 class Politica(_Imutavel):
     mensalidade_centavos: int = Field(gt=0)
     teto_resolucao: int = Field(ge=1)
@@ -195,6 +266,8 @@ class Politica(_Imutavel):
     limiares_jev2: dict[str, Limiar]
     carteira: Carteira = Carteira()
     liberacao: Liberacao = LiberacaoSombra()
+    # Ligado, os testadores do piloto recebem os casos do cardápio e não a carteira (D56).
+    teste: ModoTeste | None = None
 
     @field_validator("liberacao", mode="before")
     @classmethod
@@ -242,6 +315,21 @@ class Politica(_Imutavel):
             raise ValueError("integracao_espera_maxima_segundos: menor que a espera inicial")
         return self
 
+    @model_validator(mode="after")
+    def _teste_so_no_piloto(self):
+        if self.teste is None:
+            return self
+        if not isinstance(self.liberacao, LiberacaoPiloto):
+            raise ValueError("teste: o modo teste exige liberacao em piloto")
+        # A matrícula simulada leva os 4 últimos dígitos do telefone (`SIM-<n>-<dddd>`).
+        finais = [telefone[-4:] for telefone in self.liberacao.telefones]
+        if len(set(finais)) != len(finais):
+            raise ValueError(
+                "teste: os telefones do piloto têm de ter os 4 últimos dígitos distintos "
+                "(são a matrícula simulada)"
+            )
+        return self
+
     def espera_integracao(self, falhas: int) -> timedelta:
         """A espera depois da `falhas`-ésima falha seguida: dobra a cada uma, até o teto."""
         segundos = self.integracao_espera_segundos * 2 ** max(falhas - 1, 0)
@@ -260,13 +348,49 @@ class PoliticaInvalida(ValueError):
     """O politica.toml tem um campo errado; a mensagem diz qual."""
 
 
+def _erros(arquivo: Path, erro: ValidationError, prefixo: str = "") -> list[str]:
+    return [
+        f"{arquivo}: {prefixo}{'.'.join(str(parte) for parte in e['loc'])}: {e['msg']}"
+        for e in erro.errors()
+    ]
+
+
+def _ler_cardapio(politica: Path, teste: dict) -> dict:
+    """O `[teste]` com o `cardapio` resolvido e os `casos` dele; o erro diz o arquivo e o campo."""
+    if "casos" in teste:
+        raise PoliticaInvalida(f"{politica}: teste.casos: os casos vêm do arquivo do cardapio")
+    if not isinstance(teste.get("cardapio"), str):
+        return teste  # a validação da política diz que o campo falta ou está errado
+    arquivo = politica.parent / teste["cardapio"]
+    try:
+        with open(arquivo, "rb") as aberto:
+            lido = tomllib.load(aberto)
+    except OSError as erro:
+        raise PoliticaInvalida(
+            f"{politica}: teste.cardapio: não abriu {arquivo} ({erro})"
+        ) from erro
+    except tomllib.TOMLDecodeError as erro:
+        raise PoliticaInvalida(f"{arquivo}: {erro}") from erro
+    sobra = sorted(set(lido) - {"caso"})
+    if sobra:
+        raise PoliticaInvalida(f"{arquivo}: só a tabela [[caso]] é aceita, veio {', '.join(sobra)}")
+    casos, erros = [], []
+    for posicao, bruto in enumerate(lido.get("caso", [])):
+        try:
+            casos.append(CasoTeste.model_validate(bruto))
+        except ValidationError as erro:
+            erros += _erros(arquivo, erro, f"caso[{posicao}].")
+    if erros:
+        raise PoliticaInvalida("; ".join(erros))
+    return {**teste, "cardapio": arquivo, "casos": tuple(casos)}
+
+
 def carregar_politica(caminho: Path) -> Politica:
     with open(caminho, "rb") as arquivo:
         dados = tomllib.load(arquivo)
+    if isinstance(dados.get("teste"), dict):
+        dados["teste"] = _ler_cardapio(caminho, dados["teste"])
     try:
         return Politica.model_validate(dados)
     except ValidationError as erro:
-        campos = "; ".join(
-            f"{'.'.join(str(parte) for parte in e['loc'])}: {e['msg']}" for e in erro.errors()
-        )
-        raise PoliticaInvalida(f"{caminho}: {campos}") from erro
+        raise PoliticaInvalida("; ".join(_erros(caminho, erro))) from erro

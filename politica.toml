@@ -150,3 +150,12 @@ nome = "nome"
 telefone = "telefone"
 mensalidades_abertas = "mensalidades_abertas"
 regua = "regua"  # opcional; quando vem, vence o número de mensalidades
+
+# Modo teste (D56, versão de teste no dev2): os testadores do piloto recebem os casos inventados do
+# cardápio no lugar da carteira. Exige `liberacao` em piloto, com os 4 últimos dígitos de cada
+# telefone distintos (são a matrícula simulada). Desligado, o serviço é o de sempre.
+# [teste]
+# cardapio = "cardapio-teste.toml"  # relativo a esta pasta
+# campanha = "teste"  # a campanha das cobranças dos casos
+# caso_padrao = 1  # o caso do 1º contato
+# texto_abertura = "Oi, {nome}! Aqui é o agente da GeniAI. Vi {mensalidades} mensalidades em aberto, {valor} no total. [TESTE] No cliente real aqui vem o botão \"Pagar com Pix\". No teste, escreva: Pagar com Pix"  # provisório (P2); {nome} e {valor} obrigatórios
