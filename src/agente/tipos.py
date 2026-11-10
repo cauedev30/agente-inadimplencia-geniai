@@ -122,6 +122,8 @@ class OrigemMensagem(StrEnum):
     FIXA = "FIXA"
     HUMANO = "HUMANO"
     ABERTURA = "ABERTURA"
+    # O comando do testador e a resposta do modo teste (D56): ficam no banco, nunca vão ao LLM.
+    TESTE = "TESTE"
 
 
 class EstadoEnvio(StrEnum):

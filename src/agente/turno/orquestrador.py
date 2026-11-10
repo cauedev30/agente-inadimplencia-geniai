@@ -37,6 +37,7 @@ from agente.integracoes.pix import PixBanco, PixFalso, PixIndisponivel
 from agente.integracoes.redator import Redator, RedatorFalso, RedatorIndisponivel
 from agente.integracoes.transcritor import Transcritor
 from agente.politica import Politica
+from agente.teste.comandos import antes_do_turno
 from agente.tipos import (
     BatchJev,
     EstadoConversa,
@@ -231,9 +232,14 @@ def _reiniciar(
 
 
 def _historico(sessao: Session, conversa_id: int) -> list[tuple[str, str]]:
+    # O comando e a resposta do modo teste (origem TESTE) não fazem parte da conversa.
     mensagens = sessao.scalars(
         select(Mensagem)
-        .where(Mensagem.conversa_id == conversa_id, Mensagem.envio != EstadoEnvio.DESCARTADA)
+        .where(
+            Mensagem.conversa_id == conversa_id,
+            Mensagem.envio != EstadoEnvio.DESCARTADA,
+            Mensagem.origem != OrigemMensagem.TESTE,
+        )
         .order_by(Mensagem.id)
     )
     # O áudio do cliente entra como o texto transcrito, com o rótulo (D43).
@@ -246,7 +252,11 @@ def _historico_e_novas(
     """O histórico de `_historico`, com as mensagens deste turno (a rajada) separadas como novas."""
     mensagens = sessao.scalars(
         select(Mensagem)
-        .where(Mensagem.conversa_id == conversa_id, Mensagem.envio != EstadoEnvio.DESCARTADA)
+        .where(
+            Mensagem.conversa_id == conversa_id,
+            Mensagem.envio != EstadoEnvio.DESCARTADA,
+            Mensagem.origem != OrigemMensagem.TESTE,
+        )
         .order_by(Mensagem.id)
     )
     historico, novas = [], []
@@ -1520,6 +1530,17 @@ def processar_turno(
         if conversa.erros_turno >= deps.politica.erro_interno_tentativas:
             # As tentativas acabaram e o encerramento ficou para depois (janela, Chatwoot fora).
             return _encerrar_por_erro_interno(sessao, conversa, efetivo, agora)
+        if efetivo.casos is not None and efetivo.modo is Modo.ATIVO:
+            # Os comandos do testador e o caso encerrado (D56) vêm antes de tudo, fora do turno
+            # ativo: o LLM não os vê. Se o Chatwoot falha, o turno é desfeito e tentado de novo.
+            try:
+                resultado = antes_do_turno(sessao, conversa, agora, efetivo)
+            except _FALHAS_DE_INTEGRACAO as erro:
+                log.exception("o comando de teste da conversa %s falhou", conversa.id)
+                sessao.rollback()
+                return _registrar_falha(sessao, conversa_id, erro, efetivo, agora, desistindo=False)
+            if resultado is not None:
+                return resultado
         conferencia = _conferir_no_contato(sessao, conversa, agora, efetivo)
         if efetivo.modo is Modo.ATIVO and conferencia in _SEM_CONFERENCIA_DE_HOJE:
             # Nunca se cita valor estimado: sem a conferência de hoje (CTN fora, sem lançamentos,
