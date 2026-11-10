@@ -302,12 +302,35 @@ lugares, **antes das travas de linha**: o disparo (`abertura/disparar.py`) e o 1
 grava `conferida_em`, `meses_em_aberto` (lista `AAAA/MM`, dado para o A20), a dívida, os meses e a
 propensão ao cartão (D36). É **uma vez por dia por cobrança** (no fuso da janela).
 
+**O `ult_mesref` só desempata (D55).** A importação guarda na cobrança o `ult_mesref` do retrato (coluna
+`cobranca.ult_mesref`, só ela a altera; o CSV deixa nulo). Se as abertas do CTN são críveis, nada é filtrado. Só
+quando seriam `dado_suspeito` (mais de 1 mês além do retrato, por exemplo) e há `ult_mesref`, a conferência olha as
+abertas de mês estritamente posterior a ele (o mês dele fica fora) e as aceita **só se forem exatamente os meses do
+retrato** e críveis; senão segue `dado_suspeito`. Sem `ult_mesref`, segue `dado_suspeito`. A quitação (D54) e o
+`sem_lancamentos` não usam o `ult_mesref`. O filtro nunca vale sozinho porque em 2 de 35 cobranças reais o
+`ult_mesref` contradizia os lançamentos.
+
+**Na mesma rodada a reconferência só encolhe a dívida (D55).** Quando o cliente paga os meses recentes, os
+antigos (anteriores ao `ult_mesref`) seguem abertos no CTN, e a reconferência da rotina das baixas (a cada 10
+minutos) veria outro quadro: com o retrato de 3 meses e 3 antigos abertos, pagar 1 recente deixaria 5 abertas
+(suspeitas, e o filtrado daria 2, não 3); pagar 2 deixaria 4 (críveis, cobrando 3 antigos); pagar os 3 deixaria os
+3 antigos abertos e a cobrança nunca quitaria. Por isso, a cobrança **já conferida hoje** (`conferida_em` de hoje,
+no fuso da janela) **com `meses_em_aberto` gravado** considera só os meses abertos que **já estavam nessa lista**: o
+mês pago sai, pagos todos a lista fica vazia e a rotina quita (as rejeitadas lidas ainda precisam cobrir o retrato,
+D54), e os antigos nunca entram. Um mês que apareça em aberto no meio do dia só entra na importação seguinte (lado
+seguro: cobra menos, nunca mais). A regra não depende do `ult_mesref`. Fora dessa condição (nunca conferida, ou
+conferida em outro dia) vale a regra anterior, com o desempate do `ult_mesref`. O teste de dado suspeito usa como
+patamar os meses do retrato (`mensalidades_retrato`), e não `mensalidades_abertas`, que a própria conferência
+sobrescreve (o patamar subiria 1 a cada conferência). **Reimportar por CSV zera o `ult_mesref`** de uma carteira que
+veio do CTN (o CSV não o traz): sem ele não há desempate, e abertas suspeitas seguem `dado_suspeito` (lado seguro:
+não cobra).
+
 | Estado | Quando | O disparo | O turno ativo |
 |---|---|---|---|
 | `CONFERIDA` | o CTN respondeu e o dado é crível | envia, com o valor conferido | cobra com o valor conferido |
 | `QUITADA` | havia rejeitadas, todas têm baixa e elas cobrem os meses do retrato (D54) | não envia; a cobrança fica ATIVA | não cobra e leva ao humano (handoff `CONCILIACAO`, a mensagem só na 1ª vez) |
 | `SEM_LANCAMENTOS` | nenhuma rejeitada, mas o retrato diz que há atraso | não envia | espera como a integração fora do ar; esgotadas as tentativas, vai ao humano (`INTEGRACAO_INDISPONIVEL`) |
-| `DADO_SUSPEITO` | mês repetido, valor zero, negativo ou acima de R$ 1.000, mais de 1 mês aberto além do retrato, ou rejeitadas todas pagas mas em menor número que os meses do retrato (D54) | não envia | idem |
+| `DADO_SUSPEITO` | mês repetido, valor zero, negativo ou acima de R$ 1.000, mais de 1 mês aberto além do retrato (salvo o desempate do `ult_mesref`, D55), ou rejeitadas todas pagas mas em menor número que os meses do retrato (D54) | não envia | idem |
 | `NAO_CONFERIDA` | o CTN caiu | não envia | idem |
 
 Regra de ouro: **só `CONFERIDA` deixa citar valor.** O valor do retrato é estimativa e nunca vai ao
@@ -398,11 +421,14 @@ horário comercial (fase `ciclos`), que decide a `MARGEM_DE_RELEITURA`.
   `dado_suspeito` (14%)**. Nas 5, os lançamentos `rejeitada` em aberto passam de `meses_atraso + 1` (de 6 a 11
   contra 3 a 7) e têm buracos.
 - **Causa provável (5 de 5):** o número de lançamentos rejeitados **depois** do mês do `ult_mesref` do retrato é
-  exatamente o `meses_atraso`. Os demais (de 2 a 8 por pessoa, de até 26 meses atrás) são rejeitados do mês do
-  `ult_mesref` ou de antes, que o retrato não conta como atraso. Cobrar pelo total diria à pessoa que ela deve de
-  6 a 11 meses em vez de 3 a 7; por isso o `dado_suspeito` barra, e o certo é **conferir só o que vem depois do
-  `ult_mesref`**. **Pergunta ao dev** (`duvidas.md`, T9.18): esses meses velhos são dívida antiga baixada,
-  cancelada ou cadastro velho? Sem a resposta, o agente deixa de cobrar essas pessoas (seguro).
+  exatamente o `meses_atraso`. Os demais (de 2 a 8 por pessoa, de até 26 meses atrás) são do mês do `ult_mesref`
+  ou de antes, que o retrato não conta como atraso. Cobrar pelo total diria à pessoa que ela deve de 6 a 11
+  meses em vez de 3 a 7; por isso o `dado_suspeito` barrava.
+- **Mas filtrar sempre quebrou 2 das 30 certas** (2 de 35 no total): numa o filtro zerou tudo e noutra a dívida
+  caiu de 3 para 1 mês (valor menor que o do CTN, inseguro). O `ult_mesref` às vezes contradiz os lançamentos.
+  **Feito, D55:** o `ult_mesref` só desempata, quando as abertas seriam suspeitas e as posteriores a ele são
+  exatamente os meses do retrato. **Pergunta ao dev** (`duvidas.md`, T9.18): o que o `ult_mesref` significa? Sem a
+  resposta, o agente não cobra o que fica suspeito (o padrão seguro).
 
 ### Pronto quando
 

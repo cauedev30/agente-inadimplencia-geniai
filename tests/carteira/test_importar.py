@@ -89,6 +89,31 @@ def test_importar_de_novo_atualiza_sem_duplicar(sessao, politica, tmp_path):
     assert cobrancas[0].divida_centavos == 13360
 
 
+def test_o_csv_nao_tem_ult_mesref_e_zera_o_que_havia(sessao, politica, tmp_path):
+    importar_carteira(
+        _csv(tmp_path, "F-0004;Cliente Fictício R3;83999990004;3;"),
+        sessao,
+        politica,
+        CTNFalso(),
+        campanha="teste",
+    )
+    cobranca = sessao.scalars(select(Cobranca)).one()
+    assert cobranca.ult_mesref is None
+    cobranca.ult_mesref = date(2026, 7, 1)  # veio de uma importação do CTN
+    sessao.commit()
+
+    importar_carteira(
+        _csv(tmp_path, "F-0004;Cliente Fictício R3;83999990004;4;"),
+        sessao,
+        politica,
+        CTNFalso(),
+        campanha="teste",
+    )
+
+    assert cobranca.mensalidades_retrato == 4
+    assert cobranca.ult_mesref is None
+
+
 @pytest.mark.parametrize(
     ("linha", "motivo"),
     [

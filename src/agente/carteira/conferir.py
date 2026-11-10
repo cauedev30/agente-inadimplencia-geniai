@@ -17,6 +17,19 @@ Regras:
   lançamentos rejeitados, todos pagos): os meses que sobram não têm mês nem valor conhecidos, então
   NÃO é quitada nem há como abater. `conferida = False`, motivo `rejeitadas_nao_cobrem_o_retrato`,
   sem `conferida_em`; vale como dado suspeito para quem chama.
+- O `ult_mesref` do retrato (D55) só DESEMPATA: com as abertas do CTN críveis (sem dado suspeito),
+  nada é filtrado. Só quando elas seriam suspeitas (mais meses que o retrato + 1, por exemplo) e a
+  cobrança tem `ult_mesref`, vale o conjunto das abertas de mês estritamente posterior a ele, e só
+  se forem exatamente os meses do retrato e esse conjunto também for crível. Senão segue suspeito.
+  Em 2 de 35 cobranças reais o `ult_mesref` contradizia os lançamentos, por isso ele nunca
+  filtra sozinho. Sem `ult_mesref` (CSV, ou cobrança anterior à coluna), nada é filtrado.
+- Na mesma rodada de importação a reconferência só ENCOLHE a dívida (D55): a cobrança já conferida
+  hoje (`conferida_em` de hoje, no fuso da janela) com `meses_em_aberto` gravado considera só os
+  meses abertos que já estavam nesse conjunto. O mês pago sai; pagos todos, o conjunto fica vazio e
+  quita; os meses antigos que o CTN mantém abertos (anteriores ao `ult_mesref`) nunca entram, nem um
+  mês que apareça no meio do dia (entra na importação seguinte). O teste de dado suspeito usa como
+  patamar os meses do retrato (`mensalidades_retrato`), não as mensalidades que a própria
+  conferência grava.
 - Dado suspeito (mês repetido, valor zero, negativo ou acima do teto sanitário, mais meses abertos
   que o retrato + 1): `conferida = False`, motivo `dado_suspeito`, nada é gravado.
 - Quem não conseguiu conferir nunca cita valor estimado: o disparo pula a cobrança e o turno ativo
@@ -28,7 +41,7 @@ Regras:
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 import httpx
@@ -129,11 +142,47 @@ def _dado_suspeito(abertas: list[MensalidadeAberta], meses_do_retrato: int) -> b
     return sum(mensalidade.valor_centavos for mensalidade in abertas) <= 0
 
 
+def _mes_do(ult_mesref: date) -> str:
+    return f"{ult_mesref.year:04d}/{ult_mesref.month:02d}"
+
+
 def _meses_do_retrato(cobranca: Cobranca) -> int:
     """Os meses em atraso que o retrato da importação trouxe; sem eles (cobrança anterior à
     coluna), os da cobrança."""
     retrato = cobranca.mensalidades_retrato
     return cobranca.mensalidades_abertas if retrato is None else retrato
+
+
+def _conhecidas_hoje(cobranca: Cobranca, politica: Politica, agora: datetime) -> set[str] | None:
+    """Os meses em aberto que a conferência de hoje gravou, ou `None` se a cobrança não foi
+    conferida hoje (ou nunca teve a lista). Lista vazia é um conjunto vazio (já quitada hoje)."""
+    if cobranca.meses_em_aberto is None or precisa_conferir(cobranca, politica, agora):
+        return None
+    return set(cobranca.meses_em_aberto)
+
+
+def _abertas_a_cobrar(
+    cobranca: Cobranca, abertas: list[MensalidadeAberta], politica: Politica, agora: datetime
+) -> tuple[list[MensalidadeAberta], bool]:
+    """As abertas que contam como dívida e se o `ult_mesref` as escolheu (D55).
+
+    Conferida hoje com a lista de meses gravada: só os meses dessa lista (a dívida só encolhe; os
+    antigos que o CTN mantém abertos e o mês novo do meio do dia ficam de fora). Senão, crível,
+    devolve todas. Suspeitas e com `ult_mesref`, devolve só as de mês posterior a ele, mas apenas
+    se forem exatamente os meses do retrato e críveis; senão devolve todas (e seguem suspeitas)."""
+    conhecidas = _conhecidas_hoje(cobranca, politica, agora)
+    if conhecidas is not None:
+        return [m for m in abertas if m.mes_ano in conhecidas], False
+    retrato = _meses_do_retrato(cobranca)
+    if not abertas or not _dado_suspeito(abertas, retrato):
+        return abertas, False
+    if cobranca.ult_mesref is None:
+        return abertas, False
+    corte = _mes_do(cobranca.ult_mesref)
+    depois = [m for m in abertas if m.mes_ano > corte]
+    if len(depois) == retrato and not _dado_suspeito(depois, retrato):
+        return depois, True
+    return abertas, False
 
 
 def conferir_cobranca(
@@ -154,7 +203,7 @@ def conferir_cobranca(
     matricula = cobranca.cliente.matricula_ctn
     try:
         consulta = ctn.consultar_mensalidades(matricula)
-        abertas = consulta.abertas
+        abertas, desempatou = _abertas_a_cobrar(cobranca, consulta.abertas, politica, agora)
         # Um mês a mais, porque o mês corrente pode não ter pagamento ainda (como no importar).
         historico = (
             ctn.historico_pagamentos(matricula, meses=politica.propensao.n_meses + 1)
@@ -191,7 +240,7 @@ def conferir_cobranca(
             cobranca_id,
         )
         return _do_retrato(cobranca, MOTIVO_NAO_COBRE_O_RETRATO)
-    if abertas and _dado_suspeito(abertas, cobranca.mensalidades_abertas):
+    if abertas and not desempatou and _dado_suspeito(abertas, _meses_do_retrato(cobranca)):
         log.warning("a conferência da cobrança %s trouxe dado suspeito; descartada", cobranca_id)
         return _do_retrato(cobranca, MOTIVO_DADO_SUSPEITO)
 

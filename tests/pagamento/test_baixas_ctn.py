@@ -2,7 +2,7 @@
 cobrado, quem pagou parte segue com o valor novo, e tudo idempotente pelo `id` da baixa."""
 
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import pytest
@@ -226,6 +226,146 @@ def test_rejeitadas_pagas_que_nao_cobrem_o_retrato_nao_quitam_a_cobranca(sessao,
     assert _fixas(sessao) == []
     assert _registro(sessao).efeito == "nao_conferida"
     assert _registro(sessao).aplicada_em == AGORA
+
+
+# ---- o `ult_mesref` do retrato só desempata (D55) ----
+
+
+def test_baixa_com_abertas_suspeitas_desempatadas_pelo_ult_mesref_confere_sem_abater(
+    sessao, ligada, politica
+):
+    # O retrato diz 3 meses (2026/08 em diante); o CTN tem 7 abertas (suspeitas), 3 depois do
+    # `ult_mesref`. O desempate aceita as 3: conferida, a dívida segue igual e não houve abatimento.
+    ligada.cobranca.ult_mesref = date(2026, 7, 1)
+    sessao.commit()
+    ctn = _ctn(
+        [_baixa()],
+        abertas=_abertas(
+            "2025/03", "2025/09", "2026/05", "2026/07", "2026/08", "2026/09", "2026/10"
+        ),
+    )
+
+    resumo = ler_baixas(sessao, _deps(politica, ctn), AGORA)
+
+    assert resumo.quitadas == 0 and resumo.abatidas == 0
+    assert ligada.cobranca.status is StatusCobranca.ATIVA
+    assert ligada.cobranca.meses_em_aberto == ["2026/08", "2026/09", "2026/10"]
+    assert ligada.cobranca.mensalidades_abertas == 3
+
+
+def test_baixa_com_abertas_iguais_ao_retrato_nao_filtra_pelo_ult_mesref(sessao, ligada, politica):
+    # Retrato de 3 e o CTN com 2 abertas, ambas até o mês do `ult_mesref`: sem filtro, abate 1 mês.
+    ligada.cobranca.ult_mesref = date(2026, 9, 1)
+    sessao.commit()
+    ctn = _ctn([_baixa()], abertas=_abertas("2026/07", "2026/08"))
+
+    resumo = ler_baixas(sessao, _deps(politica, ctn), AGORA)
+
+    assert resumo == ResumoBaixas(lidas=1, aplicadas=1, quitadas=0, abatidas=1, ignoradas=0)
+    assert ligada.cobranca.meses_em_aberto == ["2026/07", "2026/08"]
+    assert ligada.cobranca.mensalidades_abertas == 2
+    assert _registro(sessao).efeito == "abateu"
+
+
+def test_baixa_com_abertas_suspeitas_e_filtrado_diferente_do_retrato_nao_e_conferida(
+    sessao, ligada, politica
+):
+    ligada.cobranca.ult_mesref = date(2026, 7, 1)
+    sessao.commit()
+    ctn = _ctn([_baixa()], abertas=_abertas("2025/03", "2025/09", "2026/05", "2026/07", "2026/08"))
+
+    resumo = ler_baixas(sessao, _deps(politica, ctn), AGORA)
+
+    assert resumo.quitadas == 0 and resumo.abatidas == 0
+    assert ligada.cobranca.status is StatusCobranca.ATIVA
+    assert ligada.cobranca.mensalidades_abertas == 3
+    assert _registro(sessao).efeito == "nao_conferida"
+
+
+# ---- na mesma rodada a reconferência só encolhe a dívida (D55) ----
+
+ANTIGAS = ("2025/03", "2025/09", "2026/05")  # até o `ult_mesref`, abertos no CTN para sempre
+RECENTES = ("2026/08", "2026/09", "2026/10")
+
+
+@pytest.fixture
+def conferida_hoje(sessao, ligada):
+    """O retrato de 3 meses, `ult_mesref` 2026/07, conferida hoje nos 3 meses posteriores."""
+    cobranca = ligada.cobranca
+    cobranca.mensalidades_retrato = 3
+    cobranca.ult_mesref = date(2026, 7, 1)
+    cobranca.conferida_em = AGORA - timedelta(hours=3)
+    cobranca.meses_em_aberto = list(RECENTES)
+    sessao.commit()
+    return ligada
+
+
+def test_baixa_de_um_recente_abate_so_ele_e_os_antigos_nao_entram(sessao, conferida_hoje, politica):
+    ctn = _ctn([_baixa(mes="2026/10")], abertas=_abertas(*ANTIGAS, "2026/08", "2026/09"))
+
+    resumo = ler_baixas(sessao, _deps(politica, ctn), AGORA)
+
+    assert resumo == ResumoBaixas(lidas=1, aplicadas=1, quitadas=0, abatidas=1, ignoradas=0)
+    cobranca = conferida_hoje.cobranca
+    assert cobranca.status is StatusCobranca.ATIVA
+    assert cobranca.meses_em_aberto == ["2026/08", "2026/09"]
+    assert cobranca.mensalidades_abertas == 2
+    assert cobranca.divida_centavos == 6680
+    assert _registro(sessao).efeito == "abateu"
+
+
+def test_baixa_de_dois_recentes_deixa_so_o_que_sobrou_dos_conhecidos(
+    sessao, conferida_hoje, politica
+):
+    ctn = _ctn(
+        [_baixa("b-1", "2026/10", 30), _baixa("b-2", "2026/09", 20)],
+        abertas=_abertas(*ANTIGAS, "2026/08"),
+    )
+
+    resumo = ler_baixas(sessao, _deps(politica, ctn), AGORA)
+
+    assert resumo.quitadas == 0 and resumo.abatidas == 1
+    cobranca = conferida_hoje.cobranca
+    assert cobranca.meses_em_aberto == ["2026/08"]
+    assert cobranca.mensalidades_abertas == 1
+    assert cobranca.divida_centavos == 3340
+    assert _registro(sessao, "b-1").efeito == "abateu"
+    assert _registro(sessao, "b-2").efeito == "conferida_junto"
+
+
+def test_baixa_dos_tres_recentes_quita_mesmo_com_os_antigos_abertos(
+    sessao, conferida_hoje, politica
+):
+    ctn = _ctn(
+        [_baixa("b-1", "2026/10", 30), _baixa("b-2", "2026/09", 25), _baixa("b-3", "2026/08")],
+        abertas=_abertas(*ANTIGAS),
+        rejeitadas=6,
+    )
+    deps = _deps(politica, ctn)
+
+    resumo = ler_baixas(sessao, deps, AGORA)
+
+    assert resumo.quitadas == 1
+    cobranca = conferida_hoje.cobranca
+    assert cobranca.status is StatusCobranca.PAGA
+    assert cobranca.encerrada_motivo == "baixa_externa"
+    assert cobranca.meses_em_aberto == []
+    assert deps.chatwoot.enviadas(555) == [politica.texto_baixa_externa]
+    assert _registro(sessao, "b-1").efeito == "quitou"
+
+
+def test_conferida_ontem_a_baixa_de_um_recente_segue_nao_conferida(
+    sessao, conferida_hoje, politica
+):
+    # Só a conferência de hoje restringe aos meses conhecidos; sem ela, vale a regra de sempre.
+    conferida_hoje.cobranca.conferida_em = AGORA - timedelta(days=1)
+    sessao.commit()
+    ctn = _ctn([_baixa(mes="2026/10")], abertas=_abertas(*ANTIGAS, "2026/08", "2026/09"))
+
+    ler_baixas(sessao, _deps(politica, ctn), AGORA)
+
+    assert conferida_hoje.cobranca.mensalidades_abertas == 3
+    assert _registro(sessao).efeito == "nao_conferida"
 
 
 # ---- pagou parte ----

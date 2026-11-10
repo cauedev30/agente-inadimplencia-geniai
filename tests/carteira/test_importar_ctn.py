@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -190,6 +191,44 @@ def test_o_retrato_guarda_o_numero_de_meses_que_a_conferencia_nao_altera(sessao,
     _importar(sessao, politica, _ctn(_linha("M-1", 4)))
 
     assert (cobranca.mensalidades_abertas, cobranca.mensalidades_retrato) == (2, 4)
+
+
+def test_grava_o_ult_mesref_do_retrato_em_criar_atualizar_e_reativar(sessao, politica):
+    # Criar.
+    _importar(sessao, politica, _ctn(_linha("M-1", 3)))
+    cobranca = _cobrancas(sessao)[0]
+    assert cobranca.ult_mesref == date(2026, 8, 1)
+    # Atualizar (inclusive a conferida hoje, que mantém os números mas não o `ult_mesref`).
+    cobranca.conferida_em = datetime(2026, 11, 9, 11, tzinfo=UTC)
+    sessao.commit()
+    _importar(sessao, politica, _ctn(_linha("M-1", 4)))
+    assert cobranca.ult_mesref == date(2026, 7, 1)
+    # Reativar: sai do retrato e volta em 2 dias com outro `ult_mesref`.
+    _importar(sessao, politica, _ctn(_linha("M-2", 1, "+5583900000002")))
+    assert cobranca.status is StatusCobranca.ENCERRADA
+    volta = AGORA + timedelta(days=2)
+    resumo = _importar(
+        sessao,
+        politica,
+        _ctn(
+            _linha("M-1", 2, dia=volta.date()), _linha("M-2", 1, "+5583900000002", dia=volta.date())
+        ),
+        dia=volta.date(),
+        agora=volta,
+    )
+    assert resumo.reativadas == 1
+    assert cobranca.ult_mesref == date(2026, 9, 1)
+
+
+def test_ult_mesref_nulo_no_retrato_grava_nulo(sessao, politica):
+    _importar(sessao, politica, _ctn(_linha("M-1", 3)))
+    cobranca = _cobrancas(sessao)[0]
+    assert cobranca.ult_mesref is not None
+
+    linha_sem = replace(_linha("M-1", 3), ult_mesref=None)
+    _importar(sessao, politica, _ctn(linha_sem))
+
+    assert cobranca.ult_mesref is None
 
 
 def test_conferida_hoje_vale_pelo_dia_do_negocio_e_nao_pelo_utc(sessao, politica):

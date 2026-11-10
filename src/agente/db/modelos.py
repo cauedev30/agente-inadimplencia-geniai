@@ -1,9 +1,20 @@
 """Tabelas do agente. Tudo o que entra e sai de uma conversa fica gravado (fase 0)."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String, Text, TypeDecorator, text
+from sqlalchemy import (
+    JSON,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    TypeDecorator,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from agente.politica import Regua
@@ -87,6 +98,10 @@ class Cobranca(Base):
     # importação mexe nele: a conferência reescreve `mensalidades_abertas`, e a rotina das baixas
     # precisa do retrato para só quitar quem pagou tudo o que ele dizia. Nulo = anterior à coluna.
     mensalidades_retrato: Mapped[int | None]
+    # O `ult_mesref` do retrato do CTN: o último mês que ele considera pago. A conferência só o usa
+    # para desempatar abertas suspeitas (D55). Só a importação o preenche; nulo = CSV ou anterior à
+    # coluna, e então a conferência não desempata.
+    ult_mesref: Mapped[date | None] = mapped_column(Date)
     status: Mapped[StatusCobranca] = mapped_column(
         _enum(StatusCobranca), default=StatusCobranca.ATIVA
     )

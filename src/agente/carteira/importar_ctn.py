@@ -218,6 +218,7 @@ def importar_do_ctn(
                     telefone=linha.telefone,
                     mensalidades_abertas=linha.meses_atraso,
                     regua=None,
+                    ult_mesref=linha.ult_mesref,
                 ),
                 politica,
                 None,

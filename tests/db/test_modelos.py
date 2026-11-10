@@ -264,6 +264,23 @@ def test_migracao_0016_cria_os_meses_do_retrato_na_cobranca(tmp_path):
     motor.dispose()
 
 
+def test_migracao_0017_cria_o_ult_mesref_na_cobranca(tmp_path):
+    url = f"sqlite:///{(tmp_path / 'm17.db').as_posix()}"
+    config = alembic_config(url)
+
+    command.upgrade(config, "0016")
+    motor = create_engine(url)
+    assert "ult_mesref" not in {c["name"] for c in inspect(motor).get_columns("cobranca")}
+
+    command.upgrade(config, "0017")
+    colunas = {c["name"]: c for c in inspect(motor).get_columns("cobranca")}
+    assert colunas["ult_mesref"]["nullable"] is True
+
+    command.downgrade(config, "0016")
+    assert "ult_mesref" not in {c["name"] for c in inspect(motor).get_columns("cobranca")}
+    motor.dispose()
+
+
 def test_o_modelo_das_baixas_tem_os_mesmos_indices_da_migracao(sessao):
     indices = {i["name"] for i in inspect(sessao.get_bind()).get_indexes("baixa_ctn")}
     assert {"ix_baixa_ctn_aplicada_em", "ix_baixa_ctn_efeito"} <= indices

@@ -10,7 +10,7 @@ do arquivo, e uma confirmação de pagamento dessas cobranças espera o commit.
 import csv
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -47,6 +47,8 @@ class _Linha:
     telefone: str
     mensalidades_abertas: int
     regua: Regua | None
+    # O `ult_mesref` do retrato do CTN; o CSV não tem essa informação.
+    ult_mesref: date | None = None
 
 
 class _LinhaInvalida(ValueError):
@@ -161,6 +163,7 @@ def _gravar(
         "regua": classificar_regua(linha.mensalidades_abertas, linha.regua, politica),
         "mensalidades_abertas": linha.mensalidades_abertas,
         "mensalidades_retrato": linha.mensalidades_abertas,
+        "ult_mesref": linha.ult_mesref,
         "divida_centavos": calcular_divida(linha.mensalidades_abertas, politica),
         "campanha": campanha,
     }
