@@ -29,6 +29,7 @@ from agente.db.modelos import Conversa, Mensagem, Turno
 from agente.dominio.janela import dentro_da_janela, proxima_abertura
 from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNFalso, CTNIndisponivel
+from agente.integracoes.ctn_teste import CTNDeCasos
 from agente.integracoes.disparador import Disparador, FalhaNoEnvio
 from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
 from agente.integracoes.llm_turno import LLMTurno
@@ -167,6 +168,8 @@ class Dependencias:
     # Com o CTN real, o 1º turno do dia da cobrança a confere antes de tudo (spec do CTN real). O
     # CTN falso não tem os lançamentos: conferir nele daria "sem meses em aberto" para todo mundo.
     conferir_no_contato: bool = False
+    # O CTN dos casos do modo teste (D56); None = modo teste desligado, e nada do teste roda.
+    casos: CTNDeCasos | None = None
 
 
 def _rotulo(gate: Gate) -> str | None:

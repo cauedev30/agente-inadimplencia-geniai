@@ -1,21 +1,28 @@
+from datetime import datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
 import agente.api.app
 from agente.api.principal import montar_app, montar_dependencias
 from agente.config import Config
+from agente.db.modelos import Base, Cliente, Cobranca
+from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.ctn import ClienteNaoEncontrado, CTNComposto, CTNFalso
 from agente.integracoes.ctn_eficaz import CTNEficaz
+from agente.integracoes.ctn_teste import CTNDeCasos, CTNEscritaDeTeste, RoteadorCTN
 from agente.integracoes.jev import JevComPrazo, JevFalso
 from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.integracoes.llm_turno import LLMTurnoOpenAI
+from agente.integracoes.pix import PixDeTeste
 from agente.integracoes.redator import RedatorFalso, RedatorOpenAI
 from agente.integracoes.transcritor import TranscritorOpenAI
+from agente.politica import Regua
 from agente.tipos import Modo
 from agente.webchat.link import ConfigWebchat
 
-from ..conftest import RAIZ
+from ..conftest import RAIZ, TESTADOR_1, escrever_politica_de_teste
 
 WEBCHAT_COMPLETO = {
     "webchat_url_base": "https://atendimento.exemplo.invalid",
@@ -589,3 +596,104 @@ def test_o_encerramento_do_servico_fecha_o_cliente_do_ctn_real(monkeypatch):
         assert fechados == []
 
     assert len(fechados) == 1
+
+
+# ---- o modo teste (D56): o roteador de casos e a trava de subida ----
+
+
+def _config_de_teste(tmp_path, **campos):
+    return _config(politica_path=escrever_politica_de_teste(tmp_path), **campos)
+
+
+def test_sem_o_bloco_teste_nao_ha_casos_e_o_ctn_segue_igual():
+    deps = montar_dependencias(_config())
+    assert deps.casos is None
+    assert isinstance(deps.ctn, CTNFalso)
+    assert not isinstance(deps.pix, PixDeTeste)
+
+
+def test_o_modo_teste_sem_a_chave_do_ctn_usa_o_roteador_com_o_real_falso_e_vazio(tmp_path):
+    deps = montar_dependencias(_config_de_teste(tmp_path))
+    assert isinstance(deps.casos, CTNDeCasos)
+    assert isinstance(deps.ctn, CTNComposto)
+    assert isinstance(deps.ctn.leitura, RoteadorCTN)
+    assert deps.ctn.leitura.simulados is deps.casos
+    assert isinstance(deps.ctn.leitura.real, CTNFalso)
+    assert isinstance(deps.ctn.escrita, CTNEscritaDeTeste)
+    assert isinstance(deps.pix, PixDeTeste)
+    assert deps.conferir_no_contato is True
+    # A carteira real vazia: a matrícula real não existe; a simulada responde pelo cardápio.
+    with pytest.raises(ClienteNaoEncontrado):
+        deps.ctn.consultar_cliente("REAL-1")
+    deps.casos.ativar("SIM-3-7777", "+5583988887777")
+    assert deps.ctn.consultar_cliente("SIM-3-7777").nome == "Carla"
+    assert len(deps.ctn.mensalidades_em_aberto("SIM-3-7777")) == 4
+    assert deps.ctn.gerar_link_pagamento("SIM-3-7777", 13360, 1).url.startswith("[TESTE]")
+
+
+def test_o_modo_teste_com_a_chave_do_ctn_roteia_para_a_eficaz(tmp_path):
+    deps = montar_dependencias(_config_de_teste(tmp_path, ctn_api_key=CHAVE_CTN))
+    try:
+        assert isinstance(deps.ctn.leitura, RoteadorCTN)
+        assert isinstance(deps.ctn.leitura.real, CTNEficaz)
+        assert deps.ctn.leitura.simulados is deps.casos
+        assert isinstance(deps.ctn.escrita, CTNEscritaDeTeste)
+    finally:
+        deps.ctn.fechar()
+
+
+def test_o_casos_usa_a_mensalidade_da_politica_e_o_dia_do_fuso_da_janela(tmp_path):
+    deps = montar_dependencias(_config_de_teste(tmp_path))
+    deps.casos.ativar("SIM-1-7777", "+5583988887777")
+    abertas = deps.casos.mensalidades_em_aberto("SIM-1-7777")
+    assert {a.valor_centavos for a in abertas} == {deps.politica.mensalidade_centavos}
+    agora = datetime.now(deps.politica.janela.zona)
+    mes_corrente = f"{agora.year:04d}/{agora.month:02d}"
+    assert mes_corrente not in {a.mes_ano for a in abertas}
+
+
+def test_a_recusa_do_luna_no_modo_teste_fecha_o_ctn_real(tmp_path, monkeypatch):
+    fechados = []
+    monkeypatch.setattr(CTNEficaz, "fechar", lambda self: fechados.append(self))
+    config = _config_de_teste(tmp_path, ctn_api_key=CHAVE_CTN, llm_api_key="chave-do-luna")
+    with pytest.raises(ValueError, match="AGENTE_LLM"):
+        montar_dependencias(config)
+    assert fechados == []  # o CTN só é montado depois das travas, como sempre
+
+
+def test_montar_app_recusa_o_telefone_do_piloto_com_cobranca_real_ativa(tmp_path):
+    banco = tmp_path / "teste.db"
+    fabrica = criar_sessao(f"sqlite:///{banco}")
+    Base.metadata.create_all(fabrica.kw["bind"])
+    with fabrica() as sessao:
+        sessao.add(
+            Cobranca(
+                cliente=Cliente(matricula_ctn="REAL-1", nome="Fictício", telefone=TESTADOR_1),
+                regua=Regua.R3,
+                mensalidades_abertas=3,
+                divida_centavos=10020,
+                propenso_cartao=False,
+                campanha="ctn",
+            )
+        )
+        sessao.commit()
+    fabrica.kw["bind"].dispose()
+    config = _config_de_teste(tmp_path, database_url=f"sqlite:///{banco}")
+    with pytest.raises(ValueError, match="cobran"):
+        montar_app(config, iniciar_trabalhador=False)
+
+
+def test_montar_app_com_o_modo_teste_sobe_com_o_banco_sem_cobranca_real(tmp_path):
+    banco = tmp_path / "teste.db"
+    fabrica = criar_sessao(f"sqlite:///{banco}")
+    Base.metadata.create_all(fabrica.kw["bind"])
+    fabrica.kw["bind"].dispose()
+    config = _config_de_teste(tmp_path, database_url=f"sqlite:///{banco}")
+    with TestClient(montar_app(config, iniciar_trabalhador=False)):
+        pass
+
+
+def test_montar_app_sem_o_modo_teste_nao_consulta_o_banco():
+    # O banco sem tabelas (em memória, vazio): a trava de subida só roda com o `[teste]`.
+    with TestClient(montar_app(_config(), iniciar_trabalhador=False)):
+        pass

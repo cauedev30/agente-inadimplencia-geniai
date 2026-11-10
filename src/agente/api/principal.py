@@ -14,6 +14,7 @@ montagem: o turno e o botão do Pix não o consultam nesse caminho.
 """
 
 import logging
+from datetime import datetime
 
 from fastapi import FastAPI
 
@@ -28,14 +29,17 @@ from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.ctn import CTN, CTNComposto, CTNFalso
 from agente.integracoes.ctn_eficaz import CTNEficaz
+from agente.integracoes.ctn_teste import CTNDeCasos, CTNEscritaDeTeste, RoteadorCTN
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import Jev, JevComPrazo, JevFalso
 from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.integracoes.llm_turno import LLMTurno, LLMTurnoOpenAI
+from agente.integracoes.pix import PixDeTeste, PixFalso
 from agente.integracoes.redator import Redator, RedatorFalso, RedatorOpenAI
 from agente.integracoes.transcritor import Transcritor, TranscritorOpenAI
 from agente.logs import configurar_logging
 from agente.politica import LiberacaoPiloto, Politica, carregar_politica
+from agente.teste.casos import exigir_piloto_fora_da_carteira
 from agente.tipos import Modo
 from agente.turno.orquestrador import Dependencias, criar_processador
 from agente.webchat.link import ConfigWebchat
@@ -78,15 +82,29 @@ def _exigir_a_openai_liberada_com_dado_real(config: Config) -> None:
         raise ValueError(mensagem_llm_sem_liberacao(fontes, destinos))
 
 
-def _ctn(config: Config, modo: Modo) -> CTN:
-    """O CTN real só de leitura (EFICAZ) com a escrita falsa; sem a chave, o falso de hoje."""
+def _ctn(config: Config, modo: Modo, politica: Politica) -> tuple[CTN, CTNDeCasos | None]:
+    """O CTN do serviço e, no modo teste, o `CTNDeCasos` que o testador comanda (None sem ele).
+
+    Sem `[teste]`: o CTN real só de leitura (EFICAZ) com a escrita falsa; sem a chave, o falso de
+    hoje. Com `[teste]` (D56): o roteador manda as matrículas `SIM-` aos casos do cardápio e o
+    resto ao CTN real (a EFICAZ, ou um falso vazio no ensaio sem a chave); o link e a baixa são os
+    `[TESTE]`.
+    """
+    teste = politica.teste
+    if teste is not None:
+        real: CTN = CTNEficaz.da_config(config) if config.ctn_real_ligado else CTNFalso()
+        zona = politica.janela.zona
+        casos = CTNDeCasos(
+            teste.casos, politica.mensalidade_centavos, lambda: datetime.now(zona).date()
+        )
+        return CTNComposto(RoteadorCTN(casos, real), CTNEscritaDeTeste()), casos
     # Até a T9, a escrita (link, cadastro do cartão e baixa) é a falsa: no ativo (só no piloto,
     # abaixo) ela aceita a matrícula, senão todo turno com link do CTN falha com
     # ClienteNaoEncontrado.
     falso = CTNFalso(aceita_qualquer_matricula=modo is Modo.ATIVO)
     if config.ctn_real_ligado:
-        return CTNComposto(CTNEficaz.da_config(config), falso)
-    return falso
+        return CTNComposto(CTNEficaz.da_config(config), falso), None
+    return falso, None
 
 
 def _llm_turno(config: Config) -> LLMTurno | None:
@@ -176,6 +194,7 @@ def montar_dependencias(config: Config) -> Dependencias:
         if isinstance(chatwoot, ChatwootHttp):
             chatwoot.fechar()
         raise
+    ctn, casos = _ctn(config, modo, politica)
     return Dependencias(
         politica=politica,
         chatwoot=chatwoot,
@@ -188,18 +207,38 @@ def montar_dependencias(config: Config) -> Dependencias:
         transcritor=_transcritor(config, politica),
         webchat=_webchat(config),
         llm_turno=llm_turno,
-        ctn=_ctn(config, modo),
-        # Só o CTN real tem os lançamentos para conferir; o falso daria "sem meses" a todos.
-        conferir_no_contato=config.ctn_real_ligado,
+        ctn=ctn,
+        # Só o CTN real tem os lançamentos para conferir; o falso daria "sem meses" a todos. No modo
+        # teste os casos também têm (o `CTNDeCasos`), e a conferência é o que os grava.
+        conferir_no_contato=config.ctn_real_ligado or casos is not None,
+        pix=PixDeTeste() if casos is not None else PixFalso(),
+        casos=casos,
     )
+
+
+def _fechar(deps: Dependencias) -> None:
+    """Fecha os clientes HTTP de `deps` quando a subida é recusada depois de montá-las."""
+    for cliente in (deps.chatwoot, deps.ctn):
+        fechar = getattr(cliente, "fechar", None)
+        if callable(fechar):
+            fechar()
 
 
 def montar_app(config: Config | None = None, *, iniciar_trabalhador: bool = True) -> FastAPI:
     config = config or carregar_config()
     configurar_logging(config.log_level)
     deps = montar_dependencias(config)
+    fabrica = criar_sessao(config.database_url)
+    if deps.politica.teste is not None:
+        # A trava de subida do modo teste só roda com ele: sem `[teste]` o banco nem é consultado.
+        try:
+            with fabrica() as sessao:
+                exigir_piloto_fora_da_carteira(sessao, deps.politica)
+        except ValueError:
+            _fechar(deps)
+            raise
     return criar_app(
-        criar_sessao(config.database_url),
+        fabrica,
         deps.politica,
         config,
         processar=criar_processador(deps),

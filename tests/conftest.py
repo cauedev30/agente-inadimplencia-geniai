@@ -82,3 +82,31 @@ def conversa(sessao):
     sessao.add(conversa)
     sessao.commit()
     return conversa
+
+
+# O modo teste (D56): a política com o `[teste]`, o piloto de 2 testadores e o cardápio dos 5 casos.
+TESTADOR_1 = "+5583988887777"  # com o 9; a variante sem ele é +558388887777 (A1)
+TESTADOR_2 = "+5583999990002"
+TESTADORES = (TESTADOR_1, TESTADOR_2)
+
+
+def escrever_politica_de_teste(pasta: Path) -> Path:
+    """Uma cópia do politica.toml com o piloto dos 2 testadores e o `[teste]`, na `pasta`."""
+    texto = (RAIZ / "politica.toml").read_text(encoding="utf-8")
+    piloto = f'liberacao = {{ modo = "piloto", telefones = ["{TESTADOR_1}", "{TESTADOR_2}"] }}'
+    texto = texto.replace('liberacao = "sombra"', piloto, 1)
+    texto += (
+        '\n[teste]\ncardapio = "cardapio-teste.toml"\n'
+        'texto_abertura = "Oi, {nome}! Há {mensalidades} mensalidades em aberto, {valor}."\n'
+    )
+    caminho = pasta / "politica.toml"
+    caminho.write_text(texto, encoding="utf-8")
+    (pasta / "cardapio-teste.toml").write_text(
+        (RAIZ / "cardapio-teste.toml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    return caminho
+
+
+@pytest.fixture
+def politica_de_teste(tmp_path):
+    return carregar_politica(escrever_politica_de_teste(tmp_path))
