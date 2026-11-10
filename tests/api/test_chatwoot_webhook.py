@@ -535,3 +535,191 @@ def test_a_corrida_sem_conversa_livre_nao_deixa_conversa_sobrando(fabrica, polit
             444,
             555,
         ]
+
+
+# ---- o 1º contato do testador no modo teste (D56) ----
+
+
+@pytest.fixture
+def banco_de_teste(politica_de_teste):
+    from agente.integracoes.ctn_teste import CTNDeCasos
+
+    fabrica = criar_sessao("sqlite://")
+    Base.metadata.create_all(fabrica.kw["bind"])
+    casos = CTNDeCasos(
+        politica_de_teste.teste.casos,
+        politica_de_teste.mensalidade_centavos,
+        lambda: AGORA.date(),
+    )
+    return fabrica, casos
+
+
+def _evento_do_testador(telefone, **extra):
+    evento = _evento(texto="Oi")
+    evento["sender"] = {"type": "contact", "phone_number": telefone}
+    evento.update(extra)
+    return evento
+
+
+CONFIG_TESTE = Config(database_url="sqlite://", chatwoot_conta=7, chatwoot_inbox=3)
+
+
+def test_o_1o_oi_do_testador_cria_o_caso_1_e_agenda_o_turno(banco_de_teste, politica_de_teste):
+    fabrica, casos = banco_de_teste
+    with fabrica() as sessao:
+        resultado = chatwoot_webhook.receber_evento(
+            sessao,
+            _evento_do_testador("+5583988887777"),
+            politica_de_teste,
+            CONFIG_TESTE,
+            AGORA,
+            casos=casos,
+        )
+    assert resultado == "agendado"
+    with fabrica() as sessao:
+        cobranca = sessao.scalars(select(Cobranca)).one()
+        assert cobranca.cliente.matricula_ctn == "SIM-1-7777"
+        assert cobranca.campanha == "teste"
+        assert cobranca.conferida_em == AGORA
+        conversa = sessao.scalars(select(Conversa)).one()
+        assert conversa.cobranca_id == cobranca.id
+        assert conversa.chatwoot_conversa_id == 555
+        assert conversa.turno_em == AGORA + timedelta(seconds=politica_de_teste.rajada_segundos)
+        assert sessao.scalars(select(Mensagem)).one().texto == "Oi"
+
+
+def test_o_testador_com_o_telefone_sem_o_9_tambem_entra(banco_de_teste, politica_de_teste):
+    fabrica, casos = banco_de_teste
+    with fabrica() as sessao:
+        resultado = chatwoot_webhook.receber_evento(
+            sessao,
+            _evento_do_testador("+558388887777"),
+            politica_de_teste,
+            CONFIG_TESTE,
+            AGORA,
+            casos=casos,
+        )
+        assert resultado == "agendado"
+        assert sessao.scalars(select(Cobranca)).one().cliente.telefone == "+558388887777"
+
+
+def test_telefone_fora_do_piloto_continua_sem_cobranca(banco_de_teste, politica_de_teste):
+    fabrica, casos = banco_de_teste
+    with fabrica() as sessao:
+        resultado = chatwoot_webhook.receber_evento(
+            sessao,
+            _evento_do_testador("+5583977776666"),
+            politica_de_teste,
+            CONFIG_TESTE,
+            AGORA,
+            casos=casos,
+        )
+        assert resultado == "sem_cobranca"
+        assert sessao.scalars(select(Cobranca)).all() == []
+
+
+def test_sem_o_modo_teste_o_telefone_do_piloto_continua_sem_cobranca(
+    banco_de_teste, politica_de_teste
+):
+    fabrica, _ = banco_de_teste
+    with fabrica() as sessao:
+        resultado = chatwoot_webhook.receber_evento(
+            sessao,
+            _evento_do_testador("+5583988887777"),
+            politica_de_teste,
+            CONFIG_TESTE,
+            AGORA,
+        )
+        assert resultado == "sem_cobranca"
+        assert sessao.scalars(select(Cobranca)).all() == []
+
+
+def test_a_mensagem_do_atendente_nao_cria_caso(banco_de_teste, politica_de_teste):
+    fabrica, casos = banco_de_teste
+    with fabrica() as sessao:
+        dados = _do_atendente()
+        dados["conversation"]["meta"] = {"sender": {"phone_number": "+5583988887777"}}
+        resultado = chatwoot_webhook.receber_evento(
+            sessao, dados, politica_de_teste, CONFIG_TESTE, AGORA, casos=casos
+        )
+        assert resultado == "sem_cobranca"
+        assert sessao.scalars(select(Cobranca)).all() == []
+
+
+def test_o_testador_com_caso_ativo_nao_troca_de_caso_no_oi(banco_de_teste, politica_de_teste):
+    fabrica, casos = banco_de_teste
+    with fabrica() as sessao:
+        for mensagem_id in (1, 2):
+            chatwoot_webhook.receber_evento(
+                sessao,
+                _evento_do_testador("+5583988887777", id=mensagem_id),
+                politica_de_teste,
+                CONFIG_TESTE,
+                AGORA,
+                casos=casos,
+            )
+        assert len(sessao.scalars(select(Cobranca)).all()) == 1
+        assert len(sessao.scalars(select(Mensagem)).all()) == 2
+
+
+def test_o_app_passa_os_casos_das_dependencias_ao_webhook(banco_de_teste, politica_de_teste):
+    from agente.integracoes.chatwoot import ChatwootFalso
+    from agente.integracoes.jev import JevFalso
+    from agente.tipos import Modo
+    from agente.turno.orquestrador import Dependencias
+
+    fabrica, casos = banco_de_teste
+    deps = Dependencias(
+        politica=politica_de_teste,
+        chatwoot=ChatwootFalso(),
+        disparador=None,
+        time_humano=None,
+        modo=Modo.ATIVO,
+        jev=JevFalso(),
+        casos=casos,
+    )
+    config = Config(
+        database_url="sqlite://", webhook_segredo="s3gredo", chatwoot_conta=7, chatwoot_inbox=3
+    )
+    app = criar_app(
+        fabrica,
+        politica_de_teste,
+        config,
+        relogio=Relogio(AGORA),
+        dependencias=deps,
+        iniciar_trabalhador=False,
+    )
+    with TestClient(app) as cliente:
+        resposta = _postar(cliente, _evento_do_testador("+5583988887777"))
+    assert resposta.json() == {"resultado": "agendado"}
+    with fabrica() as sessao:
+        assert sessao.scalars(select(Cobranca)).one().cliente.matricula_ctn == "SIM-1-7777"
+
+
+def test_a_corrida_na_criacao_do_caso_nao_derruba_o_webhook(
+    banco_de_teste, politica_de_teste, monkeypatch
+):
+    """A outra entrega da mesma 1ª mensagem criou o caso antes e a nossa quebra o índice único: o
+    savepoint desfaz só a nossa criação, e o webhook segue com a procura da conversa (aqui a outra
+    entrega não deixou nada visível, então a resposta é a de sempre)."""
+    from sqlalchemy.exc import IntegrityError
+
+    fabrica, casos = banco_de_teste
+
+    def perde_a_corrida(sessao, *_args, **_kwargs):
+        sessao.add(Cliente(matricula_ctn="SIM-1-7777", nome="Ana", telefone="+5583988887777"))
+        sessao.flush()
+        raise IntegrityError("insert", {}, Exception("uq_cobranca_ativa_por_cliente"))
+
+    monkeypatch.setattr(chatwoot_webhook, "garantir_caso", perde_a_corrida)
+    with fabrica() as sessao:
+        resultado = chatwoot_webhook.receber_evento(
+            sessao,
+            _evento_do_testador("+5583988887777"),
+            politica_de_teste,
+            CONFIG_TESTE,
+            AGORA,
+            casos=casos,
+        )
+        assert resultado == "sem_cobranca"
+        assert sessao.scalars(select(Cliente)).all() == []

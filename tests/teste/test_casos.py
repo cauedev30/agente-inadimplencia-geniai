@@ -1,12 +1,24 @@
 """A ativação dos casos do modo teste (D56): o piloto, a trava de subida e o 1º contato."""
 
+from datetime import UTC, date, datetime
+
 import pytest
+from sqlalchemy import select
 
 from agente.db.modelos import Cliente, Cobranca
+from agente.integracoes.ctn_teste import CasoInexistente, CTNDeCasos
 from agente.politica import Regua
-from agente.teste.casos import do_piloto, exigir_piloto_fora_da_carteira
+from agente.teste.casos import (
+    ativar_caso,
+    do_piloto,
+    exigir_piloto_fora_da_carteira,
+    garantir_caso,
+)
 from agente.tipos import StatusCobranca
 from tests.conftest import TESTADOR_1, TESTADOR_2
+
+HOJE = date(2026, 11, 10)
+AGORA = datetime(2026, 11, 10, 13, tzinfo=UTC)
 
 
 def _cobranca(sessao, telefone, campanha, *, matricula, status=StatusCobranca.ATIVA):
@@ -76,3 +88,131 @@ def test_a_subida_ignora_a_cobranca_real_que_nao_esta_ativa_e_o_telefone_de_fora
     _cobranca(sessao, TESTADOR_1, "ctn", matricula="REAL-1", status=StatusCobranca.ENCERRADA)
     _cobranca(sessao, "+5583977776666", "ctn", matricula="REAL-2")
     exigir_piloto_fora_da_carteira(sessao, politica_de_teste)
+
+
+# ---- ativar_caso e garantir_caso ----
+
+
+@pytest.fixture
+def casos(politica_de_teste):
+    return CTNDeCasos(
+        politica_de_teste.teste.casos, politica_de_teste.mensalidade_centavos, lambda: HOJE
+    )
+
+
+def _cobrancas(sessao):
+    return list(sessao.scalars(select(Cobranca).order_by(Cobranca.id)))
+
+
+def test_ativar_o_caso_cria_a_cobranca_conferida_de_hoje(sessao, casos, politica_de_teste):
+    cobranca = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 3, AGORA)
+    sessao.commit()
+
+    assert cobranca.cliente.matricula_ctn == "SIM-3-7777"
+    assert (cobranca.cliente.nome, cobranca.cliente.telefone) == ("Carla", TESTADOR_1)
+    assert cobranca.campanha == "teste"
+    assert cobranca.status is StatusCobranca.ATIVA
+    assert cobranca.regua is Regua.R4
+    assert (cobranca.mensalidades_abertas, cobranca.mensalidades_retrato) == (4, 4)
+    assert cobranca.divida_centavos == 4 * politica_de_teste.mensalidade_centavos
+    assert cobranca.ult_mesref == date(2026, 6, 1)
+    assert cobranca.conferida_em == AGORA
+    assert cobranca.meses_em_aberto == ["2026/07", "2026/08", "2026/09", "2026/10"]
+    assert cobranca.propenso_cartao is False
+
+
+def test_o_caso_2_sai_propenso_ao_cartao_pela_conferencia(sessao, casos, politica_de_teste):
+    cobranca = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 2, AGORA)
+    assert cobranca.propenso_cartao is True
+    assert cobranca.regua is Regua.R3
+
+
+def test_o_telefone_do_cliente_e_o_do_evento_normalizado(sessao, casos, politica_de_teste):
+    cobranca = ativar_caso(sessao, casos, politica_de_teste, "83 98888-7777", 1, AGORA)
+    assert cobranca.cliente.telefone == "+5583988887777"
+    assert casos.consultar_cliente("SIM-1-7777").telefone == "+5583988887777"
+
+
+def test_trocar_de_caso_encerra_a_anterior_e_nao_deixa_duas_ativas(
+    sessao, casos, politica_de_teste
+):
+    primeira = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 1, AGORA)
+    segunda = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 4, AGORA)
+    sessao.commit()
+
+    assert primeira.status is StatusCobranca.ENCERRADA
+    assert primeira.encerrada_motivo == "troca_de_caso"
+    assert primeira.encerrada_em == AGORA
+    assert segunda.status is StatusCobranca.ATIVA
+    ativas = [c for c in _cobrancas(sessao) if c.status is StatusCobranca.ATIVA]
+    assert ativas == [segunda]
+
+
+def test_o_mesmo_caso_de_novo_cria_cobranca_nova_para_o_mesmo_cliente(
+    sessao, casos, politica_de_teste
+):
+    primeira = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 3, AGORA)
+    casos.pagar_meses("SIM-3-7777", 2, AGORA, "k1")
+    segunda = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 3, AGORA)
+    sessao.commit()
+
+    assert segunda.id != primeira.id
+    assert segunda.cliente_id == primeira.cliente_id
+    assert primeira.status is StatusCobranca.ENCERRADA
+    # O caso volta ao começo: os 2 meses pagos voltam a estar em aberto.
+    assert segunda.mensalidades_abertas == 4
+    assert len(sessao.scalars(select(Cliente)).all()) == 1
+
+
+def test_a_cobranca_paga_do_caso_nao_e_encerrada_de_novo(sessao, casos, politica_de_teste):
+    primeira = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 1, AGORA)
+    primeira.status = StatusCobranca.PAGA
+    ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 2, AGORA)
+    assert primeira.status is StatusCobranca.PAGA
+    assert primeira.encerrada_motivo is None
+
+
+def test_a_troca_so_encerra_as_cobrancas_do_telefone_do_testador(sessao, casos, politica_de_teste):
+    do_1 = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 1, AGORA)
+    do_2 = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_2, 1, AGORA)
+    ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 5, AGORA)
+    assert do_1.status is StatusCobranca.ENCERRADA
+    assert do_2.status is StatusCobranca.ATIVA
+
+
+def test_a_troca_encerra_a_ativa_escrita_sem_o_9(sessao, casos, politica_de_teste):
+    antiga = ativar_caso(sessao, casos, politica_de_teste, "+558388887777", 1, AGORA)
+    ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 2, AGORA)
+    assert antiga.status is StatusCobranca.ENCERRADA
+
+
+def test_caso_fora_do_cardapio_e_inexistente_e_nao_grava(sessao, casos, politica_de_teste):
+    with pytest.raises(CasoInexistente):
+        ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 9, AGORA)
+    assert _cobrancas(sessao) == []
+
+
+def test_garantir_caso_cria_o_caso_padrao_para_o_piloto_sem_cobranca(
+    sessao, casos, politica_de_teste
+):
+    cobranca = garantir_caso(sessao, casos, politica_de_teste, TESTADOR_1, AGORA)
+    assert cobranca.cliente.matricula_ctn == "SIM-1-7777"
+    assert cobranca.status is StatusCobranca.ATIVA
+
+
+def test_garantir_caso_nao_faz_nada_com_cobranca_ativa_ou_fora_do_piloto(
+    sessao, casos, politica_de_teste
+):
+    assert garantir_caso(sessao, casos, politica_de_teste, "+5583977776666", AGORA) is None
+    ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 3, AGORA)
+    assert garantir_caso(sessao, casos, politica_de_teste, TESTADOR_1, AGORA) is None
+    assert len(_cobrancas(sessao)) == 1
+
+
+def test_garantir_caso_com_o_caso_anterior_encerrado_recomeca_no_padrao(
+    sessao, casos, politica_de_teste
+):
+    primeira = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 3, AGORA)
+    primeira.status = StatusCobranca.PAGA
+    cobranca = garantir_caso(sessao, casos, politica_de_teste, TESTADOR_1, AGORA)
+    assert cobranca.cliente.matricula_ctn == "SIM-1-7777"

@@ -1,12 +1,19 @@
 """Os casos do modo teste: quem é testador, a trava de subida e a ativação de um caso (D56)."""
 
+from datetime import datetime
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from agente.carteira.conferir import conferir_cobranca
 from agente.db.modelos import Cliente, Cobranca
-from agente.dominio.telefone import variantes_telefone
+from agente.dominio.divida import calcular_divida, classificar_regua
+from agente.dominio.telefone import normalizar_telefone, variantes_telefone
+from agente.integracoes.ctn_teste import CasoInexistente, CTNDeCasos, matricula_simulada
 from agente.politica import LiberacaoPiloto, Politica
 from agente.tipos import StatusCobranca
+
+MOTIVO_TROCA_DE_CASO = "troca_de_caso"
 
 
 def do_piloto(telefone: str, politica: Politica) -> bool:
@@ -44,3 +51,87 @@ def exigir_piloto_fora_da_carteira(sessao: Session, politica: Politica) -> None:
             f"o modo teste não sobe: {reais} cobrança(s) ATIVA(s) fora da campanha "
             f"'{teste.campanha}' em telefone(s) do piloto. Encerre-as ou tire o telefone do piloto"
         )
+
+
+def _ativas_do_telefone(sessao: Session, telefone: str, campanha: str | None) -> list[Cobranca]:
+    """As cobranças ATIVAS do telefone (com e sem o 9); com `campanha`, só as dela."""
+    consulta = (
+        select(Cobranca)
+        .join(Cliente, Cobranca.cliente_id == Cliente.id)
+        .where(
+            Cliente.telefone.in_(variantes_telefone(telefone) or {telefone}),
+            Cobranca.status == StatusCobranca.ATIVA,
+        )
+        .order_by(Cobranca.id)
+    )
+    if campanha is not None:
+        consulta = consulta.where(Cobranca.campanha == campanha)
+    return list(sessao.scalars(consulta))
+
+
+def ativar_caso(
+    sessao: Session,
+    casos: CTNDeCasos,
+    politica: Politica,
+    telefone: str,
+    numero: int,
+    agora: datetime,
+) -> Cobranca:
+    """Põe o testador no caso `numero` do cardápio, desde o começo. Não faz commit.
+
+    Encerra a cobrança ATIVA de teste dele (a troca de caso), cria ou atualiza o `Cliente` da
+    matrícula simulada e cria uma cobrança nova, que a conferência de sempre grava (meses, dívida e
+    propensão) lendo o `CTNDeCasos`. O mesmo caso de novo é uma cobrança nova do mesmo cliente.
+    Número fora do cardápio levanta `CasoInexistente`, sem gravar nada.
+    """
+    teste = politica.teste
+    if teste is None:
+        raise ValueError("o modo teste não está ligado no politica.toml")
+    caso = next((c for c in teste.casos if c.numero == numero), None)
+    if caso is None:
+        raise CasoInexistente(str(numero))
+    telefone = normalizar_telefone(telefone) or telefone
+    matricula = matricula_simulada(numero, telefone)
+
+    for anterior in _ativas_do_telefone(sessao, telefone, teste.campanha):
+        anterior.status = StatusCobranca.ENCERRADA
+        anterior.encerrada_motivo = MOTIVO_TROCA_DE_CASO
+        anterior.encerrada_em = agora
+    # A encerrada tem de sair do índice único (uma ATIVA por cliente) antes de a nova entrar.
+    sessao.flush()
+
+    cliente = sessao.scalar(select(Cliente).where(Cliente.matricula_ctn == matricula))
+    if cliente is None:
+        cliente = Cliente(matricula_ctn=matricula, nome=caso.nome, telefone=telefone)
+        sessao.add(cliente)
+    cliente.nome = caso.nome
+    cliente.telefone = telefone
+    casos.ativar(matricula, telefone)
+    cobranca = Cobranca(
+        cliente=cliente,
+        regua=classificar_regua(caso.meses_atraso, None, politica),
+        mensalidades_abertas=caso.meses_atraso,
+        mensalidades_retrato=caso.meses_atraso,
+        divida_centavos=calcular_divida(caso.meses_atraso, politica),
+        propenso_cartao=False,
+        campanha=teste.campanha,
+        ult_mesref=casos.ult_mesref(matricula),
+    )
+    sessao.add(cobranca)
+    sessao.flush()
+    # Grava `conferida_em`, `meses_em_aberto` e a propensão, pelo caminho de sempre.
+    conferir_cobranca(sessao, casos, politica, cobranca.id, agora)
+    return cobranca
+
+
+def garantir_caso(
+    sessao: Session, casos: CTNDeCasos, politica: Politica, telefone: str, agora: datetime
+) -> Cobranca | None:
+    """O 1º contato do testador: o telefone do piloto sem cobrança ATIVA recebe o caso padrão.
+
+    Devolve a cobrança criada, ou None se o telefone não é do piloto ou já tem cobrança ATIVA."""
+    if politica.teste is None or not do_piloto(telefone, politica):
+        return None
+    if _ativas_do_telefone(sessao, telefone, None):
+        return None
+    return ativar_caso(sessao, casos, politica, telefone, politica.teste.caso_padrao, agora)

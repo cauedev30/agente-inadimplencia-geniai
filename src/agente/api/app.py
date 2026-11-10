@@ -197,7 +197,14 @@ def criar_app(
                         dependencias.time_humano,
                         relogio(),
                     )
-                return receber_evento(sessao, dados, politica, config, relogio())
+                return receber_evento(
+                    sessao,
+                    dados,
+                    politica,
+                    config,
+                    relogio(),
+                    casos=getattr(dependencias, "casos", None),
+                )
 
         return {"resultado": await run_in_threadpool(_tratar)}
 

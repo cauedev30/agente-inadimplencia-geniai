@@ -16,7 +16,9 @@ from agente.config import Config
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Cliente, Cobranca, Conversa
 from agente.dominio.telefone import normalizar_telefone, variantes_telefone
+from agente.integracoes.ctn_teste import CTNDeCasos
 from agente.politica import Politica
+from agente.teste.casos import garantir_caso
 from agente.tipos import OrigemMensagem, StatusCobranca
 from agente.turno.fila import agendar_turno
 from agente.turno.handoff import devolver_ao_robo
@@ -149,6 +151,26 @@ def _conversa_do_cliente(sessao: Session, evento: EventoMensagem) -> Conversa | 
     return conversa
 
 
+def _conversa_do_1o_contato_de_teste(
+    sessao: Session,
+    evento: EventoMensagem,
+    casos: CTNDeCasos,
+    politica: Politica,
+    agora: datetime,
+) -> Conversa | None:
+    """O 1º contato de um testador do piloto: o caso padrão nasce e a conversa se liga a ele.
+
+    Se a outra entrega da mesma 1ª mensagem criou o caso antes (o índice único de cobrança ATIVA
+    ou a matrícula repetida quebra a nossa), a criação daqui roda num savepoint e vale a dela."""
+    try:
+        with sessao.begin_nested():
+            if garantir_caso(sessao, casos, politica, evento.telefone or "", agora) is None:
+                return None
+    except IntegrityError:
+        pass
+    return _conversa_do_cliente(sessao, evento)
+
+
 def _status_mudou(sessao: Session, dados: dict, agora: datetime) -> str:
     """O atendente marcou a conversa como Pendente: o robô reassume (arquitetura, seção 3)."""
     if dados.get("status") != "pending":
@@ -164,11 +186,18 @@ def _status_mudou(sessao: Session, dados: dict, agora: datetime) -> str:
 
 
 def receber_evento(
-    sessao: Session, dados: dict, politica: Politica, config: Config, agora: datetime
+    sessao: Session,
+    dados: dict,
+    politica: Politica,
+    config: Config,
+    agora: datetime,
+    casos: CTNDeCasos | None = None,
 ) -> str:
     """Trata o evento. Devolve: agendado, repetida, humano, devolvida, sem_cobranca ou ignorado.
 
     A mensagem do atendente só grava e marca o humano na conversa; quem agenda o turno é o cliente.
+    Com `casos` (o modo teste, D56), o 1º contato de um testador do piloto, sem cobrança ATIVA,
+    ganha o caso padrão do cardápio.
     """
     if dados.get("event") == "conversation_status_changed":
         return _status_mudou(sessao, dados, agora)
@@ -202,6 +231,8 @@ def receber_evento(
     if evento.tipo != "incoming":
         return "ignorado"
     conversa = _conversa_do_cliente(sessao, evento)
+    if conversa is None and casos is not None and evento.telefone:
+        conversa = _conversa_do_1o_contato_de_teste(sessao, evento, casos, politica, agora)
     if conversa is None:
         sessao.commit()
         return "sem_cobranca"
