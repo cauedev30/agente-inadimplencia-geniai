@@ -54,12 +54,12 @@ from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import (
     Adiar,
     Fixa,
+    ForaDas24h,
     Gate,
     Ignorar,
     PagarPix,
     Quitada,
     Reiniciar,
-    Retomar,
     Seguir,
     avaliar_envio,
     avaliar_gates,
@@ -154,23 +154,9 @@ class Dependencias:
 def _rotulo(gate: Gate) -> str | None:
     if isinstance(gate, Fixa):
         return f"FIXA:{gate.tipo.value}"
-    if isinstance(gate, Retomar):
-        return "RETOMADA"
     if isinstance(gate, Reiniciar):
         return "REINICIO"
     return None
-
-
-def _retomar(sessao: Session, conversa: Conversa, deps: Dependencias, agora: datetime) -> None:
-    nome = conversa.cobranca.cliente.nome.split()[0]
-    template = deps.politica.template_retomada
-    deps.disparador.enviar_template(
-        conversa.cobranca.cliente.telefone, template, {"nome": nome}, []
-    )
-    # Gravada como template, fora do teto: não é a 6ª mensagem.
-    registrar_mensagem(
-        sessao, conversa.id, OrigemMensagem.ABERTURA, f"[template {template}]", None, False, agora
-    )
 
 
 def _reiniciar(
@@ -394,13 +380,6 @@ def _envio_pendente(sessao: Session, conversa_id: int) -> Mensagem | None:
     return sessao.scalars(consulta.order_by(Mensagem.id)).first()
 
 
-def _entregue(
-    sessao: Session, conversa: Conversa, mensagem: Mensagem, deps: Dependencias
-) -> str | None:
-    """O id da mensagem no Chatwoot, se ela já foi entregue (a resposta do envio se perdeu)."""
-    return entregue(sessao, conversa, mensagem, deps.chatwoot)
-
-
 def _descartar(sessao: Session, mensagem: Mensagem) -> None:
     """A mensagem nunca saiu e não vai mais sair: deixa de contar no teto.
 
@@ -433,7 +412,7 @@ def _despachar(
 
     No reenvio, a tentativa anterior pode ter entregue e perdido a resposta: confere antes.
     """
-    chatwoot_id = _entregue(sessao, conversa, mensagem, deps) if reenvio else None
+    chatwoot_id = entregue(sessao, conversa, mensagem, deps.chatwoot) if reenvio else None
     if chatwoot_id is None:
         chatwoot_id = deps.chatwoot.enviar_mensagem(conversa.chatwoot_conversa_id, mensagem.texto)
     confirmar_envio(sessao, mensagem, chatwoot_id)
@@ -853,7 +832,7 @@ def _resolver_pendente(sessao: Session, conversa: Conversa, deps: Dependencias) 
     pendente = _envio_pendente(sessao, conversa.id)
     if pendente is None:
         return
-    chatwoot_id = _entregue(sessao, conversa, pendente, deps)
+    chatwoot_id = entregue(sessao, conversa, pendente, deps.chatwoot)
     if chatwoot_id is None:
         _descartar(sessao, pendente)
     else:
@@ -1028,7 +1007,7 @@ def _entregar(
     return ResultadoTurno.ENVIADO
 
 
-def _retomar_envio(
+def _refazer_envio(
     sessao: Session, conversa: Conversa, mensagem: Mensagem, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
     """Um turno anterior gravou a mensagem e não a confirmou: refaz só o envio, não o turno.
@@ -1065,12 +1044,12 @@ def _turno_ativo(
 
     A cobrança que a conferência de hoje achou quitada (`quitada_no_ctn`) não é cobrada: é o último
     gate do turno (`Quitada`), e a conversa sai para o humano conferir (CONCILIACAO). Uma mensagem
-    pendente de antes, com o valor antigo, não é mais retomada.
+    pendente de antes, com o valor antigo, não é mais refeita.
     """
     desistindo = conversa.falhas_turno >= deps.politica.integracao_tentativas
     pendente = _envio_pendente(sessao, conversa.id)
     if pendente is not None and not desistindo and not quitada_no_ctn:
-        return _retomar_envio(sessao, conversa, pendente, deps, agora)
+        return _refazer_envio(sessao, conversa, pendente, deps, agora)
     try:
         with sessao.begin_nested():
             if desistindo:
@@ -1190,9 +1169,19 @@ def _rodar_turno(
             return ResultadoTurno.HANDOFF
         _handoff(sessao, conversa, MotivoHumano.TETO, deps, agora)
         return fechar(ResultadoTurno.FIXA)
-    if isinstance(gate, Retomar):
-        _retomar(sessao, conversa, deps, agora)
-        return fechar(ResultadoTurno.FIXA)
+    if isinstance(gate, ForaDas24h):
+        # Passaram as 24h do WhatsApp: só um template poderia sair, e o agente não o manda. O humano
+        # assume, com a nota, e o cliente não recebe nada (AUD-04).
+        _handoff(sessao, conversa, MotivoHumano.FORA_DAS_24H, deps, agora, enviar_mensagem=False)
+        fechar_turno(
+            sessao,
+            turno.id,
+            ResultadoTurno.HANDOFF,
+            acao_principal=rotulo_humano(MotivoHumano.FORA_DAS_24H),
+            redacao={"saida": "HANDOFF"},
+            momento=agora,
+        )
+        return ResultadoTurno.HANDOFF
     # O último gate possível é o `Reiniciar`.
     _reiniciar(sessao, conversa, turno, mensagens, deps, agora)
     return fechar(ResultadoTurno.IGNORADO)
@@ -1204,7 +1193,7 @@ def _conferir_no_contato(
     """Confere a cobrança no CTN no 1º turno do dia, só se o turno vai cobrar (ou gerar o Pix).
 
     Os gates (humano, janela de atendimento, janela de 24h, teto, reinício) rodam antes, só de
-    leitura: onde eles já decidem (ignorar, adiar, retomar, a 6ª, o `/reset`), o CTN nem é chamado.
+    leitura: onde eles já decidem (ignorar, adiar, as 24h, a 6ª, o `/reset`), o CTN nem é chamado.
     Só com `Seguir` ou `PagarPix` a conferência acontece, antes de qualquer escrita e de qualquer
     trava (o CTN lento não segura a linha da cobrança: a gravação curta é confirmada logo, em
     `conferir_antes_do_envio`). Devolve `None` se não há o que conferir.

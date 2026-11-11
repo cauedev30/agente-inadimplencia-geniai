@@ -47,7 +47,6 @@ class EstadoConversa(StrEnum):
 
     INICIADO = "INICIADO"
     ENGAJADO = "ENGAJADO"
-    EM_NEGOCIACAO = "EM_NEGOCIACAO"
     AGUARDANDO_PAGAMENTO = "AGUARDANDO_PAGAMENTO"
     PAGO = "PAGO"
     ENCERRADO = "ENCERRADO"
@@ -79,7 +78,6 @@ class MotivoHumano(StrEnum):
     ERRO_INTERNO = "ERRO_INTERNO"
     VALIDACAO = "VALIDACAO"
     OBJECAO_SEM_DESCONTO = "OBJECAO_SEM_DESCONTO"
-    BOLETO = "BOLETO"
     TETO = "TETO"
     DECISAO_JEV2 = "DECISAO_JEV2"
     # O valor pago não bate com o do Pix ou do link: a baixa fica com o humano (tarefa 6.1).
@@ -88,6 +86,9 @@ class MotivoHumano(StrEnum):
     AUDIO = "AUDIO"
     # O cliente pediu um atendente (D47).
     PEDIU_HUMANO = "PEDIU_HUMANO"
+    # O cliente escreveu fora do horário e passaram as 24h do WhatsApp: só um template poderia sair
+    # (AUD-04). A coluna é VARCHAR, então o motivo novo não pede migração.
+    FORA_DAS_24H = "FORA_DAS_24H"
 
 
 class FormaPagamento(StrEnum):

@@ -69,13 +69,13 @@ def test_sem_time_configurado_nao_atribui(sessao, conversa, politica):
 
 
 def test_pendente_devolve_ao_robo_no_estado_de_antes(sessao, conversa, politica):
-    transicionar(sessao, conversa, EstadoConversa.EM_NEGOCIACAO, None, None, momento=AGORA)
+    transicionar(sessao, conversa, EstadoConversa.AGUARDANDO_PAGAMENTO, None, None, momento=AGORA)
     _handoff(sessao, conversa, politica, ChatwootFalso())
     conversa.human_owned = True
 
     devolver_ao_robo(sessao, conversa, AGORA)
 
-    assert conversa.estado is EstadoConversa.EM_NEGOCIACAO
+    assert conversa.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
     assert conversa.human_owned is False
     assert conversa.motivo_humano is None
 

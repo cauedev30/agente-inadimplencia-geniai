@@ -390,7 +390,7 @@ def test_quitada_no_ctn_com_a_6a_ja_enviada_segue_o_gate_do_teto(sessao, ligada,
     assert ctn.chamadas == []
 
 
-def test_quitada_no_ctn_com_a_ultima_mensagem_de_mais_de_24h_so_manda_o_template(
+def test_quitada_no_ctn_com_a_ultima_mensagem_de_mais_de_24h_vai_ao_humano_sem_mensagem(
     sessao, ligada, politica
 ):
     ctn = _quitada()
@@ -399,10 +399,10 @@ def test_quitada_no_ctn_com_a_ultima_mensagem_de_mais_de_24h_so_manda_o_template
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    assert resultado is ResultadoTurno.FIXA
+    assert resultado is ResultadoTurno.HANDOFF
     assert deps.chatwoot.enviadas(555) == []
-    assert len(deps.disparador.envios) == 1
-    assert ligada.estado is not EstadoConversa.ATENDIMENTO_HUMANO
+    assert deps.disparador.envios == []
+    assert ligada.motivo_humano is MotivoHumano.FORA_DAS_24H
     assert ctn.chamadas == []
 
 

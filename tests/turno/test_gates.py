@@ -9,10 +9,10 @@ from agente.tipos import EstadoConversa, OrigemMensagem, StatusCobranca, TipoFix
 from agente.turno.gates import (
     Adiar,
     Fixa,
+    ForaDas24h,
     Ignorar,
     Quitada,
     Reiniciar,
-    Retomar,
     Seguir,
     avaliar_gates,
 )
@@ -113,9 +113,9 @@ def test_fora_da_janela_adia_ate_a_abertura(sessao, conversa, politica):
     assert resultado == Adiar(datetime(2026, 11, 3, 8, tzinfo=JP))  # segunda é Finados
 
 
-def test_passou_das_24h_do_whatsapp_vira_retomada(sessao, conversa, politica):
+def test_passou_das_24h_do_whatsapp_vira_fora_das_24h(sessao, conversa, politica):
     mensagem = _cliente(sessao, conversa, momento=SEGUNDA_10H - timedelta(hours=25))
-    assert _avaliar(sessao, conversa, [mensagem], politica) == Retomar()
+    assert _avaliar(sessao, conversa, [mensagem], politica) == ForaDas24h()
 
 
 def test_no_teto_sai_a_6a_fixa(sessao, conversa, politica):
@@ -184,9 +184,9 @@ def test_quitada_no_ctn_fora_da_janela_de_atendimento_adia(sessao, conversa, pol
     assert isinstance(resultado, Adiar)
 
 
-def test_quitada_no_ctn_passou_das_24h_so_manda_template(sessao, conversa, politica):
+def test_quitada_no_ctn_passou_das_24h_vai_ao_humano_sem_mensagem(sessao, conversa, politica):
     mensagem = _cliente(sessao, conversa, momento=SEGUNDA_10H - timedelta(hours=25))
-    assert _quitada(sessao, conversa, [mensagem], politica) == Retomar()
+    assert _quitada(sessao, conversa, [mensagem], politica) == ForaDas24h()
 
 
 def test_quitada_no_ctn_no_teto_segue_o_gate_do_teto(sessao, conversa, politica):

@@ -20,11 +20,17 @@ NOTA_CONCILIACAO_REPETIDA = (
     "A conferência no CTN segue mostrando a cobrança quitada; o cliente escreveu de novo."
 )
 NOTA_REPETIDA = "A conversa já saiu por este motivo; o cliente escreveu de novo."
+NOTA_FORA_DAS_24H = (
+    "O cliente escreveu fora do horário e passaram as 24h do WhatsApp: "
+    "só dá para responder com template"
+)
 
 
 def _nota(motivo: MotivoHumano, laudos: list[Laudo], *, repetido: bool = False) -> str:
     linhas = [f"Saída para o humano: {motivo.value}"]
-    if repetido:
+    if motivo is MotivoHumano.FORA_DAS_24H:
+        linhas.append(NOTA_FORA_DAS_24H)
+    elif repetido:
         linhas.append(
             {
                 MotivoHumano.TETO: NOTA_TETO_REPETIDO,

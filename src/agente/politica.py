@@ -238,7 +238,6 @@ class Politica(_Imutavel):
     # `identifier` forjado no widget).
     webchat_verificacao_validade_minutos: int = Field(ge=1)
     template_abertura: str = Field(min_length=1)
-    template_retomada: str = Field(min_length=1)
     template_confirmacao: str = Field(min_length=1)
     # O aviso único quando o cliente quitou por fora e a baixa chegou pelo CTN (spec do CTN real,
     # decisão 3): texto fixo, sem valor nem nome, só dentro das 24h e fora do teto de mensagens.

@@ -104,15 +104,46 @@ def test_humano_na_conversa_e_ignorado(sessao, ligada, deps):
     assert sessao.scalars(select(Turno)).one().resultado is ResultadoTurno.IGNORADO
 
 
-def test_passou_das_24h_sai_o_template_de_retomada(sessao, ligada, deps):
+def test_passou_das_24h_vai_ao_humano_com_a_nota_e_sem_mensagem_nem_template(sessao, ligada, deps):
     _cliente(sessao, ligada, momento=SEGUNDA_10H - timedelta(hours=25))
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    assert resultado is ResultadoTurno.FIXA
-    [envio] = deps.disparador.envios
-    assert envio.template == deps.politica.template_retomada
-    assert envio.variaveis == {"nome": "Cliente"}
+    assert resultado is ResultadoTurno.HANDOFF
+    _handoff_sem_mensagem_nem_template(sessao, ligada, deps)
+
+
+def test_mensagem_de_sabado_a_tarde_adiada_para_a_segunda_vai_ao_humano_sem_mensagem(
+    sessao, ligada, deps
+):
+    sabado_13h = datetime(2026, 10, 24, 13, tzinfo=JP)
+    segunda_8h = datetime(2026, 10, 26, 8, tzinfo=JP)
+    _cliente(sessao, ligada, momento=sabado_13h)
+
+    # Fora da janela de atendimento: o turno espera a abertura da segunda.
+    assert processar_turno(sessao, ligada.id, sabado_13h, deps) is ResultadoTurno.ADIADO
+    assert ligada.turno_em == segunda_8h
+    assert deps.chatwoot.chamadas == []
+
+    # Na segunda às 8h já passaram 43 horas: só um template poderia responder.
+    assert processar_turno(sessao, ligada.id, segunda_8h, deps) is ResultadoTurno.HANDOFF
+    _handoff_sem_mensagem_nem_template(sessao, ligada, deps)
+
+
+def _handoff_sem_mensagem_nem_template(sessao, ligada, deps):
+    assert deps.chatwoot.enviadas(555) == []
+    assert deps.disparador.envios == []
+    notas = [chamada for chamada in deps.chatwoot.chamadas if chamada[0] == "nota_privada"]
+    assert len(notas) == 1
+    assert "passaram as 24h do WhatsApp: só dá para responder com template" in notas[0][2]
+    assert ligada.estado is EstadoConversa.ATENDIMENTO_HUMANO
+    assert ligada.motivo_humano is MotivoHumano.FORA_DAS_24H
+    turno = sessao.scalars(select(Turno).order_by(Turno.id.desc())).first()
+    assert (turno.resultado, turno.acao_principal) == (
+        ResultadoTurno.HANDOFF,
+        "HUMAN:FORA_DAS_24H",
+    )
+    assert mensagens_pendentes(sessao, ligada.id) == []
 
 
 def test_reinicio_abre_uma_conversa_nova(sessao, ligada, deps):

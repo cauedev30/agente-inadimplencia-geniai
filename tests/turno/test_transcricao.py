@@ -314,7 +314,7 @@ class TestOsGatesRodamAntes:
         antigo = SEGUNDA_10H - timedelta(hours=25)
         _cliente(sessao, ligada, anexos=[_audio()], momento=antigo)
 
-        assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.FIXA
+        assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.HANDOFF
         assert transcritor.chamadas == []
 
     def test_o_teto_nao_transcreve(self, sessao, ligada, politica):

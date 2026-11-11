@@ -101,7 +101,7 @@ def _acao_conhecida(valor: str) -> bool:
         return _acao_conhecida(resto)
     if prefixo == "FIXA":
         return resto in {tipo.value for tipo in TipoFixa}
-    if valor in ("REINICIO", "RETOMADA"):
+    if valor == "REINICIO":
         return True
     return valor in {acao.value for acao in Acao if acao is not Acao.HUMAN}
 

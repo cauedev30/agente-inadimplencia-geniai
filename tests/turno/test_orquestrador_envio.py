@@ -21,7 +21,8 @@ from agente.tipos import (
     ResultadoTurno,
 )
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, TEXTO_RESPOSTA_SEGURA
-from agente.turno.orquestrador import _entregue, _ja_saiu_resposta_segura, processar_turno
+from agente.turno.entrega import entregue
+from agente.turno.orquestrador import _ja_saiu_resposta_segura, processar_turno
 
 from .auxiliares import _bruto, _deps
 from .test_orquestrador_falhas import PixFora
@@ -321,7 +322,7 @@ def test_a_conferencia_so_descarta_os_ids_da_propria_conversa(sessao, ligada, po
     )
     deps.chatwoot.mensagens_do_agente = lambda _id: [("falso-1", pendente.texto)]
 
-    assert _entregue(sessao, ligada, pendente, deps) == "falso-1"
+    assert entregue(sessao, ligada, pendente, deps.chatwoot) == "falso-1"
 
 
 def test_um_erro_de_codigo_no_turno_conta_como_erro_interno_e_nao_como_falha_de_integracao(

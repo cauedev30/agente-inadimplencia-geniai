@@ -41,8 +41,9 @@ class Adiar:
 
 
 @dataclass(frozen=True)
-class Retomar:
-    """Passou das 24h do WhatsApp: só um template pode sair (C3)."""
+class ForaDas24h:
+    """Passou das 24h do WhatsApp: só um template poderia sair, e o agente não o manda (AUD-04).
+    O orquestrador leva a conversa ao humano, sem mensagem ao cliente."""
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,7 @@ class Quitada:
     orquestrador leva a conversa ao humano conferir (CONCILIACAO), uma vez só."""
 
 
-Gate = Seguir | Ignorar | Adiar | Retomar | Fixa | Reiniciar | PagarPix | Quitada
+Gate = Seguir | Ignorar | Adiar | ForaDas24h | Fixa | Reiniciar | PagarPix | Quitada
 
 
 def _so_anexo_nao_aceito(mensagens: list[Mensagem], politica: Politica) -> bool:
@@ -128,7 +129,7 @@ def avaliar_gates(
         # mensagem só. Os outros gates (humano, 24h, teto) continuam valendo.
         return Adiar(proxima_abertura(agora, politica))
     if agora - max(mensagem.momento for mensagem in mensagens) > JANELA_WHATSAPP:
-        return Retomar()
+        return ForaDas24h()
     if mensagens_no_teto(sessao, conversa.id) >= politica.teto_resolucao:
         # Quem já saiu pelo teto e foi devolvido ao robô também chega aqui: o orquestrador decide
         # entre a 6ª mensagem e o retorno silencioso ao humano.

@@ -121,7 +121,7 @@ def test_transicao_grava_o_laudo_que_a_causou(sessao, conversa):
 
 def test_transicao_sem_humano_limpa_o_motivo(sessao, conversa):
     transicionar(sessao, conversa, EstadoConversa.ATENDIMENTO_HUMANO, MotivoHumano.TOM, None)
-    transicionar(sessao, conversa, EstadoConversa.EM_NEGOCIACAO, None, None)
+    transicionar(sessao, conversa, EstadoConversa.AGUARDANDO_PAGAMENTO, None, None)
 
     assert conversa.motivo_humano is None
     assert len(sessao.scalars(select(Transicao)).all()) == 2

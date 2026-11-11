@@ -452,7 +452,6 @@ aprovados na Meta (D28).
 | Template | Para quê |
 |---|---|
 | `template_abertura` | a mensagem de abertura, com a dívida e o botão |
-| `template_retomada` | o turno adiado que passou das 24h do WhatsApp (C3) |
 | `template_confirmacao` | a confirmação de pagamento fora das 24h (utilidade) |
 
 **A cuidar:** a confirmação por template não confere se o envio já saiu. Se o disparador entrega e o
