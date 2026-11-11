@@ -18,14 +18,22 @@ from sqlalchemy.orm import Session
 
 from agente.carteira.conferir import ResultadoConferencia, conferir_antes_do_envio
 from agente.db.historico import abrir_turno, fechar_turno, registrar_mensagem
-from agente.db.modelos import Cobranca, Conversa, Mensagem, Turno
+from agente.db.modelos import Cobranca, Conversa, Mensagem, Pagamento, Turno
 from agente.db.travas import travar_conversas_e_cobranca
 from agente.dominio.dinheiro import formatar_reais
 from agente.dominio.janela import dentro_da_janela
 from agente.integracoes.ctn_teste import CasoInexistente, numero_do_caso
+from agente.pagamento.baixas_ctn import DependenciasDasBaixas, aplicar_baixas_simuladas
+from agente.pagamento.confirmar import ResultadoConfirmacao, confirmar_pagamento
 from agente.politica import CasoTeste, Politica
 from agente.teste.casos import ativar_caso, conversa_viva_do_testador, do_piloto
-from agente.tipos import OrigemMensagem, ResultadoTurno, StatusCobranca
+from agente.tipos import (
+    FormaPagamento,
+    OrigemMensagem,
+    ResultadoTurno,
+    StatusCobranca,
+    StatusPagamento,
+)
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import humano_na_conversa
 
@@ -118,6 +126,9 @@ class _Rajada:
     # A conversa do Chatwoot que volta a Pendente depois do commit (o robô assume), se o turno
     # trocou o caso de um testador que estava com humano.
     devolver_ao_robo: int | None = None
+    # O que roda depois do commit do turno, em ordem (o pagamento simulado, `/paguei`): cada passo
+    # faz o seu commit e a sua resposta, e a falha de um não desfaz o turno nem os outros.
+    depois: list[Callable[[], None]] = field(default_factory=list)
 
     @property
     def politica(self) -> Politica:
@@ -172,13 +183,137 @@ def _tratar_caso(rajada: _Rajada, comando: Comando) -> Cobranca | None:
     return cobranca
 
 
-def _tratar(rajada: _Rajada, comando: Comando) -> Cobranca | None:
+TEXTO_SEM_PENDENTE = (
+    "[TESTE] Não há Pix nem link pedido para confirmar. Peça o Pix ou o link ao agente, ou mande "
+    "/paguei <n> para pagar n meses por fora."
+)
+TEXTO_PAGAMENTO_FALHOU = "[TESTE] Não consegui simular o pagamento agora. Mande o comando de novo."
+TEXTO_CASO_MUDOU = "[TESTE] O caso mudou antes de o pagamento rodar: nada foi pago."
+
+
+def _tratar_paguei(rajada: _Rajada, comando: Comando, mensagem: Mensagem) -> None:
+    """`/paguei` e `/paguei <n>`: valida já (a resposta de erro é parte do turno) e deixa o
+    pagamento para depois do commit do turno (`_Rajada.depois`).
+
+    O `confirmar_pagamento` e o tratamento das baixas fazem commit: com o pagamento dentro do
+    turno, o Chatwoot que falhasse na resposta desfaria o turno e repetiria um pagamento já feito.
+    Por isso o turno do comando fecha primeiro, o pagamento vem depois, e a resposta `[TESTE]` por
+    último (melhor esforço). Só a cobrança ATIVA atual vale; a trocada nunca é vista."""
+    cobranca = rajada.conversa.cobranca
+    if cobranca.status is not StatusCobranca.ATIVA:
+        _responder(rajada, TEXTO_ENCERRADO)
+        return
+    cobranca_id = cobranca.id
+    if comando.numero is None:
+        pendentes = [p for p in cobranca.pagamentos if p.status is StatusPagamento.PENDENTE]
+        if not pendentes:
+            _responder(rajada, TEXTO_SEM_PENDENTE)
+            return
+        pagamento_id = max(pendentes, key=lambda pagamento: pagamento.id).id
+        rajada.depois.append(lambda: _confirmar_simulado(rajada, pagamento_id))
+        return
+    matricula = cobranca.cliente.matricula_ctn
+    if numero_do_caso(matricula) is None:
+        _responder(rajada, "[TESTE] O /paguei <n> só vale nos casos do cardápio.")
+        return
+    abertas = len(rajada.deps.casos.mensalidades_em_aberto(matricula))
+    n = comando.numero
+    if not 1 <= n <= abertas:
+        faixa = f"de 1 a {abertas}" if abertas else "nenhum, não há mês em aberto"
+        _responder(rajada, f"[TESTE] Mande o /paguei <n> com n {faixa} (os meses em aberto agora).")
+        return
+    chave = str(mensagem.id)
+    rajada.depois.append(lambda: _pagar_por_fora(rajada, cobranca_id, n, chave))
+
+
+def _avisar_depois_do_commit(rajada: _Rajada, texto: str) -> None:
+    """A resposta `[TESTE]` de um passo de `depois`: melhor esforço, na sua própria transação. Se o
+    Chatwoot falhar, só o log; o que o passo fez já está no banco e não se desfaz."""
+    sessao = rajada.sessao
+    try:
+        conversa = sessao.get(Conversa, rajada.conversa.id)
+        if conversa is None or conversa.chatwoot_conversa_id is None:
+            return
+        confirmacao = rajada.deps.chatwoot.enviar_mensagem(conversa.chatwoot_conversa_id, texto)
+        registrar_mensagem(
+            sessao, conversa.id, OrigemMensagem.TESTE, texto, confirmacao, False, rajada.agora
+        )
+        sessao.commit()
+    except Exception:
+        sessao.rollback()
+        log.exception("a resposta do comando de teste não saiu; o pagamento já foi feito")
+
+
+def _confirmar_simulado(rajada: _Rajada, pagamento_id: int) -> None:
+    """O banco "confirma" o Pix ou o link pendente: o mesmo `confirmar_pagamento` do webhook. A
+    mensagem de confirmação do agente e a baixa saem pela rotina `concluir_pagamentos`."""
+    sessao, deps = rajada.sessao, rajada.deps
+    pagamento = sessao.get(Pagamento, pagamento_id)
+    if pagamento.cobranca.status is not StatusCobranca.ATIVA or (
+        pagamento.status is not StatusPagamento.PENDENTE
+    ):
+        # Um `/caso` mais adiante na mesma rajada trocou o caso antes de o pagamento rodar.
+        _avisar_depois_do_commit(rajada, TEXTO_CASO_MUDOU)
+        return
+    forma = "Pix" if pagamento.forma is FormaPagamento.PIX else "link"
+    valor = pagamento.valor_centavos
+    resultado = confirmar_pagamento(sessao, deps, pagamento.referencia, valor, rajada.agora)
+    sessao.commit()
+    if resultado is ResultadoConfirmacao.CONFIRMADO:
+        texto = f"[TESTE] Simulando a confirmação do banco: {forma} de {formatar_reais(valor)}."
+    else:
+        texto = f"[TESTE] O pagamento não foi confirmado ({resultado.value.lower()})."
+    _avisar_depois_do_commit(rajada, texto)
+
+
+def _pagar_por_fora(rajada: _Rajada, cobranca_id: int, n: int, chave: str) -> None:
+    """`n` meses pagos por fora (boleto): o CTN dos casos baixa os meses e o tratamento é o das
+    baixas lidas do CTN (abate, ou quita com o aviso). A `chave` é o id da mensagem do comando: a
+    repetição do mesmo comando não paga duas vezes."""
+    sessao, deps = rajada.sessao, rajada.deps
+    cobranca = sessao.get(Cobranca, cobranca_id)
+    if cobranca.status is not StatusCobranca.ATIVA:
+        _avisar_depois_do_commit(rajada, TEXTO_CASO_MUDOU)
+        return
+    matricula = cobranca.cliente.matricula_ctn
+    try:
+        baixas = deps.casos.pagar_meses(matricula, n, rajada.agora, chave)
+    except ValueError:  # o estado mudou entre a validação e agora
+        _avisar_depois_do_commit(rajada, "[TESTE] Não deu para pagar esses meses: nada foi pago.")
+        return
+    deps_baixas = DependenciasDasBaixas(
+        politica=deps.politica,
+        chatwoot=deps.chatwoot,
+        time_humano=deps.time_humano,
+        modo=deps.modo,
+        ctn=deps.ctn,
+    )
+    aplicar_baixas_simuladas(sessao, deps_baixas, baixas, rajada.agora)
+    _avisar_depois_do_commit(rajada, f"[TESTE] Simulando {n} mês(es) pago(s) por fora (boleto).")
+
+
+def _executar_depois(rajada: _Rajada) -> None:
+    """Os passos de depois do commit, em ordem. O que falha vira o aviso "não consegui" e o log; o
+    turno do comando, já fechado, fica como está."""
+    for passo in rajada.depois:
+        try:
+            passo()
+        except Exception:
+            rajada.sessao.rollback()
+            log.exception("o pagamento de teste da conversa %s falhou", rajada.conversa.id)
+            _avisar_depois_do_commit(rajada, TEXTO_PAGAMENTO_FALHOU)
+
+
+def _tratar(rajada: _Rajada, comando: Comando, mensagem: Mensagem) -> Cobranca | None:
     if comando.nome in ("caso", "reset"):
         return _tratar_caso(rajada, comando)
     if comando.nome == "desconhecido":
         _responder(rajada, _lista_de_comandos(rajada.politica))
         return None
-    # O `/paguei` e o `/nota` entram nas tarefas 2.2 e 2.3.
+    if comando.nome == "paguei":
+        _tratar_paguei(rajada, comando, mensagem)
+        return None
+    # O `/nota` entra na tarefa 2.3.
     _responder(rajada, f"[TESTE] O comando /{comando.nome} ainda não está disponível aqui.")
     return None
 
@@ -245,7 +380,7 @@ def _rodar_comandos(rajada: _Rajada, mensagens: list[Mensagem]) -> ResultadoTurn
             continue
         mensagem.origem = OrigemMensagem.TESTE
         rotulo = f"TESTE:{comando.nome.upper()}"
-        cobranca = _tratar(rajada, comando)
+        cobranca = _tratar(rajada, comando, mensagem)
         if cobranca is not None:
             _trocar_de_conversa(rajada, cobranca, mensagens, posicao)
             trocou = True
@@ -292,6 +427,7 @@ def _tratar_comandos(
             desfazer()
         raise
     _devolver_ao_robo(rajada)
+    _executar_depois(rajada)
     return resultado
 
 

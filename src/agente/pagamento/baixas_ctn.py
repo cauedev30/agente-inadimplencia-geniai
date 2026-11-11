@@ -689,6 +689,39 @@ def _reenviar_avisos(sessao: Session, deps: DependenciasDasBaixas, agora: dateti
             log.error("o reenvio da baixa %s falhou (%s)", baixa_id, type(erro).__name__)
 
 
+def aplicar_baixas_simuladas(
+    sessao: Session, deps: DependenciasDasBaixas, baixas: list[BaixaCTN], agora: datetime
+) -> ResumoBaixas:
+    """Aplica baixas que o modo teste (D56) simulou, sem passar pelo cursor nem pela leitura do CTN.
+
+    Grava as baixas em `baixa_ctn` (idempotente pelo `id_externo`: uma chamada repetida não grava
+    nem trata de novo) e trata a matrícula como a rotina trata a baixa lida do CTN: abate os meses,
+    ou quita com o `texto_baixa_externa`. O que ficou gravado e sem efeito (um erro no meio) a
+    rotina `ler_baixas` refaz no ciclo seguinte. Faz commit; quem chama decide o que fazer se
+    levantar."""
+    resumo = ResumoBaixas()
+    resumo.lidas = _gravar_baixas(sessao, baixas, agora, resumo)
+    sessao.commit()
+    # SKIP LOCKED (o SQLite ignora): se a rotina das baixas já pegou estas linhas, ela as trata.
+    registros = sessao.scalars(
+        select(BaixaCTNRegistro)
+        .where(
+            BaixaCTNRegistro.id_externo.in_([baixa.id_externo for baixa in baixas]),
+            BaixaCTNRegistro.aplicada_em.is_(None),
+        )
+        .order_by(BaixaCTNRegistro.coletado_em, BaixaCTNRegistro.id)
+        .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
+    ).all()
+    por_matricula: dict[str, list[BaixaCTNRegistro]] = {}
+    for registro in registros:
+        por_matricula.setdefault(registro.matricula, []).append(registro)
+    for matricula, da_matricula in por_matricula.items():
+        _tratar_matricula(sessao, deps, matricula, da_matricula, agora, resumo)
+        sessao.commit()
+    return resumo
+
+
 def ler_baixas(sessao: Session, deps: DependenciasDasBaixas, agora: datetime) -> ResumoBaixas:
     """Uma passada da rotina: reenvia os avisos que ficaram pendentes, lê e grava as baixas novas e
     trata as por tratar. Nunca levanta, e o que loga é só o tipo do erro e ids do banco: a sessão do

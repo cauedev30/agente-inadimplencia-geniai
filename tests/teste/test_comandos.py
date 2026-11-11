@@ -196,9 +196,9 @@ def test_comando_desconhecido_responde_a_lista_de_comandos(
     _nao_chamou_o_llm(deps)
 
 
-@pytest.mark.parametrize("comando", ["/paguei", "/paguei 2", "/nota algo"])
-def test_paguei_e_nota_ainda_nao_estao_ligados_na_base(testador, deps, comando):
-    # As tarefas 2.2 e 2.3 ligam os dois; a base só garante que o comando não vai ao LLM.
+@pytest.mark.parametrize("comando", ["/nota algo"])
+def test_a_nota_ainda_nao_esta_ligada_na_base(testador, deps, comando):
+    # A tarefa 2.3 liga o `/nota`; a base só garante que o comando não vai ao LLM.
     testador.manda(comando)
     assert testador.roda(deps) is ResultadoTurno.FIXA
     [resposta] = deps.chatwoot.enviadas(CHATWOOT_ID)
