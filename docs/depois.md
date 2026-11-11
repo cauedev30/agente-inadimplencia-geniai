@@ -102,3 +102,6 @@ com a correção quando a hora chegar (texto completo na fonte).
   `Conversa.objecoes_sem_desconto`; `proximo_estado(..., em_risco)` chamado sempre com `False`; motivos
   `JEV_INDISPONIVEL`, `DECISAO_JEV2`, `BAIXA_CONFIANCA`, `SEM_MELHORA` e `OBJECAO_SEM_DESCONTO` e
   `EstadoConversa.EM_RISCO` sem uso; o `LLMTurnoOpenAI` do serviço não é fechado no encerramento (já era assim).
+- Achados da tarefa 1.4/1.6: `Dependencias.disparador` sem leitor no turno (só `pagamento/concluir.py` usa um, com
+  dependências próprias); `pagamento/concluir.py` envia a confirmação do Pix sem checar o piloto (hoje só recebe quem teve
+  Pix gerado pelo agente, ou seja, o piloto; lembrar no piloto real).
