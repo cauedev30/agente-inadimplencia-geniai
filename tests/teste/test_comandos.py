@@ -281,6 +281,8 @@ def test_o_llm_nao_ve_o_comando_nem_a_resposta(sessao, testador, conversa_de_tes
     nova = Mandante(sessao, _conversa_do_chatwoot(sessao))
     nova.n = testador.n
     nova.manda("Oi")
+    nova.roda(deps)  # o 1º contato do caso novo recebe a abertura (2.1), sem o LLM
+    nova.manda("quero pagar")
     nova.roda(deps)
     assert deps.jev.chamadas, "o turno normal da conversa nova deveria rodar"
     for _perguntas, estado in deps.jev.chamadas:
@@ -499,10 +501,10 @@ def test_a_mensagem_que_chegou_na_conversa_ja_trocada_vai_para_a_viva_sem_chamar
     assert conversa_de_teste.turno_em is None
     assert conversa_de_teste.falhas_turno == 0
 
-    # O turno da conversa viva responde ao "Oi" normalmente (com o LLM).
+    # O turno da conversa viva responde ao "Oi" (o 1º contato do caso: a abertura, sem o LLM).
     resultado = processar_turno(sessao, viva.id, SEGUNDA_10H + timedelta(minutes=30), deps)
-    assert resultado is not ResultadoTurno.ERRO
-    assert deps.jev.chamadas
+    assert resultado is ResultadoTurno.FIXA
+    assert deps.chatwoot.enviadas(CHATWOOT_ID)[-1].startswith("Oi, Carla!")
 
 
 def test_a_mensagem_na_conversa_morta_sem_conversa_viva_e_consumida_sem_envio(

@@ -13,12 +13,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from agente.carteira.conferir import ResultadoConferencia, conferir_antes_do_envio
 from agente.db.historico import abrir_turno, fechar_turno, registrar_mensagem
 from agente.db.modelos import Cobranca, Conversa, Mensagem, Turno
 from agente.db.travas import travar_conversas_e_cobranca
 from agente.dominio.dinheiro import formatar_reais
+from agente.dominio.janela import dentro_da_janela
 from agente.integracoes.ctn_teste import CasoInexistente, numero_do_caso
 from agente.politica import CasoTeste, Politica
 from agente.teste.casos import ativar_caso, conversa_viva_do_testador, do_piloto
@@ -121,14 +124,12 @@ class _Rajada:
         return self.deps.politica
 
 
-def _responder(rajada: _Rajada, texto: str) -> None:
-    """Envia ao testador e grava com a origem TESTE, fora do teto. Se o Chatwoot falhar, a falha
-    sobe e o turno inteiro é desfeito."""
+def _responder(rajada: _Rajada, texto: str, origem: OrigemMensagem = OrigemMensagem.TESTE) -> None:
+    """Envia ao testador e grava com a `origem` (TESTE, fora do histórico do LLM), fora do teto. Se
+    o Chatwoot falhar, a falha sobe e o turno inteiro é desfeito."""
     conversa = rajada.conversa
     confirmacao = rajada.deps.chatwoot.enviar_mensagem(conversa.chatwoot_conversa_id, texto)
-    registrar_mensagem(
-        rajada.sessao, conversa.id, OrigemMensagem.TESTE, texto, confirmacao, False, rajada.agora
-    )
+    registrar_mensagem(rajada.sessao, conversa.id, origem, texto, confirmacao, False, rajada.agora)
 
 
 def _caso_atual(conversa: Conversa, politica: Politica) -> int:
@@ -331,6 +332,64 @@ def _levar_para_a_conversa_viva(
     return ResultadoTurno.FIXA
 
 
+def texto_da_abertura(cobranca: Cobranca, politica: Politica) -> str:
+    """O texto da abertura do `[teste]` (P2) com o nome, a dívida e as mensalidades da cobrança.
+    Os marcadores são trocados um a um: chaves e aspas do resto do texto ficam como estão."""
+    partes = cobranca.cliente.nome.split()
+    return (
+        politica.teste.texto_abertura.replace("{nome}", partes[0] if partes else "")
+        .replace("{valor}", formatar_reais(cobranca.divida_centavos))
+        .replace("{mensalidades}", str(cobranca.mensalidades_abertas))
+    )
+
+
+def _ja_abriu(sessao: Session, cobranca: Cobranca) -> bool:
+    """Alguma conversa da cobrança já recebeu uma mensagem de abertura."""
+    return (
+        sessao.scalar(
+            select(Mensagem.id)
+            .join(Conversa, Mensagem.conversa_id == Conversa.id)
+            .where(Conversa.cobranca_id == cobranca.id, Mensagem.origem == OrigemMensagem.ABERTURA)
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def _abrir_no_primeiro_contato(
+    sessao: Session, conversa: Conversa, agora: datetime, deps: "Dependencias"
+) -> ResultadoTurno | None:
+    """O 1º contato do testador com a cobrança: a identificação do caso e o texto da abertura (P2),
+    no lugar do turno. Só dentro da janela (P8; fora dela o turno normal adia, D16), sem humano na
+    conversa e com a conferência de hoje (o valor do texto é o do CTN, nunca o do retrato). Com
+    qualquer dessas faltando, `None`: o turno normal trata. A rajada que provocou a abertura é
+    consumida. O texto da abertura é gravado como ABERTURA, e o LLM o vê no histórico."""
+    cobranca = conversa.cobranca
+    politica = deps.politica
+    if (
+        humano_na_conversa(conversa)
+        or not dentro_da_janela(agora, politica)
+        or _ja_abriu(sessao, cobranca)
+    ):
+        return None
+    conferencia = conferir_antes_do_envio(sessao, deps.ctn, politica, cobranca.id, agora)
+    if conferencia is not ResultadoConferencia.CONFERIDA:
+        return None
+    mensagens = tomar_turno(sessao, conversa.id)
+    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
+    turno.humano_na_conversa = False
+    rajada = _Rajada(sessao, conversa, turno, deps, agora)
+    numero = _caso_atual(conversa, politica)
+    caso = next((c for c in politica.teste.casos if c.numero == numero), None)
+    titulo = caso.titulo if caso is not None else ""
+    _responder(
+        rajada,
+        f"[TESTE] Você é o caso {numero}: {titulo}. Mande /caso para ver os outros.",
+    )
+    _responder(rajada, texto_da_abertura(cobranca, politica), OrigemMensagem.ABERTURA)
+    return _fechar_e_confirmar(sessao, conversa, turno, "TESTE:ABERTURA", agora)
+
+
 def antes_do_turno(
     sessao: Session, conversa: Conversa, agora: datetime, deps: "Dependencias"
 ) -> ResultadoTurno | None:
@@ -360,4 +419,4 @@ def antes_do_turno(
         return _tratar_comandos(sessao, conversa, agora, deps)
     if cobranca.status is not StatusCobranca.ATIVA:
         return _tratar_encerrado(sessao, conversa, agora, deps)
-    return None
+    return _abrir_no_primeiro_contato(sessao, conversa, agora, deps)
