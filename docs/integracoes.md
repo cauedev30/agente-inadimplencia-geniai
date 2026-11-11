@@ -49,7 +49,7 @@ chamar. Para o teste é o `dev2`, com o serviço, o Postgres e um túnel; o dom�
 
 - `AGENTE_DATABASE_URL=postgresql+psycopg://...`
 - a `liberacao` do `politica.toml` (o piloto): lista vazia, ninguém conversa
-- o health check consulta `GET /saude`, que não toca no banco. `GET /saude/pagamentos` conta o que ficou pendente.
+- o health check consulta `GET /saude`, que não toca no banco e dá 503 se o laço dos turnos não fecha um ciclo há mais de 60 s. `GET /saude/pagamentos` conta o que ficou pendente.
 
 **Pronto quando:** o serviço sobe, as migrações rodam até a última (`alembic upgrade head`) e o `/saude` responde.
 

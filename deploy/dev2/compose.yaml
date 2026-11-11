@@ -1,0 +1,50 @@
+# O agente no dev2 (modo teste): o serviço, o Postgres e o túnel da Cloudflare.
+# Os valores do Postgres vêm do `.env` ao lado deste arquivo (fora do git); o resto, do
+# /opt/agente-inadimplencia/agente.env (também fora do git). Ver LEIAME.md.
+name: agente-inadimplencia
+
+services:
+  agente:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    # 1 processo: o CMD da imagem roda o uvicorn sem --workers, e o laço dos turnos é um só.
+    env_file: /opt/agente-inadimplencia/agente.env
+    volumes:
+      - /opt/agente-inadimplencia/politica-teste.toml:/etc/agente/politica.toml:ro
+      - ../../cardapio-teste.toml:/etc/agente/cardapio-teste.toml:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 512m
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?defina no .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina no .env}
+      POSTGRES_DB: ${POSTGRES_DB:?defina no .env}
+    volumes:
+      - pgdados:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    mem_limit: 512m
+
+  tunel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://agente:8000
+    depends_on:
+      - agente
+    restart: unless-stopped
+    mem_limit: 128m
+
+volumes:
+  pgdados:

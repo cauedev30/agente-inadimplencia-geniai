@@ -32,6 +32,8 @@ log = logging.getLogger(__name__)
 INTERVALO_EXPIRAR_PIX = timedelta(minutes=1)
 # O CTN coleta as baixas a cada 10 minutos (spec do CTN real, seção 2): ler mais só gasta cota.
 INTERVALO_BAIXAS = timedelta(minutes=10)
+# O laço dos turnos gira a cada segundo; sem ciclo há mais que isto, ele morreu ou travou (AUD-16).
+CICLO_PARADO_APOS = timedelta(seconds=60)
 
 
 def _agora() -> datetime:
@@ -107,12 +109,22 @@ def criar_app(
             trabalhador.parar()
             _fechar_ctn(ctn)
 
-    app = FastAPI(title="Agente de inadimplência", lifespan=ciclo_de_vida)
+    # Sem a documentação interativa nem o esquema da API no ar (AUD-32).
+    app = FastAPI(
+        title="Agente de inadimplência",
+        lifespan=ciclo_de_vida,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.trabalhador = trabalhador
 
     @app.get("/saude")
     def saude() -> dict:
-        # Só diz que o processo está vivo, sem tocar no banco: é o que o health check consulta.
+        # Diz que o processo e o laço dos turnos estão vivos, sem tocar no banco: é o que o health
+        # check consulta. O laço que não fecha um ciclo há mais de 60 s dá 503 (AUD-16).
+        if relogio() - trabalhador.ultimo_ciclo > CICLO_PARADO_APOS:
+            raise HTTPException(503, "o laço dos turnos não fecha um ciclo há mais de 60 segundos")
         return {"status": "ok"}
 
     @app.get("/saude/pagamentos")

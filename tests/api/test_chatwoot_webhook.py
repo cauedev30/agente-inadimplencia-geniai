@@ -409,6 +409,28 @@ def test_saude(cliente_http):
     assert cliente_http.get("/saude").json() == {"status": "ok"}
 
 
+def test_saude_com_ciclo_recente_responde_200(cliente_http, relogio):
+    relogio.agora = AGORA + timedelta(seconds=59)  # o início do serviço vale como o último ciclo
+    assert cliente_http.get("/saude").status_code == 200
+
+
+def test_saude_devolve_503_quando_o_laco_parou_ha_120_segundos(cliente_http, relogio):
+    relogio.agora = AGORA + timedelta(seconds=120)
+    assert cliente_http.get("/saude").status_code == 503
+
+
+def test_saude_volta_a_200_quando_o_laco_fecha_um_ciclo(cliente_http, relogio):
+    relogio.agora = AGORA + timedelta(seconds=120)
+    assert cliente_http.get("/saude").status_code == 503
+    cliente_http.app.state.trabalhador.rodar_uma_vez()
+    assert cliente_http.get("/saude").status_code == 200
+
+
+@pytest.mark.parametrize("caminho", ["/docs", "/redoc", "/openapi.json"])
+def test_a_documentacao_interativa_nao_esta_no_ar(cliente_http, caminho):
+    assert cliente_http.get(caminho).status_code == 404
+
+
 def test_trabalhador_roda_os_vencidos_e_uma_falha_nao_para_os_outros(fabrica, politica):
     with fabrica() as sessao:
         primeira = sessao.scalars(select(Conversa)).one()

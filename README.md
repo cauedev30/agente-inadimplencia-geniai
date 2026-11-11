@@ -82,7 +82,7 @@ O contêiner roda `alembic upgrade head` e depois o uvicorn. Sem Docker:
 
 | Endpoint | Para quê |
 |---|---|
-| `GET /saude` | o serviço está vivo, sem tocar no banco (o health check consulta esta) |
+| `GET /saude` | o serviço está vivo, sem tocar no banco; 503 se o laço dos turnos não fecha um ciclo há mais de 60 s (o health check consulta esta) |
 | `GET /saude/pagamentos` | quantos pagamentos pagos não concluem (baixa ou confirmação); 503 se o banco falhar |
 | `POST /webhooks/chatwoot/{segredo}` | webhook do Agent Bot no Chatwoot (mensagens e mudança de status) |
 | `POST /webhooks/pix` e `POST /webhooks/ctn` | confirmação de pagamento do banco e do link do CTN, assinada por HMAC; 503 sem o segredo |

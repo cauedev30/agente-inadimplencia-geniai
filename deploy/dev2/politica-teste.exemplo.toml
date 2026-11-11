@@ -1,0 +1,131 @@
+# Política do modo teste no dev2 (D56, D61). Copie para /opt/agente-inadimplencia/politica-teste.toml
+# e troque os telefones fictícios pelos do piloto (Luciano, Lohanny, Cauê); esse arquivo real fica fora
+# do git. É a repo/politica.toml com: o `/reset` como comando de reinício, os telefones do piloto e o
+# bloco [teste] ligado. O cardápio é montado ao lado, em /etc/agente/cardapio-teste.toml.
+# Conferir depois de mudar o repo/politica.toml (o resto desta cópia tem de acompanhá-lo).
+
+# Política de negócio do agente. Nenhum número de política fica no código: ele vem daqui.
+# Os valores marcados "padrão" são provisórios e citam a dúvida (docs/duvidas.md) que os decide.
+
+mensalidade_centavos = 3340          # D24
+teto_resolucao = 5                   # D33: 5 mensagens de resolução; a 6ª é fixa
+regua_acima_de_6 = "R6"              # padrão (G1.1): mais de 6 mensalidades usam a condição da R6
+pix_validade_horas = 24              # padrão (G2.4)
+pix_reaproveitar_minimo_minutos = 60 # padrão: o Pix a menos disto de vencer não é reaproveitado; o cliente ganha um novo
+# D44: o nome do recebedor do Pix, como o banco do cliente o mostra ao colar o código. Vazio desliga a frase
+# (a confirmar com o dev e o gestor, T1); preenchido, o backend a anexa a toda mensagem que traz o Pix.
+pix_recebedor = ""
+texto_pix_recebedor = "Ao colar o código no seu banco, confira que o recebedor é {recebedor}."
+# padrão: o Pix pendente continua valendo depois do handoff; true o expira só no banco do agente (o
+# Pix segue pagável no banco do CDT, e o pagamento ainda é confirmado) até a T1 dizer se dá para cancelá-lo
+handoff_expira_pix = false
+objecoes_sem_desconto_ate_humano = 2 # padrão (G1.1): na régua sem desconto, a 2ª objeção vai ao humano
+rajada_segundos = 7                  # espera para juntar as mensagens em rajada
+audio_max_segundos = 120             # arquitetura, seção 1
+audio_max_bytes = 5242880            # D43 (5 MB): o maior áudio baixado do Chatwoot; o do outro agente
+audio_prazo_segundos = 15            # D43: o prazo único do download de um áudio
+audio_sem_duracao_max_bytes = 2097152  # D43 (2 MB): o teto do formato sem duração legível (fora do Ogg Opus)
+transcricao_prazo_segundos = 15      # D43: o prazo da chamada de transcrição
+transcricao_max_caracteres = 3000    # D43: a transcrição maior é cortada, terminando em reticências
+# Padrão (8.6), adaptado do outro agente: o pedido de texto quando o áudio não é lido. Sai fora do teto, uma vez
+# por conversa; na 2ª vez, o humano assume. O "2 minutos" do primeiro acompanha o audio_max_segundos.
+pedir_texto_audio_longo = "Seu áudio passou de 2 minutos. Pode mandar um mais curto ou escrever, por favor?"
+pedir_texto_audio_falhou = "Não consegui ouvir seu áudio. Pode escrever em texto, por favor?"
+integracao_tentativas = 3            # padrão: tentativas do turno com o CTN, o Pix ou o Chatwoot fora; depois, o humano
+erro_interno_tentativas = 3          # padrão: tentativas do turno com um erro de código; depois, o humano
+integracao_espera_segundos = 60      # padrão: a espera até a 2ª tentativa; dobra a cada falha
+integracao_espera_maxima_segundos = 3600  # padrão: a espera não passa disto
+# D44: a saída por DESCONFIANCA (golpe) manda esta fixa, sem botão; o atendente segue na mesma conversa.
+texto_humano_no_whatsapp = "Entendo a sua preocupação. Um atendente da unidade vai continuar com você aqui mesmo, nesta conversa."
+template_abertura = "cobranca_abertura"  # padrão: o nome do template aprovado na Meta (D28, T4)
+template_confirmacao = "cobranca_confirmacao"  # padrão (D28, T4): a confirmação do pagamento fora das 24h do WhatsApp (template de utilidade)
+# Spec do CTN real, decisão 3 (padrão, o Cauê pode mudar): o aviso único quando o cliente quitou por fora
+# (a baixa chegou pelo CTN). Texto fixo, sem valor nem nome; só sai dentro das 24h do WhatsApp e não conta no teto.
+texto_baixa_externa = "Identificamos aqui que o seu pagamento já foi confirmado. Obrigado! Se precisar de algo, é só chamar."
+# padrão (T9.6): quem dá a baixa no CTN do pagamento pelo link (o do Pix é sempre o agente).
+# false: o link já baixa sozinho no CTN, e o agente não dá a segunda baixa. true: o link não baixa,
+# e o agente registra a baixa dele no CTN.
+agente_da_baixa_no_link = false
+anexos_aceitos = ["image", "file", "audio"]  # o comprovante vem como imagem ou PDF; o áudio é transcrito antes do Jev (D43)
+comando_reinicio = "/reset"  # no modo teste, o /reset vale /caso <caso atual>
+texto_reinicio = "Conversa reiniciada."  # a confirmação do comando, fora do teto, gravada na conversa antiga
+telefones_equipe = ["+5500000000001"]  # TROCAR: um dos telefones do piloto  # só estes telefones podem usar o comando de reinício
+# Quem conversa com o agente (D61): só os telefones do piloto; quem está fora é ignorado, sem Luna e sem
+# mensagem. Lista vazia (o padrão): ninguém conversa.
+liberacao = { modo = "piloto", telefones = ["+5500000000001", "+5500000000002", "+5500000000003"] }  # TROCAR: os telefones do piloto (os 4 últimos dígitos têm de ser distintos)
+
+# Desconto máximo por régua (D29) em 3 degraus iguais (D35, padrão até a G1.1).
+[reguas.NR]
+desconto_max_centavos = 0
+n_degraus = 3
+
+[reguas.R1]
+desconto_max_centavos = 0
+n_degraus = 3
+
+[reguas.R2]
+desconto_max_centavos = 0
+n_degraus = 3
+
+[reguas.R3]
+desconto_max_centavos = 9000
+n_degraus = 3
+
+[reguas.PREVIA]
+desconto_max_centavos = 6000  # padrão (G1.1): o manual dava R$ 60; a operação não falou
+n_degraus = 3
+
+[reguas.R4]
+desconto_max_centavos = 9000
+n_degraus = 3
+
+[reguas.R5]
+desconto_max_centavos = 7500
+n_degraus = 3
+
+[reguas.R6]
+desconto_max_centavos = 6000  # padrão (G1.1): a operação disse R$ 60; o manual dava R$ 75
+n_degraus = 3
+
+# Janela de atendimento (D11, D16). Dia ausente = fechado.
+[janela]
+fuso = "America/Fortaleza"
+# Padrão (G3): feriados nacionais e o 5 de agosto (Paraíba e João Pessoa). Lista local a confirmar.
+feriados = [
+    2026-11-02, 2026-11-15, 2026-11-20, 2026-12-25,
+    2027-01-01, 2027-03-26, 2027-04-21, 2027-05-01, 2027-08-05,
+    2027-09-07, 2027-10-12, 2027-11-02, 2027-11-15, 2027-11-20, 2027-12-25,
+]
+
+[janela.dias]
+seg = ["08:00", "18:00"]
+ter = ["08:00", "18:00"]
+qua = ["08:00", "18:00"]
+qui = ["08:00", "18:00"]
+sex = ["08:00", "18:00"]
+sab = ["08:00", "12:00"]  # padrão (G3): a operação não confirmou o sábado
+
+# Propensão ao cartão (D36). Padrão (T9.4) até o CTN confirmar o histórico.
+[propensao]
+n_meses = 3
+tolerancia_dias = 3
+
+# Layout do CSV da carteira. Padrão (G5) até saber de onde a lista vem e com quais colunas.
+[carteira]
+separador = ";"
+
+[carteira.colunas]
+matricula = "matricula"
+nome = "nome"
+telefone = "telefone"
+mensalidades_abertas = "mensalidades_abertas"
+regua = "regua"  # opcional; quando vem, vence o número de mensalidades
+
+# Modo teste (D56, versão de teste no dev2): os testadores do piloto recebem os casos inventados do
+# cardápio no lugar da carteira. Exige `liberacao` em piloto, com os 4 últimos dígitos de cada
+# telefone distintos (são a matrícula simulada). Desligado, o serviço é o de sempre.
+[teste]
+cardapio = "cardapio-teste.toml"  # relativo a esta pasta
+campanha = "teste"  # a campanha das cobranças dos casos
+caso_padrao = 1  # o caso do 1º contato
+texto_abertura = "Oi, {nome}! Aqui é o agente da GeniAI. Vi {mensalidades} mensalidades em aberto, {valor} no total. [TESTE] No cliente real aqui vem o botão \"Pagar com Pix\". No teste, escreva: Pagar com Pix"  # provisório (P2); {nome} e {valor} obrigatórios

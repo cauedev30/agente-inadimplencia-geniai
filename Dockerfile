@@ -10,6 +10,10 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
 RUN uv sync --frozen --no-dev
 
+# Sem root (AUD-24): o serviço roda com um usuário de sistema que tem a posse de /app.
+RUN useradd --system --create-home --uid 1000 agente && chown -R agente:agente /app
+USER agente
+
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && uvicorn agente.api.principal:montar_app --factory --host 0.0.0.0 --port ${PORT:-8000}"]

@@ -146,4 +146,4 @@ com a correção quando a hora chegar (texto completo na fonte).
   decidir a retenção da OpenAI, T6, ou ajustar a trava antes da 2.3); fora do piloto o webhook ainda grava a mensagem (só o
   turno é ignorado) e mensagem de atendente fora do piloto marca `human_owned`; D38 diverge do código (vale a D47); resquícios
   de nome do Jev (`PERGUNTAS_JEV1`, `LeituraJev1`, `BatchJev`, comentário do webhook, `ConfigPolitica` cita `agente simular`);
-  `/saude` diz "sem tocar no banco" (a 2.1 muda).
+  (o `/saude` já enxerga o laço parado desde a 2.1).

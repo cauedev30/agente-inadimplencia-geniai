@@ -101,6 +101,8 @@ class Trabalhador:
         self._intervalo = intervalo_segundos
         self._parar = threading.Event()
         self._fio: threading.Thread | None = None
+        # O fim do último ciclo; a subida conta como um (o /saude não dá 503 antes do 1º ciclo).
+        self.ultimo_ciclo: datetime = relogio()
 
     def rodar_uma_vez(self) -> int:
         agora = self._relogio()
@@ -115,6 +117,7 @@ class Trabalhador:
                     sessao.rollback()
                     log.exception("o turno da conversa %s falhou", conversa_id)
         self._rodar_rotinas(agora)
+        self.ultimo_ciclo = self._relogio()
         return len(vencidos)
 
     def _rodar_rotinas(self, agora: datetime) -> None:
@@ -135,6 +138,7 @@ class Trabalhador:
                 log.exception("o laço de turnos falhou; tenta de novo no próximo ciclo")
 
     def iniciar(self) -> None:
+        self.ultimo_ciclo = self._relogio()
         self._fio = threading.Thread(target=self._laco, name="turnos", daemon=True)
         self._fio.start()
 
