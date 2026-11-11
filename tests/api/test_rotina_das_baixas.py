@@ -13,7 +13,7 @@ from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import BaixaCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.politica import LiberacaoPiloto, Regua
 from agente.tipos import (
     EstadoConversa,
@@ -61,7 +61,7 @@ def _app(politica, ctn, *, modo=Modo.SOMBRA, chatwoot=None, **config):
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=modo,
-        jev=JevFalso(),
+        llm_turno=LLMTurnoFalso(),
         ctn=ctn,
     )
     configuracao = Config(database_url="sqlite://", politica_path=RAIZ / "politica.toml", **config)

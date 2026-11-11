@@ -93,15 +93,13 @@ def test_a_nota_sem_texto_pede_o_texto_e_nao_grava(sessao, conversa_aberta, deps
 
 
 def test_a_nota_nao_vai_ao_llm_nem_conta_no_teto(sessao, conversa_aberta, conversa_de_teste, deps):
-    chamadas_do_jev = len(deps.jev.chamadas)
-    pedidos = len(deps.redator.pedidos)
+    pedidos = len(deps.llm_turno.pedidos)
     no_teto = mensagens_no_teto(sessao, conversa_de_teste.id)
     conversa_aberta.manda("/nota anotando")
 
     conversa_aberta.roda(deps)
 
-    assert len(deps.jev.chamadas) == chamadas_do_jev
-    assert len(deps.redator.pedidos) == pedidos
+    assert len(deps.llm_turno.pedidos) == pedidos
     assert mensagens_no_teto(sessao, conversa_de_teste.id) == no_teto
     [nota] = _notas(sessao)
     assert sessao.get(Mensagem, nota.mensagem_id).conta_no_teto is False

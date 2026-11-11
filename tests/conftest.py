@@ -10,40 +10,22 @@ from agente.politica import Regua, carregar_politica
 
 RAIZ = Path(__file__).resolve().parents[1]
 
-VARIAVEIS_DO_JEV = (
-    "AGENTE_JEV_API_KEY",
-    "AGENTE_JEV_URL",
-    "AGENTE_JEV_MODELO",
-    "AGENTE_JEV_DADOS_REAIS_LIBERADOS",
-)
-
 VARIAVEIS_DO_CTN = (
     "AGENTE_CTN_URL",
     "AGENTE_CTN_API_KEY",
     "AGENTE_CTN_UNIDADE",
+    "AGENTE_LLM_API_KEY",
     "AGENTE_LLM_DADOS_REAIS_LIBERADOS",
 )
 
 
 @pytest.fixture(autouse=True)
 def _sem_ctn_real_no_ambiente(monkeypatch):
-    """Uma chave do CTN real exportada no shell não pode ligar a EFICAZ nos outros testes."""
+    """Uma chave do CTN real ou do Luna exportada no shell não pode ligar a EFICAZ nem a OpenAI nos
+    outros testes: `Config()` lê o ambiente. Quem precisa das variáveis as define com
+    `monkeypatch.setenv` dentro do teste."""
     for variavel in VARIAVEIS_DO_CTN:
         monkeypatch.delenv(variavel, raising=False)
-
-
-def limpar_ambiente_do_jev(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tira as variáveis do Jev real do ambiente do processo."""
-    for variavel in VARIAVEIS_DO_JEV:
-        monkeypatch.delenv(variavel, raising=False)
-
-
-@pytest.fixture(autouse=True)
-def _sem_jev_real_no_ambiente(monkeypatch):
-    """Exportar a chave para o teste real (AGENTE_JEV_API_KEY) não pode ligar o Jev real nos outros
-    testes: `Config()` lê o ambiente, e o texto dos fixtures iria à rede. Quem precisa das
-    variáveis as define com `monkeypatch.setenv` dentro do teste."""
-    limpar_ambiente_do_jev(monkeypatch)
 
 
 def alembic_config(url: str) -> AlembicConfig:

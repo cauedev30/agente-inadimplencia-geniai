@@ -1,7 +1,7 @@
 """O pedido de texto quando o áudio não é lido (tarefa 8.6, D43).
 
-A rajada sem nada legível (nenhum texto e nenhum áudio transcrito) leva a fixa PEDIR_TEXTO, sem Jev
-e sem LLM, fora do teto; na 2ª vez da conversa, o humano assume com o motivo AUDIO.
+A rajada sem nada legível (nenhum texto e nenhum áudio transcrito) leva a fixa PEDIR_TEXTO, sem
+LLM, fora do teto; na 2ª vez da conversa, o humano assume com o motivo AUDIO.
 """
 
 from datetime import datetime, timedelta
@@ -30,9 +30,9 @@ from agente.turno.orquestrador import processar_turno
 from agente.turno.transcricao import pedido_de_texto
 from tests.ogg_opus import ogg_opus
 
-from .test_orquestrador_gates import SEGUNDA_10H
+from .auxiliares import SEGUNDA_10H
 from .test_orquestrador_pagamento_concorrente import _estado_no_banco, _pagar_por_fora
-from .test_transcricao import SEGUNDA_19H, _audio, _cliente, _deps
+from .test_transcricao import SEGUNDA_19H, _audio, _cliente, _deps, _entrada
 
 LONGO = "Seu áudio passou de 2 minutos. Pode mandar um mais curto ou escrever, por favor?"
 FALHOU = "Não consegui ouvir seu áudio. Pode escrever em texto, por favor?"
@@ -58,7 +58,7 @@ def _do_agente(sessao):
 
 
 class TestAPrimeiraVez:
-    def test_so_audio_longo_sai_a_fixa_fora_do_teto_sem_jev_nem_llm(self, sessao, ligada, politica):
+    def test_so_audio_longo_sai_a_fixa_fora_do_teto_sem_llm(self, sessao, ligada, politica):
         deps = _deps(politica, transcritor=TranscritorFalso("oi"))
         _audio_longo(deps)
         _cliente(sessao, ligada, anexos=[_audio()])
@@ -70,7 +70,7 @@ class TestAPrimeiraVez:
         [mensagem] = _do_agente(sessao)
         assert (mensagem.conta_no_teto, mensagem.envio) == (False, EstadoEnvio.ENVIADA)
         assert mensagens_no_teto(sessao, ligada.id) == 0
-        assert deps.jev.chamadas == [] and deps.redator.pedidos == []
+        assert deps.llm_turno.pedidos == []
         turno = sessao.scalars(select(Turno)).one()
         assert (turno.acao_principal, turno.resultado) == ("FIXA:PEDIR_TEXTO", ResultadoTurno.FIXA)
         assert turno.texto_enviado == LONGO
@@ -83,7 +83,7 @@ class TestAPrimeiraVez:
         processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
         assert deps.chatwoot.enviadas(555) == [FALHOU]
-        assert deps.jev.chamadas == []
+        assert deps.llm_turno.pedidos == []
 
     def test_download_que_falha_tambem_pede_o_texto(self, sessao, ligada, politica):
         deps = _deps(politica, transcritor=TranscritorFalso("oi"))
@@ -139,7 +139,7 @@ class TestAPrimeiraVez:
         assert processar_turno(sessao, ligada.id, agora, deps) is ResultadoTurno.ENVIADO
 
         assert len(deps.chatwoot.enviadas(555)) == 2
-        assert len(deps.jev.chamadas) >= 1
+        assert len(deps.llm_turno.pedidos) >= 1
         assert mensagens_no_teto(sessao, ligada.id) == 1
 
 
@@ -163,7 +163,7 @@ class TestASegundaVez:
         assert deps.chatwoot.enviadas(555)[-1] == TEXTO_CANAL_EXTERNO
         assert deps.chatwoot.enviadas(555)[:1] == [FALHOU]
         assert _rotulos(sessao) == ["FIXA:PEDIR_TEXTO", "HUMAN:AUDIO"]
-        assert deps.jev.chamadas == []
+        assert deps.llm_turno.pedidos == []
 
     def test_o_pedido_nao_conta_no_teto_e_a_6a_continua_a_sair(self, sessao, ligada, politica):
         deps = _deps(politica, transcritor=None)
@@ -219,11 +219,11 @@ class TestSeHaOQueLer:
 
         processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-        assert len(deps.jev.chamadas) >= 1
+        assert len(deps.llm_turno.pedidos) >= 1
         assert LONGO not in deps.chatwoot.enviadas(555)
         assert FALHOU not in deps.chatwoot.enviadas(555)
 
-    def test_audio_com_texto_que_falha_o_jev_le_o_texto_e_nao_sai_pedido(
+    def test_audio_com_texto_que_falha_o_luna_le_o_texto_e_nao_sai_pedido(
         self, sessao, ligada, politica
     ):
         deps = _deps(politica, transcritor=TranscritorFalso(motivo="timeout"))
@@ -231,17 +231,16 @@ class TestSeHaOQueLer:
 
         processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-        historico = deps.jev.chamadas[0][1].historico
-        assert historico[-1][1] == "quanto eu devo? [áudio — não foi possível ouvir]"
+        assert _entrada(deps)["novas"] == ["quanto eu devo? [áudio — não foi possível ouvir]"]
         assert FALHOU not in deps.chatwoot.enviadas(555)
 
-    def test_imagem_junto_do_audio_segue_para_o_jev_como_na_v1(self, sessao, ligada, politica):
+    def test_imagem_junto_do_audio_segue_para_o_luna_como_na_v1(self, sessao, ligada, politica):
         deps = _deps(politica, transcritor=None)
         _cliente(sessao, ligada, anexos=[_audio(), {"tipo": "image", "url": None}])
 
         processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-        assert len(deps.jev.chamadas) >= 1
+        assert len(deps.llm_turno.pedidos) >= 1
         assert FALHOU not in deps.chatwoot.enviadas(555)
 
     def test_so_imagem_continua_como_hoje(self, sessao, ligada, politica):
@@ -250,7 +249,7 @@ class TestSeHaOQueLer:
 
         processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-        assert len(deps.jev.chamadas) >= 1
+        assert len(deps.llm_turno.pedidos) >= 1
         assert FALHOU not in deps.chatwoot.enviadas(555)
 
 

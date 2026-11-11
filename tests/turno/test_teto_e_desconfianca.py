@@ -9,15 +9,14 @@ from sqlalchemy import select
 
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Mensagem, Transicao
-from agente.integracoes.jev import responder
 from agente.tipos import EstadoConversa, MotivoHumano, OrigemMensagem, ResultadoTurno
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.handoff import NOTA_TETO_REPETIDO, devolver_ao_robo
 
-from .test_orquestrador_ativo import Cliente, _deps
-from .test_orquestrador_gates import SEGUNDA_10H
+from .auxiliares import SEGUNDA_10H, Cliente, _bruto, _deps
 
-DESCONFIA = responder("desconfia_golpe", True, 0.92)
+# O Luna lê os sinais; sem handoff_reply, a mensagem ao cliente é a fixa do catálogo.
+DESCONFIA = _bruto(desconfia_golpe=True, acao="NONE", reply="")
 
 
 @pytest.fixture
@@ -62,7 +61,7 @@ def _transicoes_para_o_humano(sessao):
 
 def test_a_6a_de_quem_desconfiou_e_devolvido_sai_sem_link(sessao, ligada, cliente, politica):
     deps = _deps(politica, [DESCONFIA])
-    assert cliente("Isso é golpe né?", deps) is ResultadoTurno.HANDOFF
+    assert cliente("Isso é mesmo do Cartão de Todos?", deps) is ResultadoTurno.HANDOFF
     _devolver(sessao, ligada)
     _cinco_do_agente(sessao, ligada, politica)
 
@@ -116,7 +115,7 @@ def test_quem_saiu_pelo_teto_sem_link_e_foi_devolvido_tambem_volta_sem_mensagem(
     sessao, ligada, cliente, politica
 ):
     deps = _deps(politica, [DESCONFIA])
-    cliente("Isso é golpe né?", deps)
+    cliente("Isso é mesmo do Cartão de Todos?", deps)
     _devolver(sessao, ligada)
     _cinco_do_agente(sessao, ligada, politica)
     cliente("e aí?", deps)
@@ -131,12 +130,10 @@ def test_quem_saiu_pelo_teto_sem_link_e_foi_devolvido_tambem_volta_sem_mensagem(
 def test_golpe_com_contestacao_sai_sem_link_e_com_o_motivo_da_contestacao(
     sessao, ligada, cliente, politica
 ):
-    deps = _deps(
-        politica,
-        [responder("contesta_divida", True, 0.90), responder("desconfia_golpe", True, 0.90)],
-    )
+    saida = _bruto(contesta_divida=True, desconfia_golpe=True, acao="NONE", reply="")
+    deps = _deps(politica, [saida])
 
-    assert cliente("é golpe, não devo nada", deps) is ResultadoTurno.HANDOFF
+    assert cliente("isso é falso, não devo nada", deps) is ResultadoTurno.HANDOFF
 
     assert deps.chatwoot.enviadas(555) == [politica.texto_humano_no_whatsapp]
     assert deps.chatwoot.chamadas[-1][3] == []
@@ -145,13 +142,9 @@ def test_golpe_com_contestacao_sai_sem_link_e_com_o_motivo_da_contestacao(
     assert etiqueta == ["contestacao"]
 
 
-def test_desconfianca_abaixo_do_limiar_nao_tira_o_link_da_contestacao(
-    sessao, ligada, cliente, politica
-):
-    deps = _deps(
-        politica,
-        [responder("contesta_divida", True, 0.90), responder("desconfia_golpe", True, 0.5)],
-    )
+def test_contestacao_sem_desconfianca_nao_tira_o_link(sessao, ligada, cliente, politica):
+    saida = _bruto(contesta_divida=True, desconfia_golpe=False, acao="NONE", reply="")
+    deps = _deps(politica, [saida])
 
     cliente("não devo nada", deps)
 

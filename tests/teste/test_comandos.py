@@ -1,5 +1,6 @@
 """Os comandos do testador no turno (D56): /caso, /reset e a base dos demais."""
 
+import json
 from datetime import timedelta
 
 import pytest
@@ -21,7 +22,7 @@ from agente.tipos import (
 )
 from agente.turno.fila import agendar_turno, mensagens_pendentes
 from agente.turno.gates import humano_na_conversa
-from agente.turno.orquestrador import _historico, _historico_e_novas, processar_turno
+from agente.turno.orquestrador import _historico_e_novas, processar_turno
 from tests.conftest import TESTADOR_2
 from tests.teste.auxiliares import CHATWOOT_ID, Mandante, montar_deps
 from tests.turno.test_orquestrador_gates import SEGUNDA_10H
@@ -92,8 +93,7 @@ def _conversa_do_chatwoot(sessao):
 
 
 def _nao_chamou_o_llm(deps):
-    assert deps.jev.chamadas == []
-    assert deps.redator.pedidos == []
+    assert deps.llm_turno.pedidos == []
 
 
 def test_caso_sem_numero_lista_os_casos_sem_chamar_o_llm(
@@ -274,10 +274,13 @@ def test_o_llm_nao_ve_o_comando_nem_a_resposta(sessao, testador, conversa_de_tes
     nova.roda(deps)  # o 1º contato do caso novo recebe a abertura (2.1), sem o LLM
     nova.manda("quero pagar")
     nova.roda(deps)
-    assert deps.jev.chamadas, "o turno normal da conversa nova deveria rodar"
-    for _perguntas, estado in deps.jev.chamadas:
-        assert all(origem != "TESTE" for origem, _ in estado.historico)
-        assert all("/caso" not in texto and "[TESTE]" not in texto for _, texto in estado.historico)
+    assert deps.llm_turno.pedidos, "o turno normal da conversa nova deveria rodar"
+    for _sistema, usuario in deps.llm_turno.pedidos:
+        # Na 2ª tentativa, o texto de sempre ganha o aviso do que reprovou, depois do JSON.
+        entrada = json.loads(usuario.split("\n\nA versão anterior")[0])
+        assert all(origem != "TESTE" for origem, _ in entrada["conversa"])
+        textos = [texto for _, texto in entrada["conversa"]] + entrada["novas"]
+        assert all("/caso" not in texto and "[TESTE]" not in texto for texto in textos)
 
 
 def test_o_historico_do_llm_deixa_de_fora_a_origem_teste(sessao, conversa_de_teste):
@@ -295,11 +298,6 @@ def test_o_historico_do_llm_deixa_de_fora_a_origem_teste(sessao, conversa_de_tes
     sessao.commit()
     ultimo = _mensagens(sessao, conversa)[-1]
 
-    assert _historico(sessao, conversa.id) == [
-        ("CLIENTE", "Oi"),
-        ("AGENTE", "Olá"),
-        ("CLIENTE", "e agora?"),
-    ]
     historico, novas = _historico_e_novas(sessao, conversa.id, [ultimo.id])
     assert historico == [("CLIENTE", "Oi"), ("AGENTE", "Olá")]
     assert novas == ["e agora?"]

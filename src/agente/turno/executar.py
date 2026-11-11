@@ -50,12 +50,6 @@ class Numeros:
         return {nome: valor for nome, valor in dados.items() if valor is not None}
 
 
-def contar_objecao(conversa: Conversa, cobranca: Cobranca, politica: Politica) -> None:
-    """A objeção respondida na régua sem desconto conta: a que chega ao limite vai ao humano."""
-    if politica.reguas[cobranca.regua].desconto_max_centavos == 0:
-        conversa.objecoes_sem_desconto += 1
-
-
 def pix_vigente(cobranca: Cobranca, agora: datetime, politica: Politica) -> Pagamento | None:
     """O Pix pendente da cobrança que ainda vale, no valor integral de hoje, ou None.
 
@@ -83,17 +77,13 @@ def executar(
     conversa: Conversa,
     deps: DependenciasExecutar,
     agora: datetime,
-    *,
-    objecao: bool = False,
 ) -> Numeros:
-    """Grava o degrau, a objeção na régua sem desconto, a forma enviada e o Pix ou o link pendente.
+    """Grava o degrau, a forma enviada e o Pix ou o link pendente.
 
     Só muda os objetos: quem chama decide o flush e o commit.
     """
     politica = deps.politica
     regua, divida = cobranca.regua, cobranca.divida_centavos
-    if objecao:
-        contar_objecao(conversa, cobranca, politica)
     if Acao.OFFER_DISCOUNT in acoes:
         oferta = proxima_oferta(regua, divida, conversa.degrau_atual, politica)
         if oferta is None:

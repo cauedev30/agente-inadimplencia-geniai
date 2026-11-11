@@ -7,12 +7,13 @@ import pytest
 import respx
 
 from agente.integracoes.llm_turno import (
+    URL_OPENAI,
     JSONInvalido,
     LLMTurnoFalso,
     LLMTurnoIndisponivel,
     LLMTurnoOpenAI,
+    Uso,
 )
-from agente.integracoes.redator import URL_OPENAI, Uso
 
 URL = "https://openai.invalid/v1"
 MODELO = "gpt-6-luna"

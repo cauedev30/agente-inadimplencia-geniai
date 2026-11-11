@@ -1,8 +1,8 @@
-"""O turno de uma conversa: gates, Jev 1, Jev 2, backend, LLM, Jev 3 e envio (arquitetura).
+"""O turno de uma conversa: gates, uma chamada ao Luna, backend e envio (D47, D59).
 
 Em modo sombra, nada é enviado e o estado não muda: o turno só grava os laudos e o que teria feito
-(arquitetura, seção 8), mesmo com um humano na conversa (T7). No modo ativo, o turno executa as
-ações, redige, valida, grava a mensagem, muda o estado e só então a envia (o envio é o último
+(arquitetura, seção 8), mesmo com um humano na conversa (T7). No modo ativo, o turno executa a
+ação, confere o texto, grava a mensagem, muda o estado e só então a envia (o envio é o último
 efeito e é confirmado depois), ou sai para o humano. O AGENTE_MODO em sombra força a sombra em
 tudo; no ativo, a `liberacao` do politica.toml decide cada conversa.
 """
@@ -31,10 +31,8 @@ from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNFalso, CTNIndisponivel
 from agente.integracoes.ctn_teste import CTNDeCasos
 from agente.integracoes.disparador import Disparador, FalhaNoEnvio
-from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
 from agente.integracoes.llm_turno import LLMTurno
 from agente.integracoes.pix import PixBanco, PixFalso, PixIndisponivel
-from agente.integracoes.redator import Redator, RedatorFalso, RedatorIndisponivel
 from agente.integracoes.transcritor import Transcritor
 from agente.politica import Politica
 from agente.teste.comandos import antes_do_turno
@@ -51,17 +49,9 @@ from agente.tipos import (
     TipoFixa,
 )
 from agente.turno.acoes import Acao
-from agente.turno.avaliacao import (
-    NAO_EXECUTADA,
-    Avaliacao,
-    avaliar,
-    estado_jev,
-    numeros_previstos,
-    rotulo_humano,
-)
 from agente.turno.catalogo import TEXTO_DO_PIX, TEXTO_RESPOSTA_SEGURA, DadosFixa, mensagem_fixa
 from agente.turno.entrega import confirmar_envio, entregue
-from agente.turno.executar import contar_objecao, executar, proximo_estado
+from agente.turno.executar import executar, proximo_estado
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import (
     Adiar,
@@ -84,15 +74,14 @@ from agente.turno.handoff import (
     ja_saiu_pelo_teto,
     ja_saiu_por_conciliacao,
 )
-from agente.turno.jev1 import LeituraJev1, desconfia_no_limiar, laudo_do_risco
 from agente.turno.liberacao import modo_da_conversa
-from agente.turno.redacao import (
-    Redacao,
-    RedacaoInvalida,
-    anexar_recebedor,
-    interpolar,
-    montar_pedido,
-    redigir_validado,
+from agente.turno.redacao import RedacaoInvalida, anexar_recebedor, interpolar
+from agente.turno.sinais import (
+    NAO_EXECUTADA,
+    Avaliacao,
+    LeituraJev1,
+    numeros_previstos,
+    rotulo_humano,
 )
 from agente.turno.transcricao import (
     LONGO_DEMAIS,
@@ -134,16 +123,14 @@ class ConferenciaNaoFeita(CTNIndisponivel):
     não cita valor estimado e tem de esperar, como espera a integração fora do ar."""
 
 
-# O que conta como integração fora do ar (CTN, Pix, Chatwoot, redator e Jev): é tentado de novo e
+# O que conta como integração fora do ar (CTN, Pix e Chatwoot): é tentado de novo e
 # depois vai ao humano. Qualquer outro erro é bug de código: tem o próprio teto (`erros_turno`).
 _FALHAS_DE_INTEGRACAO = (
     httpx.HTTPError,
     ClienteNaoEncontrado,
     CTNIndisponivel,
     FalhaNoEnvio,
-    JevIndisponivel,
     PixIndisponivel,
-    RedatorIndisponivel,
 )
 
 
@@ -154,18 +141,16 @@ class Dependencias:
     disparador: Disparador
     time_humano: int | None
     modo: Modo
-    jev: Jev
+    # O Luna do turno de uma chamada (D47, D59).
+    llm_turno: LLMTurno
     # Até a T9 e a T1, o CTN e o Pix são os falsos.
     ctn: CTN = field(default_factory=CTNFalso)
     pix: PixBanco = field(default_factory=PixFalso)
-    redator: Redator = field(default_factory=RedatorFalso)
-    # O áudio do cliente vira texto antes do Jev (D43). None: a transcrição está desligada (sem a
+    # O áudio do cliente vira texto antes do Luna (D43). None: a transcrição está desligada (sem a
     # chave) e o áudio cai no pedido de texto.
     transcritor: Transcritor | None = None
     # O domínio e o segredo do link do webchat (G7); sem eles, a 6ª mensagem leva o link provisório.
     webchat: ConfigWebchat | None = None
-    # Com ele, o turno é o de uma chamada ao Luna (D47) e o Jev não é usado; sem ele, o pipeline.
-    llm_turno: LLMTurno | None = None
     # Com o CTN real, o 1º turno do dia da cobrança a confere antes de tudo (spec do CTN real). O
     # CTN falso não tem os lançamentos: conferir nele daria "sem meses em aberto" para todo mundo.
     conferir_no_contato: bool = False
@@ -231,25 +216,14 @@ def _reiniciar(
     sessao.flush()
 
 
-def _historico(sessao: Session, conversa_id: int) -> list[tuple[str, str]]:
-    # O comando e a resposta do modo teste (origem TESTE) não fazem parte da conversa.
-    mensagens = sessao.scalars(
-        select(Mensagem)
-        .where(
-            Mensagem.conversa_id == conversa_id,
-            Mensagem.envio != EstadoEnvio.DESCARTADA,
-            Mensagem.origem != OrigemMensagem.TESTE,
-        )
-        .order_by(Mensagem.id)
-    )
-    # O áudio do cliente entra como o texto transcrito, com o rótulo (D43).
-    return [(mensagem.origem.value, texto_da_mensagem(mensagem)) for mensagem in mensagens]
-
-
 def _historico_e_novas(
     sessao: Session, conversa_id: int, ids_do_turno: list[int]
 ) -> tuple[list[tuple[str, str]], list[str]]:
-    """O histórico de `_historico`, com as mensagens deste turno (a rajada) separadas como novas."""
+    """O histórico da conversa, com as mensagens deste turno (a rajada) separadas como novas.
+
+    O comando e a resposta do modo teste (origem TESTE) não fazem parte da conversa, e o áudio do
+    cliente entra como o texto transcrito, com o rótulo (D43).
+    """
     mensagens = sessao.scalars(
         select(Mensagem)
         .where(
@@ -281,7 +255,7 @@ def _ouvir_os_audios(
 
     Os gates rodam antes: cobrança inativa, humano na conversa, fora da janela e fora das 24h não
     transcrevem nada (o áudio adiado é transcrito quando o turno roda). Em sombra também transcreve,
-    porque o Jev da sombra precisa ler o texto. Sem transcritor, o áudio fica como não ouvido.
+    porque o Luna da sombra precisa ler o texto. Sem transcritor, o áudio fica como não ouvido.
     """
     if deps.transcritor is None:
         return
@@ -309,37 +283,6 @@ def _ouvir_os_audios(
         )
 
 
-def _gravar_laudos(
-    sessao: Session, turno_id: int, avaliacao: Avaliacao, origem: str
-) -> dict[tuple[BatchJev, str], int]:
-    """Grava os laudos do Jev 1 e do Jev 2; devolve o id de cada um por (batch, pergunta)."""
-    lotes = []
-    if avaliacao.leitura is not None:
-        lotes.append((BatchJev.JEV1, list(avaliacao.leitura.laudos)))
-    if avaliacao.decisao is not None:
-        lotes.append((BatchJev.JEV2, [avaliacao.decisao.laudo]))
-    ids = {}
-    for batch, laudos in lotes:
-        gravados = gravar_laudos(sessao, turno_id, batch, laudos, origem)
-        ids |= {(batch, laudo.pergunta): i for laudo, i in zip(laudos, gravados, strict=True)}
-    return ids
-
-
-def _gravar_jev3(
-    sessao: Session, turno_id: int, redacao: Redacao, origem: str
-) -> list[tuple[Laudo, int]]:
-    """Grava os laudos de cada tentativa; devolve os que reprovaram a última, com o id."""
-    reprovados = []
-    for tentativa in redacao.tentativas:
-        gravados = gravar_laudos(sessao, turno_id, BatchJev.JEV3, list(tentativa.laudos), origem)
-        reprovados = [
-            (laudo, laudo_id)
-            for laudo, laudo_id in zip(tentativa.laudos, gravados, strict=True)
-            if laudo.pergunta in tentativa.reprovadas
-        ]
-    return reprovados
-
-
 def _fechar(
     sessao: Session,
     turno: Turno,
@@ -353,7 +296,7 @@ def _fechar(
 ) -> ResultadoTurno:
     rotulo = rotulo or avaliacao.rotulo
     if avaliacao.erro:
-        # O erro do Jev é texto, não número: fica na redação, que já guarda os erros do turno.
+        # O erro do Luna é texto, não número: fica na redação, que já guarda os erros do turno.
         redacao = {**(redacao or {}), "erro": avaliacao.erro}
     fechar_turno(
         sessao,
@@ -381,7 +324,7 @@ def _fechar_ignorado(
 ) -> ResultadoTurno:
     """A cobrança fechou durante o turno (o pagamento chegou): nada do turno vale nem sai.
 
-    O turno de uma chamada passa o `rotulo`, porque a avaliação dele pode não ter ação.
+    O turno passa o `rotulo`, porque a avaliação dele pode não ter ação.
     """
     return _fechar(
         sessao,
@@ -409,13 +352,13 @@ def _handoff(
     texto: str | None = None,
 ) -> None:
     """A saída para o humano. A mensagem sai sem link (D44) se o motivo é da lista, se a conversa já
-    saiu por um motivo da lista, ou se o Jev 1 deste turno deu `desconfia_golpe` sim, seja qual
+    saiu por um motivo da lista, ou se a leitura deste turno deu `desconfia_golpe` sim, seja qual
     for o motivo que venceu: quem desconfia de golpe não recebe link. O `texto` (D47) troca o texto
     fixo da mensagem ao cliente."""
     sem_link = (
         motivo in deps.politica.motivos_humano_no_whatsapp
         or ja_desconfiou(sessao, conversa, deps.politica)
-        or (leitura is not None and desconfia_no_limiar(leitura, deps.politica))
+        or (leitura is not None and leitura.sim("desconfia_golpe"))
     )
     fazer_handoff(
         sessao,
@@ -522,18 +465,6 @@ def _ja_saiu_resposta_segura(sessao: Session, conversa_id: int) -> bool:
     return bool(sessao.scalar(consulta))
 
 
-def _laudo_da_transicao(avaliacao: Avaliacao, ids: dict[tuple[BatchJev, str], int]) -> int | None:
-    """O risco aponta o laudo do Jev 1 que o causou; o resto, a decisão do Jev 2 (auditoria).
-
-    O toque no botão não passa pelo Jev: a transição não tem laudo.
-    """
-    if avaliacao.leitura is None:
-        return None
-    if avaliacao.em_risco:
-        return ids[(BatchJev.JEV1, laudo_do_risco(avaliacao.leitura).pergunta)]
-    return ids[(BatchJev.JEV2, "acao")]
-
-
 def _mudar_estado(
     sessao: Session, conversa: Conversa, para: EstadoConversa, laudo_id: int | None, agora: datetime
 ) -> None:
@@ -544,7 +475,7 @@ def _mudar_estado(
 def _cobranca_fechou_no_meio(sessao: Session, conversa: Conversa) -> bool:
     """Relê a cobrança (com trava) e a conversa antes de o turno gravar o estado final.
 
-    O Jev e o LLM demoram, e o webhook de pagamento roda em outra transação: se ele confirmou nesse
+    O Luna demora, e o webhook de pagamento roda em outra transação: se ele confirmou nesse
     meio tempo, a conversa que o turno tem na sessão está velha. Sem a releitura, o turno
     sobrescreveria o ENCERRADO e mandaria o canal externo depois do "pagamento confirmado". A trava
     da conversa e da cobrança segura a confirmação seguinte até o commit do turno.
@@ -556,162 +487,18 @@ def _cobranca_fechou_no_meio(sessao: Session, conversa: Conversa) -> bool:
     return conversa.cobranca.status is not StatusCobranca.ATIVA
 
 
-def _agir(
-    sessao: Session,
-    conversa: Conversa,
-    turno: Turno,
-    avaliacao: Avaliacao,
-    estado: EstadoJev,
-    historico: list[tuple[str, str]],
-    deps: Dependencias,
-    ids: dict[tuple[BatchJev, str], int],
-    agora: datetime,
-    *,
-    validar_no_jev: bool = True,
-) -> ResultadoTurno:
-    """O backend executa, o LLM redige, o Jev 3 valida e o texto fica gravado para sair (5.3).
-
-    Sem `validar_no_jev` (o botão do Pix no turno de uma chamada, D47), só o `interpolar` valida;
-    o resto, o savepoint e a resposta segura, é o mesmo.
-    """
-    cobranca = conversa.cobranca
-    # A trava vem antes do savepoint: o rollback dele (texto vazio) soltaria a trava tomada dentro.
-    if _cobranca_fechou_no_meio(sessao, conversa):
-        return _fechar_ignorado(sessao, turno, avaliacao, agora)
-    # O que o backend grava só vale se o texto com os números sair.
-    ponto = sessao.begin_nested()
-    numeros = executar(
-        [avaliacao.acao, *avaliacao.anexos],
-        cobranca,
-        conversa,
-        deps,
-        agora,
-        objecao=avaliacao.leitura is not None and avaliacao.leitura.sim("objecao_valor"),
-    )
-    destino = proximo_estado(conversa.estado, numeros.forma, avaliacao.em_risco)
-    pedido = montar_pedido(
-        numeros,
-        avaliacao.leitura,
-        cobranca.regua,
-        cobranca.cliente.nome,
-        destino,
-        historico,
-        deps.politica,
-    )
-    redacao = redigir_validado(
-        deps.redator, deps.jev, pedido, numeros, estado, validar_no_jev=validar_no_jev
-    )
-    fechou = _cobranca_fechou_no_meio(sessao, conversa)
-    if redacao.texto is None or fechou:
-        # O degrau, a objeção, a forma e o Pix pendente voltam atrás.
-        ponto.rollback()
-    else:
-        ponto.commit()
-    reprovados = _gravar_jev3(sessao, turno.id, redacao, deps.jev.origem)
-    if fechou:
-        return _fechar_ignorado(sessao, turno, avaliacao, agora, nao_executado=True)
-
-    texto = redacao.texto
-    if texto is not None:
-        # Depois do Jev 3 e antes de gravar: o histórico guarda o texto que sai, com o recebedor
-        # (D44).
-        texto = anexar_recebedor(texto, numeros, deps.politica)
-        _gravar_envio(sessao, conversa, texto, agora)
-        _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
-        saida, resultado = "LLM", ResultadoTurno.ENVIADO
-    elif redacao.motivo is not None:
-        _handoff(sessao, conversa, redacao.motivo, deps, agora, leitura=avaliacao.leitura)
-        saida, resultado = "HANDOFF", ResultadoTurno.HANDOFF
-    elif not _ja_saiu_resposta_segura(sessao, conversa.id):
-        # Reprovou duas vezes: a resposta segura do catálogo, uma vez por conversa (seção 6).
-        texto = TEXTO_RESPOSTA_SEGURA
-        _gravar_envio(sessao, conversa, texto, agora)
-        saida, resultado = "RESPOSTA_SEGURA", ResultadoTurno.ENVIADO
-    else:
-        laudos = [laudo for laudo, _ in reprovados]
-        laudo_id = reprovados[0][1] if reprovados else None
-        _handoff(
-            sessao,
-            conversa,
-            MotivoHumano.VALIDACAO,
-            deps,
-            agora,
-            laudos,
-            laudo_id,
-            leitura=avaliacao.leitura,
-        )
-        saida, resultado = "HANDOFF", ResultadoTurno.HANDOFF
-    if redacao.texto is None:
-        # O savepoint desfez a ação: o turno não registra degrau, link nem Pix que não valem.
-        numeros_gravados, rotulo = {"executado": False}, avaliacao.rotulo_nao_executado
-    else:
-        numeros_gravados, rotulo = numeros.como_dict(), None
-    return _fechar(
-        sessao,
-        turno,
-        resultado,
-        avaliacao,
-        numeros_gravados,
-        agora,
-        texto_enviado=texto,
-        redacao=redacao.como_dict(saida),
-        rotulo=rotulo,
-    )
-
-
-def _seguir(
-    sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
-) -> ResultadoTurno:
-    if deps.llm_turno is not None:
-        return _seguir_uma_chamada(sessao, conversa, turno, deps, agora)
-    cobranca = conversa.cobranca
-    historico = _historico(sessao, conversa.id)
-    estado = estado_jev(conversa, cobranca, historico, deps.politica)
-    avaliacao = avaliar(deps.jev, estado, conversa, cobranca, deps.politica)
-    ids = _gravar_laudos(sessao, turno.id, avaliacao, deps.jev.origem)
-    if deps.modo is Modo.SOMBRA:
-        previstos = numeros_previstos(avaliacao, conversa, cobranca, deps.politica)
-        return _fechar(sessao, turno, ResultadoTurno.SOMBRA, avaliacao, previstos, agora)
-    if _cobranca_fechou_no_meio(sessao, conversa):
-        return _fechar_ignorado(sessao, turno, avaliacao, agora)
-    if avaliacao.motivo is not None:
-        laudos, laudo_id = [], None
-        if avaliacao.causa is not None:
-            batch, laudo = avaliacao.causa
-            laudos, laudo_id = [laudo], ids[(batch, laudo.pergunta)]
-        _handoff(
-            sessao,
-            conversa,
-            avaliacao.motivo,
-            deps,
-            agora,
-            laudos,
-            laudo_id,
-            leitura=avaliacao.leitura,
-        )
-        return _fechar(sessao, turno, ResultadoTurno.HANDOFF, avaliacao, {}, agora)
-    if avaliacao.acao is Acao.NONE:
-        # Não agir: nada é redigido nem enviado, mas a objeção respondida com NONE também conta.
-        if avaliacao.leitura.sim("objecao_valor"):
-            contar_objecao(conversa, cobranca, deps.politica)
-        destino = proximo_estado(conversa.estado, None, avaliacao.em_risco)
-        _mudar_estado(sessao, conversa, destino, _laudo_da_transicao(avaliacao, ids), agora)
-        return _fechar(sessao, turno, ResultadoTurno.SEM_ENVIO, avaliacao, {}, agora)
-    return _agir(sessao, conversa, turno, avaliacao, estado, historico, deps, ids, agora)
-
-
 def _avaliacao_uma_chamada(resolucao: ResolucaoTurno) -> Avaliacao:
-    """A avaliação do turno novo, para o `_fechar` e o `numeros_previstos`: sem leitura nem decisão.
+    """A avaliação do turno, para o `_fechar` e o `numeros_previstos`.
 
     A ação só entra quando o turno passou com ela. O terceiro e o que não passou ficam sem ação, e o
     rótulo vai explícito (`_rotulo_uma_chamada`).
     """
     if resolucao.motivo is not None:
-        return Avaliacao(None, None, None, [], resolucao.motivo, resolucao.erro)
+        return Avaliacao(None, [], resolucao.motivo, resolucao.erro)
     veredito = resolucao.veredito
     if _passou(resolucao) and not veredito.terceiro:
-        return Avaliacao(None, None, veredito.acao, list(veredito.anexos), None, resolucao.erro)
-    return Avaliacao(None, None, None, [], None, resolucao.erro)
+        return Avaliacao(veredito.acao, list(veredito.anexos), None, resolucao.erro)
+    return Avaliacao(None, [], None, resolucao.erro)
 
 
 def _passou(resolucao: ResolucaoTurno) -> bool:
@@ -822,13 +609,13 @@ def _nada_passou(
     )
 
 
-def _seguir_uma_chamada(
+def _seguir(
     sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
     """O turno de uma chamada ao Luna (D47): o LLM lê, decide e redige; o backend executa e envia.
 
-    A ordem é a do pipeline onde importa: os laudos, a sombra, a releitura da cobrança, o humano, o
-    `NONE`, e o savepoint da ação, que só vale se o texto aprovado sair. O texto já foi aprovado
+    A ordem: os laudos, a sombra, a releitura da cobrança, o humano, o `NONE`, e o savepoint da
+    ação, que só vale se o texto aprovado sair. O texto já foi aprovado
     numa prévia (`resolver_turno`), então a ação só roda depois dele. O estado nunca vai a
     `EM_RISCO`.
     """
@@ -921,7 +708,7 @@ def _seguir_uma_chamada(
     # releitura depois do `executar` confere se o pagamento chegou nesse meio tempo.
     ponto = sessao.begin_nested()
     acoes = [] if sem_efeito(veredito) else [veredito.acao, *veredito.anexos]
-    numeros = executar(acoes, cobranca, conversa, deps, agora, objecao=False)
+    numeros = executar(acoes, cobranca, conversa, deps, agora)
     interpolacao: list[str] | None = None
     try:
         final = interpolar(resolucao.reply, numeros)
@@ -998,7 +785,7 @@ def _pedir_texto(
 ) -> ResultadoTurno:
     """A rajada ficou sem nada legível (só áudio que não foi lido): pede o texto (D43).
 
-    Sem Jev e sem LLM. Na 1ª vez da conversa sai a fixa PEDIR_TEXTO, fora do teto; na 2ª, o humano
+    Sem LLM. Na 1ª vez da conversa sai a fixa PEDIR_TEXTO, fora do teto; na 2ª, o humano
     assume pelo caminho de sempre (D5), com o motivo AUDIO. Em sombra, só grava o que faria.
     """
     if deps.modo is Modo.ATIVO and _cobranca_fechou_no_meio(sessao, conversa):
@@ -1075,7 +862,7 @@ def _pagar_pix(
     Pix integral, o `TEXTO_DO_PIX` recebe o valor, o vencimento e o código, e a mensagem conta no
     teto. Em sombra, só a prévia é gravada.
     """
-    avaliacao = Avaliacao(None, None, Acao.GENERATE_PIX, [], None)
+    avaliacao = Avaliacao(Acao.GENERATE_PIX, [], None)
     cobranca = conversa.cobranca
     if deps.modo is Modo.SOMBRA:
         previstos = numeros_previstos(avaliacao, conversa, cobranca, deps.politica)
@@ -1085,7 +872,7 @@ def _pagar_pix(
         return _fechar_ignorado(sessao, turno, avaliacao, agora)
     # O que o backend grava só vale se a cobrança seguir ativa depois de gerar o Pix.
     ponto = sessao.begin_nested()
-    numeros = executar([Acao.GENERATE_PIX], cobranca, conversa, deps, agora, objecao=False)
+    numeros = executar([Acao.GENERATE_PIX], cobranca, conversa, deps, agora)
     if _cobranca_fechou_no_meio(sessao, conversa):
         ponto.rollback()
         return _fechar_ignorado(sessao, turno, avaliacao, agora, nao_executado=True)

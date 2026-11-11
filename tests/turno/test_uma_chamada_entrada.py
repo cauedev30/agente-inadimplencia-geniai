@@ -13,8 +13,8 @@ from agente.politica import Regua
 from agente.tipos import FormaPagamento
 from agente.turno.acoes import Acao, anexar
 from agente.turno.executar import executar
-from agente.turno.jev1 import GATILHOS
 from agente.turno.redacao import MARCADORES, marcadores_do_turno
+from agente.turno.sinais import GATILHOS
 from agente.turno.uma_chamada import (
     GLOSSARIO_MARCADORES,
     LINK_DE_PREVIA,
@@ -54,7 +54,7 @@ def _entrada(conversa, politica, *, novas=("e o desconto?",), usadas=1):
     )
 
 
-def test_as_constantes_acompanham_o_jev1():
+def test_as_constantes_acompanham_os_gatilhos():
     assert ORIGEM_UMA_CHAMADA == "luna:uma-chamada"
     assert TONS_UMA_CHAMADA == ("neutro", "impaciente", "irritado", "hostil")
     assert SINAIS_DE_SAIDA == tuple(GATILHOS.values())

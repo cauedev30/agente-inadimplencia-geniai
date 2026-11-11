@@ -14,9 +14,8 @@ from agente.db.modelos import LaudoGravado, Mensagem, Pagamento, Turno
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.integracoes.pix import PixFalso, PixIndisponivel
-from agente.integracoes.redator import RedatorFalso
 from agente.pagamento.expirar import expirar_pix
 from agente.tipos import (
     EstadoConversa,
@@ -31,7 +30,6 @@ from agente.turno import orquestrador
 from agente.turno.catalogo import TEXTO_DO_PIX
 from agente.turno.fila import mensagens_pendentes
 from agente.turno.gates import Adiar, Fixa, Ignorar, PagarPix, Seguir, avaliar_gates
-from agente.turno.jev3 import aprovar_tudo
 from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
@@ -48,9 +46,8 @@ def _deps(politica, modo=Modo.ATIVO):
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=modo,
-        jev=JevFalso(aprovar_tudo(), registrar=True),
+        llm_turno=LLMTurnoFalso(registrar=True),
         pix=PixFalso(agora=lambda: SEGUNDA_10H),
-        redator=RedatorFalso(registrar=True),
     )
 
 
@@ -106,7 +103,7 @@ def test_o_toque_nao_depende_de_caixa_nem_de_espacos(sessao, ligada, politica):
     assert _gate(sessao, ligada, politica, f"  {TOQUE.upper()} ") == PagarPix()
 
 
-def test_o_toque_misturado_com_outra_mensagem_segue_para_o_jev(sessao, ligada, politica):
+def test_o_toque_misturado_com_outra_mensagem_segue_para_o_luna(sessao, ligada, politica):
     assert _gate(sessao, ligada, politica, "tá caro", TOQUE) == Seguir()
 
 
@@ -217,7 +214,7 @@ def test_o_toque_responde_a_mensagem_fixa_sem_chamar_nenhum_llm(sessao, ligada, 
 
     assert cliente(TOQUE, deps) is ResultadoTurno.ENVIADO
 
-    assert deps.redator.pedidos == [] and deps.jev.chamadas == []
+    assert deps.llm_turno.pedidos == []
     [pix] = deps.pix.cobrancas.values()
     [texto] = deps.chatwoot.enviadas(555)
     vence = pix.expira_em.astimezone(deps.politica.janela.zona).strftime("%d/%m às %H:%M")

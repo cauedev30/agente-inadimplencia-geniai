@@ -664,7 +664,7 @@ def test_o_testador_com_caso_ativo_nao_troca_de_caso_no_oi(banco_de_teste, polit
 
 def test_o_app_passa_os_casos_das_dependencias_ao_webhook(banco_de_teste, politica_de_teste):
     from agente.integracoes.chatwoot import ChatwootFalso
-    from agente.integracoes.jev import JevFalso
+    from agente.integracoes.llm_turno import LLMTurnoFalso
     from agente.tipos import Modo
     from agente.turno.orquestrador import Dependencias
 
@@ -675,7 +675,7 @@ def test_o_app_passa_os_casos_das_dependencias_ao_webhook(banco_de_teste, politi
         disparador=None,
         time_humano=None,
         modo=Modo.ATIVO,
-        jev=JevFalso(),
+        llm_turno=LLMTurnoFalso(),
         casos=casos,
     )
     config = Config(

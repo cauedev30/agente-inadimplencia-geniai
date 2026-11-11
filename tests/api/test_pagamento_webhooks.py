@@ -225,6 +225,7 @@ def test_o_servico_de_producao_liga_os_webhooks_com_as_dependencias(monkeypatch,
         database_url=url,
         politica_path=RAIZ / "politica.toml",
         pix_webhook_segredo=SEGREDOS["pix"],
+        llm_api_key="chave-ficticia",
     )
     chamadas = []
 

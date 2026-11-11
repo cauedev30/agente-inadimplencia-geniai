@@ -1,7 +1,7 @@
 """A chamada JSON ao Luna do turno de uma chamada (D47).
 
 Uma chamada por turno devolve os sinais, a ação e o texto num objeto JSON só. A API é a de chat
-completions com `response_format: json_object`, a mesma do `RedatorOpenAI` (D42). Aqui só há o
+completions com `response_format: json_object` (D42). Aqui só há o
 transporte: o que o JSON significa é do `turno/uma_chamada.py`.
 """
 
@@ -14,11 +14,17 @@ from typing import Protocol
 
 import httpx
 
-from agente.integracoes.redator import URL_OPENAI, Uso
+URL_OPENAI = "https://api.openai.com/v1"
 
 # O Luna às vezes cerca o JSON com ```json ... ``` ou o escreve no meio de um texto, mesmo pedindo
 # `json_object`: vale do primeiro `{` ao último `}`, como o `_extract_json` do outro agente.
 _OBJETO = re.compile(r"\{.*\}", re.DOTALL)
+
+
+@dataclass(frozen=True)
+class Uso:
+    tokens_entrada: int
+    tokens_saida: int
 
 
 class LLMTurnoIndisponivel(RuntimeError):

@@ -14,7 +14,6 @@ texto_pix_recebedor = "Ao colar o código no seu banco, confira que o recebedor 
 # Pix segue pagável no banco do CDT, e o pagamento ainda é confirmado) até a T1 dizer se dá para cancelá-lo
 handoff_expira_pix = false
 objecoes_sem_desconto_ate_humano = 2 # padrão (G1.1): na régua sem desconto, a 2ª objeção vai ao humano
-confianca_minima = 0.60              # arquitetura, seção 4
 rajada_segundos = 7                  # espera para juntar as mensagens em rajada
 audio_max_segundos = 120             # arquitetura, seção 1
 audio_max_bytes = 5242880            # D43 (5 MB): o maior áudio baixado do Chatwoot; o do outro agente
@@ -27,7 +26,6 @@ nota_transcricao_em_sombra = true    # padrão (8.5): em sombra o atendente resp
 # por conversa; na 2ª vez, o humano assume. O "2 minutos" do primeiro acompanha o audio_max_segundos.
 pedir_texto_audio_longo = "Seu áudio passou de 2 minutos. Pode mandar um mais curto ou escrever, por favor?"
 pedir_texto_audio_falhou = "Não consegui ouvir seu áudio. Pode escrever em texto, por favor?"
-jev_timeout_ms = 2000                # padrão; acima disso, o turno vai para o humano (arquitetura, seção 9)
 integracao_tentativas = 3            # padrão: tentativas do turno com o CTN, o Pix ou o Chatwoot fora; depois, o humano
 erro_interno_tentativas = 3          # padrão: tentativas do turno com um erro de código; depois, o humano (em sombra, o turno sai da fila)
 integracao_espera_segundos = 60      # padrão: a espera até a 2ª tentativa; dobra a cada falha
@@ -119,26 +117,6 @@ sab = ["08:00", "12:00"]  # padrão (G3): a operação não confirmou o sábado
 [propensao]
 n_meses = 3
 tolerancia_dias = 3
-
-# Limiares dos gatilhos de saída do Jev 1 (arquitetura, seção 2). Calibrar com dado real.
-[limiares_jev1]
-quer_retencao = 0.80
-risco_juridico = 0.70
-alega_pagamento = 0.70
-contesta_divida = 0.70
-desconfia_golpe = 0.70
-vulnerabilidade = 0.75
-atrito_clinica = 0.70
-quer_conta_energia = 0.70
-
-# Probabilidade mínima de cada ação do Jev 2 (arquitetura, seção 4). Calibrar com dado real.
-[limiares_jev2]
-INFORM_DEBT = 0.70
-OFFER_DISCOUNT = 0.80
-SEND_CTN_LINK = 0.85
-GENERATE_PIX = 0.90
-OUT_OF_SCOPE = 0.70
-NONE = 0.60
 
 # Layout do CSV da carteira. Padrão (G5) até saber de onde a lista vem e com quais colunas.
 [carteira]

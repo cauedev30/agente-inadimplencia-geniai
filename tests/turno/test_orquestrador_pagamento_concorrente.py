@@ -2,7 +2,7 @@
 
 O webhook roda em outra transação. O SQLite não trava linha, então a corrida é simulada na ordem dos
 fatos: um UPDATE por fora da sessão, que deixa a conversa e a cobrança da sessão do turno velhas, no
-meio do Jev ou do LLM.
+meio da chamada ao Luna.
 """
 
 from dataclasses import dataclass
@@ -13,8 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Cobranca, Conversa, Mensagem, Pagamento, Transicao, Turno
-from agente.integracoes.jev import responder
-from agente.integracoes.redator import RedatorFalso
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.tipos import (
     EstadoConversa,
     OrigemMensagem,
@@ -23,7 +22,7 @@ from agente.tipos import (
 )
 from agente.turno.orquestrador import processar_turno
 
-from .test_orquestrador_ativo import _deps
+from .auxiliares import HANDOFF, _bruto, _deps
 from .test_orquestrador_gates import SEGUNDA_10H
 
 
@@ -50,16 +49,16 @@ def _pagar_por_fora(sessao, conversa):
 
 
 @dataclass
-class RedatorQueEspera(RedatorFalso):
-    """Enquanto o LLM redige, o pagamento chega."""
+class LLMQueEspera(LLMTurnoFalso):
+    """Enquanto o Luna responde, o pagamento chega."""
 
-    ao_redigir: object = None
+    ao_chamar: object = None
 
-    def redigir(self, pedido):
-        if self.ao_redigir is not None:
-            self.ao_redigir()
-            self.ao_redigir = None
-        return super().redigir(pedido)
+    def completar_json(self, sistema, usuario):
+        if self.ao_chamar is not None:
+            self.ao_chamar()
+            self.ao_chamar = None
+        return super().completar_json(sistema, usuario)
 
 
 def _pergunta(sessao, conversa, texto="quanto eu devo?"):
@@ -75,12 +74,12 @@ def _estado_no_banco(sessao, conversa):
     ).status
 
 
-def test_o_pagamento_no_meio_do_llm_nao_gera_envio_nem_sobrescreve_o_encerrado(
+def test_o_pagamento_no_meio_do_luna_nao_gera_envio_nem_sobrescreve_o_encerrado(
     sessao, ligada, politica
 ):
-    redator = RedatorQueEspera(registrar=True)
-    redator.ao_redigir = lambda: _pagar_por_fora(sessao, ligada)
-    deps = _deps(politica, redator=redator)
+    llm = LLMQueEspera(respostas=[_bruto()], registrar=True)
+    llm.ao_chamar = lambda: _pagar_por_fora(sessao, ligada)
+    deps = _deps(politica, llm=llm)
     _pergunta(sessao, ligada)
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
@@ -98,21 +97,14 @@ def test_o_pagamento_no_meio_do_llm_nao_gera_envio_nem_sobrescreve_o_encerrado(
     assert turno.resultado is ResultadoTurno.IGNORADO and turno.texto_enviado is None
 
 
-def test_o_pagamento_no_meio_do_jev_nao_manda_o_canal_externo_depois_da_confirmacao(
+def test_o_pagamento_no_meio_do_luna_nao_manda_o_canal_externo_depois_da_confirmacao(
     sessao, ligada, politica
 ):
-    chegou = []
-
-    def pagamento_chega(pergunta, estado):
-        if not chegou:
-            chegou.append(True)
-            _pagar_por_fora(sessao, ligada)
-
-    # O Jev 1 lê "já paguei": o turno sairia para o humano (CONCILIACAO), mas o pagamento chegou.
-    deps = _deps(
-        politica,
-        regras=[pagamento_chega, responder("alega_pagamento", True, 0.95, 0.95)],
-    )
+    # O Luna lê "já paguei": o turno sairia para o humano (CONCILIACAO), mas o pagamento chegou.
+    saida = _bruto(alega_pagamento=True, acao="NONE", reply="", handoff_reply=HANDOFF)
+    llm = LLMQueEspera(respostas=[saida], registrar=True)
+    llm.ao_chamar = lambda: _pagar_por_fora(sessao, ligada)
+    deps = _deps(politica, llm=llm)
     _pergunta(sessao, ligada, "já paguei")
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
@@ -124,7 +116,7 @@ def test_o_pagamento_no_meio_do_jev_nao_manda_o_canal_externo_depois_da_confirma
 
 
 def test_sem_pagamento_no_meio_o_turno_segue_igual(sessao, ligada, politica):
-    deps = _deps(politica)
+    deps = _deps(politica, [_bruto()])
     _pergunta(sessao, ligada)
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
@@ -138,7 +130,7 @@ def test_sem_pagamento_no_meio_o_turno_segue_igual(sessao, ligada, politica):
 
 
 def test_o_turno_trava_a_conversa_antes_da_cobranca_como_a_confirmacao(sessao, ligada, politica):
-    deps = _deps(politica)
+    deps = _deps(politica, [_bruto()])
     _pergunta(sessao, ligada)
     travas = []
 
@@ -156,9 +148,9 @@ def test_o_turno_trava_a_conversa_antes_da_cobranca_como_a_confirmacao(sessao, l
 
 
 def test_a_trava_da_cobranca_vem_antes_do_savepoint_da_acao(sessao, ligada, politica, monkeypatch):
-    # Com o texto vazio o savepoint volta atrás: uma trava tomada dentro dele seria solta.
-    deps = _deps(politica, redator=RedatorFalso(respostas=["", ""]))
-    _pergunta(sessao, ligada, "Pagar com Pix")  # sem Jev: nenhuma releitura antes do _agir
+    # O savepoint da ação pode voltar atrás: uma trava tomada dentro dele seria solta.
+    deps = _deps(politica)
+    _pergunta(sessao, ligada, "Pagar com Pix")  # sem o Luna: nenhuma releitura antes do botão
     chamadas = []
     refresh, begin_nested = sessao.refresh, sessao.begin_nested
     monkeypatch.setattr(

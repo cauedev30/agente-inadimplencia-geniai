@@ -24,7 +24,7 @@ from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.integracoes.pix import PixFalso, StatusPix
 from agente.pagamento import confirmar
 from agente.politica import Regua
@@ -38,9 +38,10 @@ from agente.tipos import (
 )
 from agente.turno.acoes import Acao
 from agente.turno.executar import executar
-from agente.turno.jev3 import aprovar_tudo
 from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, criar_processador
+
+from .turno.auxiliares import _bruto
 
 SEGUNDA_10H = datetime(2026, 10, 26, 13, tzinfo=UTC)  # 10h em João Pessoa: janela aberta
 TELEFONE = "+5583999990001"
@@ -108,7 +109,7 @@ class Ambiente:
             self.disparador,
             time_humano=4,
             modo=Modo.ATIVO,
-            jev=JevFalso(aprovar_tudo()),
+            llm_turno=LLMTurnoFalso(respostas=[_bruto()]),
             ctn=self.ctn,
             pix=self.pix,
         )

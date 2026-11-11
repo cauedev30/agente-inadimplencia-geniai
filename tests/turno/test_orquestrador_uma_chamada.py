@@ -1,11 +1,7 @@
-"""O turno de uma chamada ligado ao orquestrador, de ponta a ponta com as falsas (D47, E1.5).
-
-O Jev não existe neste caminho: o que levanta se for chamado prova que o desvio não o toca.
-"""
+"""O turno de uma chamada ligado ao orquestrador, de ponta a ponta com as falsas (D47, E1.5)."""
 
 import json
 from dataclasses import dataclass, replace
-from datetime import timedelta
 
 import pytest
 from sqlalchemy import select
@@ -13,13 +9,8 @@ from sqlalchemy import select
 from agente.abertura.disparar import BOTAO_PAGAR_PIX
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import LaudoGravado, Mensagem, Pagamento, Transicao, Turno
-from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
-from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso
 from agente.integracoes.llm_turno import LLMTurnoFalso, LLMTurnoIndisponivel
-from agente.integracoes.pix import PixFalso
-from agente.integracoes.redator import RedatorFalso
 from agente.tipos import (
     BatchJev,
     EstadoConversa,
@@ -31,33 +22,21 @@ from agente.tipos import (
 )
 from agente.turno import orquestrador
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, TEXTO_RESPOSTA_SEGURA
-from agente.turno.jev3 import aprovar_tudo
-from agente.turno.liberacao import liberar_tudo
-from agente.turno.orquestrador import Dependencias, processar_turno
+from agente.turno.orquestrador import processar_turno
 from agente.turno.uma_chamada import ORIGEM_UMA_CHAMADA, SINAIS
 
+from .auxiliares import (
+    HANDOFF,
+    REPLY_LINK,
+    REPLY_LINK_FINAL,
+    REPLY_NONE,
+    REPLY_TERCEIRO,
+    Cliente,
+    _bruto,
+    _deps,
+)
 from .test_orquestrador_gates import SEGUNDA_10H
 from .test_orquestrador_pagamento_concorrente import _pagar_por_fora
-
-REPLY_PIX = "Seu valor em aberto é {divida}. Para pagar no Pix, use o código: {pix_copia_e_cola}"
-REPLY_LINK = "Seu valor com desconto é {valor_final}. Pague e cadastre o cartão: {link_ctn}"
-REPLY_LINK_FINAL = "Fechado! Segue o link com o valor final de {valor_final}: {link_ctn}"
-REPLY_NONE = ""
-REPLY_TERCEIRO = "Oi! Acho que você não é a pessoa com quem eu queria falar. Obrigado pela atenção."
-HANDOFF = "Entendi, você falou do desemprego. Passei a conversa para a nossa equipe."
-
-
-class JevProibido:
-    """O Jev que levanta se for chamado: o turno de uma chamada não o usa."""
-
-    origem = "proibido"
-
-    def __init__(self):
-        self.chamadas = 0
-
-    def avaliar(self, perguntas, estado):
-        self.chamadas += 1
-        raise AssertionError("o Jev não deve ser chamado no turno de uma chamada")
 
 
 @dataclass
@@ -85,53 +64,10 @@ class CTNQueEspera(CTNFalso):
         return super().gerar_link_pagamento(*args, **kwargs)
 
 
-def _bruto(**mudancas) -> dict:
-    bruto = {sinal: False for sinal in SINAIS}
-    bruto |= {"tom": "neutro", "acao": "INFORM_DEBT", "reply": REPLY_PIX, "handoff_reply": ""}
-    return bruto | mudancas
-
-
-def _deps(politica, respostas=(), *, llm=None, modo=Modo.ATIVO, ctn=None, **mudancas):
-    return Dependencias(
-        politica=liberar_tudo(politica),
-        chatwoot=ChatwootFalso(),
-        disparador=DisparadorFalso(),
-        time_humano=4,
-        modo=modo,
-        jev=JevProibido(),
-        ctn=ctn or CTNFalso([ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", None)]),
-        pix=PixFalso(agora=lambda: SEGUNDA_10H),
-        redator=RedatorFalso(registrar=True),
-        llm_turno=llm or LLMTurnoFalso(respostas=list(respostas), registrar=True),
-        **mudancas,
-    )
-
-
 @pytest.fixture
 def ligada(conversa):
     conversa.chatwoot_conversa_id = 555
     return conversa
-
-
-class Cliente:
-    """Manda uma mensagem do cliente e roda o turno, um minuto depois do anterior."""
-
-    def __init__(self, sessao, conversa):
-        self.sessao, self.conversa, self.n = sessao, conversa, 0
-
-    def __call__(self, texto, deps):
-        self.n += 1
-        agora = SEGUNDA_10H + timedelta(minutes=self.n)
-        registrar_mensagem(
-            self.sessao,
-            self.conversa.id,
-            OrigemMensagem.CLIENTE,
-            texto,
-            f"cw-{self.n}",
-            False,
-            agora,
-        )
-        return processar_turno(self.sessao, self.conversa.id, agora, deps)
 
 
 @pytest.fixture
@@ -156,14 +92,13 @@ def _laudos(sessao, batch):
 # O caminho
 
 
-def test_com_llm_turno_o_jev_nao_e_chamado_e_o_turno_fecha_enviado(
+def test_o_turno_fecha_enviado_com_o_texto_do_luna_e_o_pix_do_backend(
     sessao, ligada, cliente, politica
 ):
     deps = _deps(politica, [_bruto()])
 
     assert cliente("quanto eu devo?", deps) is ResultadoTurno.ENVIADO
 
-    assert deps.jev.chamadas == 0
     [pix] = deps.pix.cobrancas.values()
     [texto] = deps.chatwoot.enviadas(555)
     assert "R$ 100,20" in texto and pix.br_code in texto
@@ -175,17 +110,6 @@ def test_com_llm_turno_o_jev_nao_e_chamado_e_o_turno_fecha_enviado(
     [mensagem] = _do_agente(sessao)
     assert (mensagem.texto, mensagem.conta_no_teto) == (texto, True)
     assert sessao.scalars(select(Pagamento)).one().referencia == pix.txid
-
-
-def test_sem_llm_turno_o_jev_e_chamado_como_hoje(sessao, ligada, cliente, politica):
-    deps = _deps(politica)
-    deps.llm_turno = None
-    deps.jev = JevFalso([*aprovar_tudo()], registrar=True)
-
-    assert cliente("quanto eu devo?", deps) is ResultadoTurno.ENVIADO
-
-    assert deps.jev.chamadas
-    assert _turno(sessao).redacao.get("caminho") is None
 
 
 def test_as_novas_da_rajada_vao_em_novas_e_as_anteriores_em_conversa(
@@ -230,7 +154,6 @@ def test_os_laudos_vao_em_jev1_e_jev2_com_a_origem_do_turno_novo(sessao, ligada,
     assert (jev1[0].probabilidade, jev1[0].confianca) == (1.0, 1.0)
     [acao] = _laudos(sessao, BatchJev.JEV2)
     assert (acao.pergunta, acao.valor) == ("acao", "INFORM_DEBT")
-    assert _laudos(sessao, BatchJev.JEV3) == []
 
 
 def test_a_palavra_chave_que_bateu_vira_laudo_do_jev1(sessao, ligada, cliente, politica):
@@ -727,19 +650,16 @@ def test_com_o_recebedor_preenchido_a_frase_vai_no_fim_do_pix(sessao, ligada, cl
     assert _turno(sessao).texto_enviado == texto
 
 
-# O botão "Pagar com Pix" (D26, D59): a mensagem fixa, sem o Luna nem o Jev
+# O botão "Pagar com Pix" (D26, D59): a mensagem fixa, sem o Luna
 
 TOQUE = BOTAO_PAGAR_PIX.texto
 
 
-def test_o_botao_com_llm_turno_manda_o_pix_fixo_sem_chamar_o_luna(
-    sessao, ligada, cliente, politica
-):
+def test_o_botao_manda_o_pix_fixo_sem_chamar_o_luna(sessao, ligada, cliente, politica):
     deps = _deps(politica)
 
     assert cliente(TOQUE, deps) is ResultadoTurno.ENVIADO
 
-    assert deps.jev.chamadas == 0
     assert deps.llm_turno.pedidos == []
     [pix] = deps.pix.cobrancas.values()
     [texto] = deps.chatwoot.enviadas(555)
@@ -747,7 +667,7 @@ def test_o_botao_com_llm_turno_manda_o_pix_fixo_sem_chamar_o_luna(
     assert sessao.scalars(select(Pagamento)).one().referencia == pix.txid
     turno = _turno(sessao)
     assert (turno.acao_principal, turno.resultado) == ("GENERATE_PIX", ResultadoTurno.ENVIADO)
-    assert turno.redacao["saida"] == "FIXA" and _laudos(sessao, BatchJev.JEV3) == []
+    assert turno.redacao["saida"] == "FIXA"
     assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
 
 

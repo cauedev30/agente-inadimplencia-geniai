@@ -1,7 +1,6 @@
-"""O orquestrador aplicando os gates (tarefa 3.6). O Jev está em test_orquestrador_sombra."""
+"""O orquestrador aplicando os gates (tarefa 3.6)."""
 
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
@@ -10,15 +9,15 @@ from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Conversa, Mensagem, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.tipos import EstadoConversa, Modo, MotivoHumano, OrigemMensagem, ResultadoTurno
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.fila import mensagens_pendentes
 from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
-JP = ZoneInfo("America/Fortaleza")
-SEGUNDA_10H = datetime(2026, 10, 26, 10, tzinfo=JP)
+from .auxiliares import JP, SEGUNDA_10H, _bruto
+
 DOMINGO = datetime(2026, 11, 1, 10, tzinfo=JP)
 
 
@@ -30,7 +29,7 @@ def deps(politica):
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=Modo.ATIVO,
-        jev=JevFalso(),
+        llm_turno=LLMTurnoFalso(respostas=[_bruto()]),
     )
 
 
@@ -104,7 +103,7 @@ def test_caminho_livre_grava_o_turno_e_consome_a_rajada(sessao, ligada, deps):
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    # O turno segue até o envio (o Jev falso sem regras reprova o texto: sai a resposta segura).
+    # O turno segue até o envio do texto do Luna.
     assert resultado is ResultadoTurno.ENVIADO
     turno = sessao.scalars(select(Turno)).one()
     assert len(turno.mensagens_ids) == 1

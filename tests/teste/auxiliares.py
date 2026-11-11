@@ -8,13 +8,11 @@ from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import CTNComposto, CTNFalso
 from agente.integracoes.ctn_teste import CTNEscritaDeTeste, RoteadorCTN
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.integracoes.pix import PixDeTeste
-from agente.integracoes.redator import RedatorFalso
 from agente.tipos import Modo, OrigemMensagem
-from agente.turno.jev3 import aprovar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
-from tests.turno.test_orquestrador_gates import SEGUNDA_10H
+from tests.turno.auxiliares import SEGUNDA_10H, _bruto
 
 CHATWOOT_ID = 555
 
@@ -27,10 +25,9 @@ def montar_deps(politica, casos, chatwoot=None, *, com_casos=True):
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=Modo.ATIVO,
-        jev=JevFalso(list(aprovar_tudo()), registrar=True),
+        llm_turno=LLMTurnoFalso(respostas=[_bruto()] * 20, registrar=True),
         ctn=ctn,
         pix=PixDeTeste(agora=lambda: SEGUNDA_10H),
-        redator=RedatorFalso(registrar=True),
         conferir_no_contato=True,
         casos=casos if com_casos else None,
     )

@@ -104,7 +104,7 @@ def test_paguei_confirma_o_pix_pendente_pelo_caminho_do_webhook(
     assert Pendencia.BAIXA.value in pix.pendencias
     turno = _ultimo_turno(sessao)
     assert (turno.acao_principal, turno.resultado) == ("TESTE:PAGUEI", ResultadoTurno.FIXA)
-    assert deps.jev.chamadas == [] and deps.redator.pedidos == []
+    assert deps.llm_turno.pedidos == []
 
     # A mensagem de confirmação do agente e a baixa saem pela rotina, como no webhook do Pix.
     enviadas = len(deps.chatwoot.enviadas(CHATWOOT_ID))
@@ -282,7 +282,7 @@ def test_paguei_2_no_caso_3_abate_e_a_regua_cai(sessao, testador, conversa_de_te
     assert all(b.cobranca_id == cobranca.id for b in baixas)
     turno = _ultimo_turno(sessao)
     assert (turno.acao_principal, turno.resultado) == ("TESTE:PAGUEI", ResultadoTurno.FIXA)
-    assert deps.jev.chamadas == []
+    assert deps.llm_turno.pedidos == []
 
 
 def test_paguei_5_no_caso_4_quita_e_o_aviso_sai(

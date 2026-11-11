@@ -13,8 +13,6 @@ from sqlalchemy import select
 from agente.db.historico import mensagens_no_teto, registrar_mensagem
 from agente.db.modelos import Conversa, Mensagem, Pagamento, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
-from agente.integracoes.jev import responder
-from agente.integracoes.redator import RedatorFalso
 from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
@@ -25,7 +23,7 @@ from agente.tipos import (
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, TEXTO_RESPOSTA_SEGURA
 from agente.turno.orquestrador import _entregue, _ja_saiu_resposta_segura, processar_turno
 
-from .test_orquestrador_ativo import _deps
+from .auxiliares import _bruto, _deps
 from .test_orquestrador_falhas import PixFora
 from .test_orquestrador_gates import SEGUNDA_10H
 
@@ -67,8 +65,9 @@ def _do_agente(sessao):
     return sessao.scalars(consulta.order_by(Mensagem.id)).all()
 
 
-def _deps_com(politica, chatwoot, regras=(), redator=None):
-    deps = _deps(politica, regras, redator=redator or RedatorFalso(registrar=True))
+def _deps_com(politica, chatwoot, respostas=None):
+    """Cada chamada ao Luna devolve a resposta seguinte (o padrão: o Pix, duas vezes)."""
+    deps = _deps(politica, [_bruto(), _bruto()] if respostas is None else respostas)
     deps.chatwoot = chatwoot
     return deps
 
@@ -88,7 +87,7 @@ def test_falha_depois_de_entregar_nao_reenvia_nem_conta_duas_vezes(sessao, ligad
     assert mensagens_no_teto(sessao, ligada.id) == 1
     # Nada do turno se refez: um Pix, um pedido ao LLM, uma conta na conversa.
     assert len(deps.pix.cobrancas) == 1 and len(sessao.scalars(select(Pagamento)).all()) == 1
-    assert len(deps.redator.pedidos) == 1
+    assert len(deps.llm_turno.pedidos) == 1
     assert (ligada.falhas_turno, ligada.turno_em) == (0, None)
     assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
 
@@ -106,7 +105,7 @@ def test_falha_antes_de_entregar_reenvia_o_mesmo_texto_com_o_mesmo_pix(sessao, l
     [pix] = deps.pix.cobrancas.values()
     assert pix.br_code in texto
     assert len(_do_agente(sessao)) == 1 and mensagens_no_teto(sessao, ligada.id) == 1
-    assert len(deps.redator.pedidos) == 1
+    assert len(deps.llm_turno.pedidos) == 1
     assert deps.pix.cobrancas.keys() == {p.referencia for p in sessao.scalars(select(Pagamento))}
 
 
@@ -136,8 +135,8 @@ def test_a_intencao_esta_gravada_quando_o_chatwoot_recebe_o_envio(sessao, ligada
 
 def test_o_texto_igual_a_um_ja_entregue_nao_e_confundido_com_ele(sessao, ligada, politica):
     # A mesma frase sai em dois turnos; a falha do 2º, antes de entregar, não adota o id do 1º.
-    fora_de_escopo = [responder("acao", "OUT_OF_SCOPE")]
-    deps = _deps_com(politica, ChatwootInstavel(antes={2}), fora_de_escopo)
+    fora_de_escopo = _bruto(acao="OUT_OF_SCOPE", reply="Esse assunto não é tratado por aqui.")
+    deps = _deps_com(politica, ChatwootInstavel(antes={2}), [fora_de_escopo, fora_de_escopo])
     _pergunta(sessao, ligada)
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
@@ -328,7 +327,7 @@ def test_a_conferencia_so_descarta_os_ids_da_propria_conversa(sessao, ligada, po
 def test_um_erro_de_codigo_no_turno_conta_como_erro_interno_e_nao_como_falha_de_integracao(
     sessao, ligada, politica
 ):
-    deps = _deps_com(politica, ChatwootInstavel(), redator=RedatorFalso(falha=KeyError("bug")))
+    deps = _deps_com(politica, ChatwootInstavel(), [KeyError("bug")])
     _pergunta(sessao, ligada)
     sessao.commit()
 

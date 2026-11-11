@@ -48,16 +48,6 @@ def _agora() -> datetime:
     return datetime.now(UTC)
 
 
-def _fechar_jev(dependencias: DependenciasPagamento | None) -> None:
-    """Fecha o cliente HTTP do Jev real no encerramento; o falso não tem o que fechar."""
-    fechar = getattr(getattr(dependencias, "jev", None), "fechar", None)
-    if callable(fechar):
-        try:
-            fechar()
-        except Exception:
-            log.exception("não foi possível fechar o cliente do Jev")
-
-
 def _fechar_ctn(ctn: object) -> None:
     """Fecha o cliente HTTP do CTN real no encerramento; o falso não tem o que fechar."""
     fechar = getattr(ctn, "fechar", None)
@@ -135,7 +125,6 @@ def criar_app(
             yield
         finally:
             trabalhador.parar()
-            _fechar_jev(dependencias)
             _fechar_ctn(ctn)
 
     app = FastAPI(title="Agente de inadimplência", lifespan=ciclo_de_vida)

@@ -25,9 +25,10 @@ from agente.turno import orquestrador
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.orquestrador import processar_turno
 
-from .test_orquestrador_ativo import _deps
-from .test_orquestrador_gates import SEGUNDA_10H
+from .auxiliares import SEGUNDA_10H, _bruto, _deps
 from .test_orquestrador_sombra import _deps as _deps_sombra
+
+RESPOSTAS = [_bruto()] * 5
 
 
 @pytest.fixture
@@ -86,7 +87,7 @@ def test_o_erro_de_codigo_volta_para_a_fila_e_na_ultima_tentativa_vai_ao_humano(
     sessao, ligada, politica, bug
 ):
     defeito = bug()
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     _pergunta(sessao, ligada)
     n = politica.erro_interno_tentativas
 
@@ -104,7 +105,7 @@ def test_o_erro_de_codigo_volta_para_a_fila_e_na_ultima_tentativa_vai_ao_humano(
 
 def test_so_a_mensagem_fixa_do_handoff_sai_ao_cliente(sessao, ligada, politica, bug):
     bug()
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     _pergunta(sessao, ligada)
     n = politica.erro_interno_tentativas
 
@@ -125,7 +126,7 @@ def test_cada_erro_fica_no_historico_do_turno_e_nao_consome_a_mensagem(
     sessao, ligada, politica, bug
 ):
     bug()
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     _pergunta(sessao, ligada)
 
     assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ERRO
@@ -141,7 +142,7 @@ def test_cada_erro_fica_no_historico_do_turno_e_nao_consome_a_mensagem(
 
 def test_a_espera_entre_as_tentativas_dobra(sessao, ligada, politica, bug):
     bug()
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     _pergunta(sessao, ligada)
     base = politica.integracao_espera_segundos
 
@@ -156,7 +157,7 @@ def test_a_espera_entre_as_tentativas_dobra(sessao, ligada, politica, bug):
 
 def test_o_stack_trace_do_erro_fica_no_log(sessao, ligada, politica, bug, caplog):
     bug()
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     _pergunta(sessao, ligada)
 
     with caplog.at_level(logging.ERROR, logger=orquestrador.log.name):
@@ -169,7 +170,7 @@ def test_o_stack_trace_do_erro_fica_no_log(sessao, ligada, politica, bug, caplog
 
 def test_o_bug_que_passa_sozinho_fecha_o_turno_e_zera_a_conta(sessao, ligada, politica, bug):
     bug(vezes=1)
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     _pergunta(sessao, ligada)
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
     assert ligada.erros_turno == 1
@@ -182,7 +183,7 @@ def test_o_bug_que_passa_sozinho_fecha_o_turno_e_zera_a_conta(sessao, ligada, po
 
 
 def test_a_falha_de_integracao_nao_conta_como_erro_interno(sessao, ligada, politica):
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
 
     def pix_fora(*args, **kwargs):
         raise httpx.ConnectError("o banco não respondeu")
@@ -199,7 +200,7 @@ def test_o_handoff_que_tambem_quebra_tira_a_conversa_da_fila_sem_laco(
     sessao, ligada, politica, bug, caplog
 ):
     bug()
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
 
     def nota_privada(conversa_id, texto):
         raise KeyError("bug no handoff")
@@ -220,7 +221,7 @@ def test_o_handoff_que_tambem_quebra_tira_a_conversa_da_fila_sem_laco(
 
 def test_a_mensagem_nova_da_conversa_marcada_tenta_so_o_handoff(sessao, ligada, politica, bug):
     defeito = bug()
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     quebra = {"ativa": True}
     nota = deps.chatwoot.nota_privada
 
@@ -248,7 +249,7 @@ def test_o_chatwoot_fora_no_handoff_do_erro_interno_espera_e_sai_um_so_quando_vo
     sessao, ligada, politica, bug
 ):
     defeito = bug()
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     quebra = {"ativa": True}
     nota = deps.chatwoot.nota_privada
 
@@ -277,7 +278,7 @@ def test_o_chatwoot_fora_no_handoff_do_erro_interno_espera_e_sai_um_so_quando_vo
 
 def test_o_handoff_do_erro_interno_so_sai_dentro_da_janela(sessao, ligada, politica, bug):
     defeito = bug()
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     _pergunta(sessao, ligada)
     sexta_17h59 = SEGUNDA_10H.replace(day=30, hour=17, minute=59)
     ligada.erros_turno = politica.erro_interno_tentativas
@@ -297,7 +298,7 @@ def test_o_handoff_do_erro_interno_so_sai_dentro_da_janela(sessao, ligada, polit
 
 def test_o_erro_interno_nao_aciona_o_humano_que_ja_esta_na_conversa(sessao, ligada, politica, bug):
     bug()
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     ligada.human_owned = True
     _pergunta(sessao, ligada)
     ligada.erros_turno = politica.erro_interno_tentativas

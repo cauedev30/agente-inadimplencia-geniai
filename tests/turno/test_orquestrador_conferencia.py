@@ -11,9 +11,8 @@ from agente.db.modelos import Conversa, Mensagem, Transicao, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso, MensalidadeAberta
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.integracoes.pix import PixFalso
-from agente.integracoes.redator import RedatorFalso
 from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
@@ -25,11 +24,11 @@ from agente.tipos import (
 )
 from agente.turno.fila import mensagens_pendentes
 from agente.turno.handoff import NOTA_CONCILIACAO_REPETIDA, devolver_ao_robo
-from agente.turno.jev3 import aprovar_tudo
 from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import ROTULO_QUITADA, Dependencias, processar_turno
 
-from .test_orquestrador_gates import DOMINGO, SEGUNDA_10H
+from .auxiliares import SEGUNDA_10H, _bruto
+from .test_orquestrador_gates import DOMINGO
 
 ESCRITA = ("INSERT", "UPDATE", "DELETE")
 
@@ -95,10 +94,9 @@ def _deps(politica, ctn, modo=Modo.ATIVO, conferir=True):
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=modo,
-        jev=JevFalso(list(aprovar_tudo()), registrar=True),
+        llm_turno=LLMTurnoFalso(respostas=[_bruto()] * 10, registrar=True),
         ctn=ctn,
         pix=PixFalso(agora=lambda: SEGUNDA_10H),
-        redator=RedatorFalso(registrar=True),
         conferir_no_contato=conferir,
     )
 

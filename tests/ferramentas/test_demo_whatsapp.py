@@ -20,7 +20,6 @@ CHATWOOT = {
     "token_bot": "token-do-bot-ficticio",
     "bot_id": 5,
 }
-TYPESAFE = {"api_key": "chave-typesafe-ficticia"}
 OPENAI = {"api_key": "chave-openai-ficticia"}
 SEGREDO = "segredo-ficticio-do-webhook"
 
@@ -28,7 +27,6 @@ SEGREDO = "segredo-ficticio-do-webhook"
 def _ambiente(tmp_path, **trocas):
     campos = {
         "chatwoot": CHATWOOT,
-        "typesafe": TYPESAFE,
         "openai": OPENAI,
         "kit": tmp_path,
         "segredo_webhook": SEGREDO,
@@ -37,27 +35,15 @@ def _ambiente(tmp_path, **trocas):
     return subir.montar_ambiente(**{**campos, **trocas})
 
 
-def test_o_ambiente_leva_o_modo_ativo_e_a_liberacao_do_jev_so_para_a_demo(tmp_path):
+def test_o_ambiente_leva_o_modo_ativo_e_a_liberacao_do_luna_so_para_a_demo(tmp_path):
     ambiente = _ambiente(tmp_path)
     assert ambiente["AGENTE_MODO"] == "ativo"
-    assert ambiente["AGENTE_JEV_DADOS_REAIS_LIBERADOS"] == "true"
     assert ambiente["AGENTE_LLM_DADOS_REAIS_LIBERADOS"] == "true"
-    assert ambiente["AGENTE_JEV_API_KEY"] == TYPESAFE["api_key"]
     assert ambiente["AGENTE_LLM_API_KEY"] == OPENAI["api_key"]
     assert ambiente["AGENTE_WEBHOOK_SEGREDO"] == SEGREDO
     assert ambiente["AGENTE_CHATWOOT_CONTA"] == "91"
     assert ambiente["AGENTE_CHATWOOT_INBOX"] == "280"
     assert ambiente["AGENTE_POLITICA_PATH"] == str(tmp_path / "politica-demo.toml")
-
-
-def test_o_turno_da_demo_e_o_pipeline_e_so_muda_se_pedirem(tmp_path):
-    assert _ambiente(tmp_path)["AGENTE_TURNO"] == "pipeline"
-    assert _ambiente(tmp_path, turno="uma_chamada")["AGENTE_TURNO"] == "uma_chamada"
-
-
-def test_o_turno_do_ambiente_do_processo_nao_vaza_para_a_demo(tmp_path):
-    ambiente = _ambiente(tmp_path, ambiente_base={"AGENTE_TURNO": "uma_chamada"})
-    assert ambiente["AGENTE_TURNO"] == "pipeline"
 
 
 def test_o_agente_responde_com_o_token_do_bot_e_nao_com_o_do_usuario(tmp_path):
@@ -100,13 +86,9 @@ def test_o_token_do_bot_igual_ao_do_usuario_e_recusado(tmp_path):
         _ambiente(tmp_path, chatwoot=igual)
 
 
-@pytest.mark.parametrize(
-    ("campo", "trocas"),
-    [("typesafe", {"typesafe": {}}), ("openai", {"openai": {}})],
-)
-def test_falta_a_chave_da_api(tmp_path, campo, trocas):
+def test_falta_a_chave_da_api(tmp_path):
     with pytest.raises(subir.ErroDaDemo, match="api_key"):
-        _ambiente(tmp_path, **trocas)
+        _ambiente(tmp_path, openai={})
 
 
 def test_o_segredo_do_webhook_e_criado_uma_vez_e_relido(tmp_path):

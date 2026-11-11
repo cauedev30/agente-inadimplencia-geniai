@@ -1,11 +1,10 @@
 """O turno de uma chamada ao Luna (D47): a entrada, o prompt, a saída, a guarda e a decisão.
 
-Em vez do pipeline do Jev (leitura, decisão, redação e validação em chamadas separadas), o LLM lê a
-conversa uma vez e devolve os sinais, a ação, o texto e o texto do handoff num JSON só. O que é
-puro mora aqui; o que mexe no banco (gravar, enviar, passar ao humano) é do orquestrador.
+O LLM lê a conversa uma vez e devolve os sinais, a ação, o texto e o texto do handoff num JSON só.
+O que é puro mora aqui; o que mexe no banco (gravar, enviar, passar ao humano) é do orquestrador.
 
 O LLM não recebe nenhum valor em dinheiro, nem link, nem código Pix: só marcadores. O histórico da
-conversa é a exceção, porque traz as mensagens já enviadas, como no redator de hoje.
+conversa é a exceção, porque traz as mensagens já enviadas.
 """
 
 import json
@@ -20,13 +19,10 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_
 from agente.db.modelos import Cobranca, Conversa
 from agente.dominio.desconto import proxima_oferta, valor_com_desconto
 from agente.integracoes.llm_turno import LLMTurno, LLMTurnoIndisponivel
-from agente.integracoes.redator import DESCRICAO_ACOES
 from agente.politica import Politica
 from agente.tipos import FormaPagamento, Laudo, MotivoHumano
 from agente.turno.acoes import Acao, anexar
 from agente.turno.executar import Numeros
-from agente.turno.jev1 import GATILHOS, PERGUNTAS_JEV1, LeituraJev1
-from agente.turno.jev2 import _SENSIVEL, CRITERIOS_DA_ACAO
 from agente.turno.redacao import (
     RedacaoInvalida,
     _sem_acento,
@@ -34,12 +30,20 @@ from agente.turno.redacao import (
     marcadores_do_turno,
     motivos_do_texto,
 )
+from agente.turno.sinais import (
+    _SENSIVEL,
+    CRITERIOS_DA_ACAO,
+    DESCRICAO_ACOES,
+    GATILHOS,
+    PERGUNTAS_JEV1,
+    LeituraJev1,
+)
 
 # A origem dos laudos gravados pelo turno novo; `p` e `c` valem 1,0, porque o LLM não dá
 # probabilidade (decisão 8 do plano).
 ORIGEM_UMA_CHAMADA = "luna:uma-chamada"
 
-# O que o Jev chamava de `cordial` vira `neutro` (decisão 12).
+# O `cordial` de `TONS` vira `neutro` (decisão 12).
 TONS_UMA_CHAMADA = ("neutro", "impaciente", "irritado", "hostil")
 
 # Os sinais que levam ao humano, na ordem do `GATILHOS` (a ordem em que vencem), e os dois que o
@@ -246,7 +250,7 @@ def montar_entrada(
 
 
 def _sinais_do_sistema() -> str:
-    """Um critério por sinal, vindo das descrições do Jev 1 (`PERGUNTAS_JEV1`)."""
+    """Um critério por sinal, vindo das descrições de `PERGUNTAS_JEV1`."""
     descricoes = {pergunta.nome: pergunta.descricao for pergunta in PERGUNTAS_JEV1}
     descricoes["quer_humano"] = (
         "pede para falar com uma pessoa, um atendente ou a equipe, ou recusa falar com um robô"
@@ -400,9 +404,7 @@ class SaidaTurno(BaseModel):
 
         Com `golpe_pela_guarda`, o `desconfia_golpe` vale sim (D44): a palavra-chave já decidiu.
 
-        Traz só os 11 laudos (os sinais e o tom), sem os da `PERGUNTAS_JEV1` inteira: o
-        `Avaliacao.em_risco`, o `laudo_do_risco` e o `montar_pedido` levantariam `KeyError` com ela.
-        Por isso a `Avaliacao` do turno de uma chamada não a guarda (`leitura=None`).
+        Traz só os 11 laudos (os sinais e o tom), sem os da `PERGUNTAS_JEV1` inteira.
         """
         laudos = [
             Laudo(

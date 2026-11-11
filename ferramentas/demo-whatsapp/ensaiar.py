@@ -4,9 +4,9 @@ Uso, de dentro de repo/ (com a demo parada: a máquina tem pouca memória):
     python -m uv run python ferramentas/demo-whatsapp/ensaiar.py --kit ../pre-sombra/demo-whatsapp
 
 O serviço sobe igual ao da demo (`agente.api.principal:montar_app`, o ambiente de
-`subir.montar_ambiente`, o Jev e o Luna reais), mas com um Chatwoot falso local no lugar do real: a
-URL do Chatwoot é sempre a do falso, e o ensaio nem lê o `chatwoot-teste.local.json`. Só as chaves
-da TypeSafe e da OpenAI são lidas. Só texto inventado vai ao Jev e ao Luna.
+`subir.montar_ambiente`, o Luna real), mas com um Chatwoot falso local no lugar do real: a
+URL do Chatwoot é sempre a do falso, e o ensaio nem lê o `chatwoot-teste.local.json`. Só a chave
+da OpenAI é lida. Só texto inventado vai ao Luna.
 
 Cada roteiro (`roteiros/demo.yaml`) tem um devedor inventado, com telefone próprio. Cada mensagem do
 cliente chega em dobro ao webhook, como no Chatwoot real (o bot e o webhook mandam o mesmo evento).
@@ -43,7 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from agente.politica import Regua
 from agente.tipos import EstadoConversa, MotivoHumano, ResultadoTurno, TipoFixa
 from agente.turno.acoes import Acao
-from agente.turno.avaliacao import NAO_EXECUTADA, rotulo_humano
+from agente.turno.sinais import NAO_EXECUTADA, rotulo_humano
 
 # Os módulos irmãos (a pasta `demo-whatsapp` tem hífen, não é pacote): a pasta entra no sys.path
 # aqui, para valer rodando o script e carregando-o no teste. `import_module` evita um import fora
@@ -263,8 +263,8 @@ class Obtido:
     texto_enviado: str | None
     jev2_acao: str | None
     jev2_p: float | None
-    # Uma lista por tentativa de redação: as perguntas que o Jev 3 reprovou.
-    jev3_reprovadas: list[list[str]]
+    # Uma lista por tentativa de redação: o que reprovou o texto.
+    reprovadas: list[list[str]]
     estado: str | None
     motivo: str | None
     segundos: float = 0.0
@@ -363,7 +363,7 @@ def _ler_turno_fechado(banco: Path, chatwoot_message_id: str) -> Obtido | None:
         texto_enviado=turno["texto_enviado"],
         jev2_acao=_json(jev2["valor"], None) if jev2 else None,
         jev2_p=jev2["probabilidade"] if jev2 else None,
-        jev3_reprovadas=[list(t.get("reprovadas") or []) for t in tentativas],
+        reprovadas=[list(t.get("reprovadas") or []) for t in tentativas],
         estado=conversa["estado"] if conversa else None,
         motivo=conversa["motivo_humano"] if conversa else None,
     )
@@ -680,19 +680,21 @@ def _linhas_do_passo(resultado: ResultadoPasso) -> list[str]:
         for divergencia in resultado.divergencias:
             linhas.append(f"- **Problema:** {divergencia}")
         return [*linhas, ""]
-    jev2 = f"{obtido.jev2_acao} (p={obtido.jev2_p:.2f})" if obtido.jev2_acao else "sem laudo"
+    laudo_da_acao = (
+        f"{obtido.jev2_acao} (p={obtido.jev2_p:.2f})" if obtido.jev2_acao else "sem laudo"
+    )
     reprovadas = (
         "; ".join(
             f"tentativa {n}: {', '.join(r) or 'nenhuma'}"
-            for n, r in enumerate(obtido.jev3_reprovadas, start=1)
+            for n, r in enumerate(obtido.reprovadas, start=1)
         )
         or "sem redação"
     )
     linhas += [
         f"- **Obtido:** ação {obtido.acao_principal}; anexos {obtido.acoes_anexadas or 'nenhum'}; "
         f"resultado {obtido.resultado}",
-        f"- **Jev 2:** {jev2}",
-        f"- **Reprovadas pelo Jev 3:** {reprovadas}",
+        f"- **Laudo da ação:** {laudo_da_acao}",
+        f"- **Reprovadas na prévia:** {reprovadas}",
         f"- **Conversa:** estado {obtido.estado}, motivo {obtido.motivo}",
         f"- **Chatwoot falso:** {_registros(obtido)}",
         f"- **Tempo:** {obtido.segundos:.1f} s",
@@ -783,7 +785,6 @@ def ensaiar(
     roteiros: list[Roteiro],
     saida: Path,
     porta: int,
-    turno: str = "pipeline",
 ) -> int:
     """Sobe o Chatwoot falso e o serviço, roda os roteiros e grava o `relatorio.md` em `saida`.
 
@@ -794,7 +795,6 @@ def ensaiar(
         raise ErroDaDemo(f"a pasta {saida} já existe: o ensaio não sobrescreve")
     if _porta_ocupada(porta):
         raise ErroDaDemo(f"a porta {porta} está ocupada: a demo está rodando? Pare-a antes")
-    typesafe = subir.ler_json(segredos / subir.ARQUIVO_TYPESAFE)
     openai = subir.ler_json(segredos / subir.ARQUIVO_OPENAI)
 
     falso = ChatwootFalsoLocal(CONTA)
@@ -813,12 +813,10 @@ def ensaiar(
                 "token": "token-do-usuario-do-ensaio",
                 "token_bot": "token-do-bot-do-ensaio",
             },
-            typesafe=typesafe,
             openai=openai,
             kit=saida,
             segredo_webhook=segredo,
             ambiente_base=os.environ,
-            turno=turno,
         )
         # Sem buffer: o ERROR do serviço tem de chegar ao log enquanto o passo ainda roda.
         ambiente["PYTHONUNBUFFERED"] = "1"
@@ -887,12 +885,6 @@ def main(argv: list[str] | None = None) -> int:
         help="pasta dos *.local.json (padrão: ../secrets, ao lado do repo)",
     )
     parser.add_argument("--porta", type=int, default=8010)
-    parser.add_argument(
-        "--turno",
-        choices=("pipeline", "uma_chamada"),
-        default="pipeline",
-        help="o AGENTE_TURNO do ensaio (D47): o pipeline do Jev ou o turno de uma chamada",
-    )
     argumentos = parser.parse_args(argv)
     try:
         roteiros = carregar_roteiros(argumentos.roteiros)
@@ -902,9 +894,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ErroDaDemo(f"não há roteiro chamado {argumentos.roteiro}")
         kit = argumentos.kit.resolve()
         saida = kit / f"ensaio-{datetime.now().strftime('%Y%m%d-%H%M')}"
-        return ensaiar(
-            kit, argumentos.segredos.resolve(), roteiros, saida, argumentos.porta, argumentos.turno
-        )
+        return ensaiar(kit, argumentos.segredos.resolve(), roteiros, saida, argumentos.porta)
     except ErroDaDemo as erro:
         print(f"erro: {erro}", file=sys.stderr)
         return 2

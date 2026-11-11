@@ -375,7 +375,7 @@ def _obtido(**campos):
         "texto_enviado": "Você deve R$ 100,20. Pix: 00020126abc",
         "jev2_acao": "INFORM_DEBT",
         "jev2_p": 0.93,
-        "jev3_reprovadas": [[]],
+        "reprovadas": [[]],
         "estado": "ENGAJADO",
         "motivo": None,
         "segundos": 11.0,
@@ -544,7 +544,7 @@ def _turno(sessao, conversa, mensagens, resultado=ResultadoTurno.ENVIADO, **camp
     return turno
 
 
-def test_esperar_turno_le_o_turno_fechado_com_o_jev_2_e_o_jev_3(banco):
+def test_esperar_turno_le_o_turno_fechado_com_o_laudo_da_acao_e_as_reprovadas(banco):
     caminho, fabrica = banco
     with fabrica() as sessao:
         conversa = _cobranca(sessao)
@@ -571,7 +571,7 @@ def test_esperar_turno_le_o_turno_fechado_com_o_jev_2_e_o_jev_3(banco):
     assert obtido.resultado == "ENVIADO"
     assert obtido.texto_enviado == "Você deve R$ 100,20"
     assert (obtido.jev2_acao, obtido.jev2_p) == ("INFORM_DEBT", 0.93)
-    assert obtido.jev3_reprovadas == [["sem_codigo"], []]
+    assert obtido.reprovadas == [["sem_codigo"], []]
     assert (obtido.estado, obtido.motivo) == ("ENGAJADO", None)
     assert obtido.segundos >= 0
 
@@ -880,7 +880,7 @@ def _resultado_de_exemplo():
         acao_principal="NONE",
         resultado="SEM_ENVIO",
         texto_enviado="Linha 1\nLinha 2",
-        jev3_reprovadas=[["sem_codigo"], []],
+        reprovadas=[["sem_codigo"], []],
         registros_chatwoot=[
             _registro("nota", "Laudo do Jev"),
             _registro("etiquetas", ["baixa_confianca"]),
@@ -966,7 +966,7 @@ def test_o_ensaio_recusa_uma_porta_ocupada(tmp_path):
 
 
 def test_o_ensaio_sem_as_chaves_falha_antes_de_criar_a_pasta(tmp_path):
-    with pytest.raises(ensaiar.ErroDaDemo, match="typesafe.local.json"):
+    with pytest.raises(ensaiar.ErroDaDemo, match="openai.local.json"):
         ensaiar.ensaiar(tmp_path, tmp_path, [_roteiro()], tmp_path / "novo", 18999)
     assert not (tmp_path / "novo").exists()
 

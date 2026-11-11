@@ -154,6 +154,7 @@ class Modo(StrEnum):
 class BatchJev(StrEnum):
     JEV1 = "JEV1"
     JEV2 = "JEV2"
+    # Sem uso desde a D59: fica porque as linhas antigas o guardam (sem migração).
     JEV3 = "JEV3"
 
 

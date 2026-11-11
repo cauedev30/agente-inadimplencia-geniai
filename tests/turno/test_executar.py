@@ -11,25 +11,22 @@ from agente.db.modelos import Pagamento, Transicao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso, responder
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.integracoes.pix import PixFalso
 from agente.politica import Regua
 from agente.tipos import (
     EstadoConversa,
     FormaPagamento,
     Modo,
-    MotivoHumano,
     OrigemMensagem,
-    ResultadoTurno,
     StatusPagamento,
 )
 from agente.turno.acoes import Acao
 from agente.turno.executar import executar, proximo_estado
-from agente.turno.jev3 import aprovar_tudo
 from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
-from .test_orquestrador_gates import SEGUNDA_10H
+from .auxiliares import REPLY_LINK, SEGUNDA_10H, _bruto
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 
@@ -38,14 +35,14 @@ def _ctn():
     return CTNFalso([ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", None)])
 
 
-def _deps(politica, modo=Modo.ATIVO, regras=()):
+def _deps(politica, modo=Modo.ATIVO, respostas=()):
     return Dependencias(
         politica=liberar_tudo(politica),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=modo,
-        jev=JevFalso([*regras, *aprovar_tudo()]),
+        llm_turno=LLMTurnoFalso(respostas=list(respostas)),
         ctn=_ctn(),
         pix=PixFalso(agora=lambda: AGORA),
     )
@@ -55,7 +52,7 @@ def test_o_desconto_com_o_link_gera_o_link_do_valor_descontado(conversa, politic
     deps = _deps(politica)
     acoes = [Acao.OFFER_DISCOUNT, Acao.SEND_CTN_LINK]
 
-    numeros = executar(acoes, conversa.cobranca, conversa, deps, AGORA, objecao=True)
+    numeros = executar(acoes, conversa.cobranca, conversa, deps, AGORA)
 
     assert (numeros.degrau, numeros.desconto_centavos, numeros.valor_final_centavos) == (
         1,
@@ -147,34 +144,8 @@ def test_o_debito_sozinho_so_traz_a_divida(conversa, politica):
     assert conversa.forma_enviada is None
 
 
-def test_a_objecao_na_regua_sem_desconto_soma_uma(conversa, politica):
-    conversa.cobranca.regua = Regua.NR
-    acoes = [Acao.INFORM_DEBT, Acao.GENERATE_PIX]
-
-    executar(acoes, conversa.cobranca, conversa, _deps(politica), AGORA, objecao=True)
-
-    assert conversa.objecoes_sem_desconto == 1
-    assert conversa.degrau_atual == 0
-
-
-def test_a_objecao_na_regua_com_desconto_nao_conta(conversa, politica):
-    acoes = [Acao.OFFER_DISCOUNT, Acao.SEND_CTN_LINK]
-
-    executar(acoes, conversa.cobranca, conversa, _deps(politica), AGORA, objecao=True)
-
-    assert conversa.objecoes_sem_desconto == 0
-
-
-def test_sem_objecao_nada_conta(conversa, politica):
-    conversa.cobranca.regua = Regua.NR
-
-    executar([Acao.INFORM_DEBT], conversa.cobranca, conversa, _deps(politica), AGORA)
-
-    assert conversa.objecoes_sem_desconto == 0
-
-
 def test_desconto_sem_degrau_seguinte_e_erro(conversa, politica):
-    # O autorizar barra antes; se chegar aqui, é bug.
+    # O Luna só recebe o desconto quando há degrau seguinte; se chegar aqui, é bug.
     conversa.degrau_atual = politica.reguas[Regua.R3].n_degraus
     with pytest.raises(ValueError, match="degrau"):
         executar([Acao.OFFER_DISCOUNT], conversa.cobranca, conversa, _deps(politica), AGORA)
@@ -194,7 +165,7 @@ def test_os_numeros_viram_json_para_o_turno(conversa, politica):
 
 
 # No turno ativo, o executar roda; em sombra, não. O turno completo está em
-# test_orquestrador_ativo.
+# test_orquestrador_uma_chamada.
 
 
 @pytest.fixture
@@ -207,26 +178,11 @@ def _cliente(sessao, conversa, texto, mid):
     registrar_mensagem(sessao, conversa.id, OrigemMensagem.CLIENTE, texto, mid, False, SEGUNDA_10H)
 
 
-OBJECAO = [responder("objecao_valor", True), responder("acao", "OFFER_DISCOUNT")]
-
-
-def test_a_2a_objecao_na_nr_chega_ao_humano_no_modo_ativo(sessao, ligada, politica):
-    ligada.cobranca.regua = Regua.NR
-    deps = _deps(politica, regras=OBJECAO)
-
-    _cliente(sessao, ligada, "tá caro, tem desconto?", "cw-1")
-    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-    assert ligada.objecoes_sem_desconto == 1
-
-    _cliente(sessao, ligada, "sem desconto eu não pago", "cw-2")
-    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    assert resultado is ResultadoTurno.HANDOFF
-    assert ligada.motivo_humano is MotivoHumano.OBJECAO_SEM_DESCONTO
+OFERTA = [_bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK)]
 
 
 def test_no_ativo_o_turno_grava_os_numeros_do_executar(sessao, ligada, politica):
-    deps = _deps(politica, regras=OBJECAO)
+    deps = _deps(politica, respostas=OFERTA)
     _cliente(sessao, ligada, "tá caro", "cw-1")
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
@@ -245,7 +201,7 @@ def test_no_ativo_o_turno_grava_os_numeros_do_executar(sessao, ligada, politica)
 
 
 def test_em_sombra_o_executar_nao_roda(sessao, ligada, politica):
-    deps = _deps(politica, Modo.SOMBRA, regras=OBJECAO)
+    deps = _deps(politica, Modo.SOMBRA, respostas=OFERTA)
     _cliente(sessao, ligada, "tá caro", "cw-1")
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)

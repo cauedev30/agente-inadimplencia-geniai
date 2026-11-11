@@ -1,6 +1,7 @@
 """A abertura no 1º contato do testador (D56, P2, P8): o 1º "Oi" recebe a identificação do caso e
 o texto de abertura, sem o LLM; a partir da 2ª mensagem o turno é o de sempre."""
 
+import json
 from datetime import timedelta
 
 import pytest
@@ -86,7 +87,7 @@ def test_o_oi_do_1o_contato_recebe_a_identificacao_e_a_abertura_sem_o_llm(
     assert turno.mensagens_ids == [oi.id]
     assert mensagens_pendentes(sessao, conversa_de_teste.id) == []
     assert conversa_de_teste.turno_em is None
-    assert deps.jev.chamadas == [] and deps.redator.pedidos == []
+    assert deps.llm_turno.pedidos == []
 
 
 def test_a_2a_mensagem_segue_ao_turno_normal_e_o_llm_ve_a_abertura(
@@ -98,10 +99,11 @@ def test_a_2a_mensagem_segue_ao_turno_normal_e_o_llm_ve_a_abertura(
     testador.manda("quero pagar")
     testador.roda(deps)
 
-    assert deps.jev.chamadas, "o turno normal deveria rodar na 2ª mensagem"
-    _perguntas, estado = deps.jev.chamadas[0]
-    assert (OrigemMensagem.ABERTURA.value, TEXTO_DA_ABERTURA_1) in estado.historico
-    assert all("[TESTE]" not in texto for _, texto in estado.historico)
+    assert deps.llm_turno.pedidos, "o turno normal deveria rodar na 2ª mensagem"
+    [(_, usuario), *_] = deps.llm_turno.pedidos
+    historico = json.loads(usuario)["conversa"]
+    assert [OrigemMensagem.ABERTURA.value, TEXTO_DA_ABERTURA_1] in historico
+    assert all("[TESTE]" not in texto for _, texto in historico)
     # A abertura não se repete.
     assert _origens(sessao, conversa_de_teste).count(OrigemMensagem.ABERTURA) == 1
 
@@ -127,7 +129,7 @@ def test_a_cobranca_que_ja_abriu_em_outra_conversa_nao_abre_de_novo(
     testador.roda(deps)
 
     assert "[TESTE] Você é o caso" not in " ".join(deps.chatwoot.enviadas(CHATWOOT_ID))
-    assert deps.jev.chamadas, "sem a abertura, o turno é o normal"
+    assert deps.llm_turno.pedidos, "sem a abertura, o turno é o normal"
 
 
 def test_o_caso_novo_abre_de_novo_no_proximo_oi(sessao, testador, conversa_de_teste, deps):
@@ -147,7 +149,7 @@ def test_o_caso_novo_abre_de_novo_no_proximo_oi(sessao, testador, conversa_de_te
     enviadas = deps.chatwoot.enviadas(CHATWOOT_ID)
     assert enviadas[-2].startswith("[TESTE] Você é o caso 2:")
     assert enviadas[-1].startswith("Oi, Bruno!")
-    assert deps.jev.chamadas == []
+    assert deps.llm_turno.pedidos == []
 
 
 def test_fora_da_janela_o_turno_adia_e_a_abertura_sai_na_abertura_da_janela(

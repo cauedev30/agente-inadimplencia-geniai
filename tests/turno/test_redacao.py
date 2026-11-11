@@ -5,19 +5,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from agente.integracoes.redator import RedatorFalso
-from agente.politica import Regua
-from agente.tipos import EstadoConversa, Laudo
 from agente.turno.acoes import Acao
 from agente.turno.executar import Numeros
-from agente.turno.jev1 import PERGUNTAS_JEV1, LeituraJev1
 from agente.turno.redacao import (
     MARCADORES,
     RedacaoInvalida,
     anexar_recebedor,
     interpolar,
     marcadores_do_turno,
-    montar_pedido,
     motivos_do_texto,
 )
 
@@ -45,16 +40,6 @@ def _numeros(*acoes, degrau=0, divida=10020):
         valor_final_centavos=valor_final,
         **campos,
     )
-
-
-def _leitura(**respostas):
-    laudos = []
-    for pergunta in PERGUNTAS_JEV1:
-        valor = respostas.get(pergunta.nome, False if pergunta.tipo == "bool" else "neutro")
-        if pergunta.nome == "intencao_pagar":
-            valor = respostas.get(pergunta.nome, "nenhuma")
-        laudos.append(Laudo(pergunta.nome, valor, 0.95, 0.9))
-    return LeituraJev1(tuple(laudos))
 
 
 def test_formata_o_real_em_pt_br():
@@ -263,74 +248,6 @@ def test_o_desconto_so_existe_com_degrau():
     assert "desconto" not in opcionais
     _, opcionais = marcadores_do_turno(_numeros(Acao.SEND_CTN_LINK, degrau=2))
     assert "desconto" in opcionais
-
-
-def test_o_pedido_leva_as_acoes_os_marcadores_e_o_tom(politica):
-    numeros = _numeros(Acao.INFORM_DEBT, Acao.GENERATE_PIX)
-    historico = [("ABERTURA", "[abertura]"), ("CLIENTE", "quanto eu devo?")]
-
-    pedido = montar_pedido(
-        numeros,
-        _leitura(tom="impaciente"),
-        Regua.R3,
-        "Maria Fictícia da Silva",
-        EstadoConversa.EM_RISCO,
-        historico,
-        politica,
-    )
-
-    assert pedido.acoes == ("INFORM_DEBT", "GENERATE_PIX")
-    assert pedido.marcadores == ("divida", "pix_copia_e_cola")
-    assert "valor_pix" in pedido.marcadores_opcionais
-    assert pedido.nome_cliente == "Maria"
-    assert pedido.estado == "EM_RISCO"
-    assert pedido.historico == tuple(historico)
-    assert "incômodo" in pedido.tom_alvo
-    assert pedido.reprovadas_antes is None
-    assert pedido.objecao_sem_desconto is False
-
-
-def test_a_objecao_na_regua_sem_desconto_vai_no_pedido(politica):
-    numeros = _numeros(Acao.INFORM_DEBT, Acao.GENERATE_PIX)
-    leitura = _leitura(objecao_valor=True)
-    pedido = montar_pedido(numeros, leitura, Regua.NR, "Ana", EstadoConversa.ENGAJADO, [], politica)
-    assert pedido.objecao_sem_desconto is True
-    pedido = montar_pedido(numeros, leitura, Regua.R3, "Ana", EstadoConversa.ENGAJADO, [], politica)
-    assert pedido.objecao_sem_desconto is False
-
-
-def test_o_pedido_da_reescrita_sabe_o_que_reprovou(politica):
-    pedido = montar_pedido(
-        _numeros(Acao.INFORM_DEBT),
-        _leitura(),
-        Regua.R3,
-        "Ana",
-        EstadoConversa.ENGAJADO,
-        [],
-        politica,
-        reprovadas_antes=["tom_adequado"],
-    )
-    assert pedido.reprovadas_antes == ("tom_adequado",)
-
-
-@pytest.mark.parametrize(
-    "acoes",
-    [
-        (Acao.INFORM_DEBT, Acao.GENERATE_PIX),
-        (Acao.INFORM_DEBT, Acao.SEND_CTN_LINK),
-        (Acao.OFFER_DISCOUNT, Acao.SEND_CTN_LINK),
-        (Acao.SEND_CTN_LINK,),
-        (Acao.GENERATE_PIX,),
-        (Acao.OUT_OF_SCOPE,),
-    ],
-)
-def test_o_texto_da_falsa_passa_na_interpolacao(acoes, politica):
-    numeros = _numeros(*acoes, degrau=1 if Acao.OFFER_DISCOUNT in acoes else 0)
-    pedido = montar_pedido(
-        numeros, _leitura(), Regua.R3, "Ana", EstadoConversa.ENGAJADO, [], politica
-    )
-    texto = interpolar(RedatorFalso().redigir(pedido), numeros)
-    assert "{" not in texto
 
 
 def _com_recebedor(politica, nome="Cartão de Todos Ltda"):

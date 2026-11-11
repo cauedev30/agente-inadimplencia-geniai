@@ -7,21 +7,13 @@ recusado com `RedacaoInvalida`.
 
 import re
 import unicodedata
-from dataclasses import dataclass, field, replace
 
 from agente.dominio.dinheiro import formatar_reais
-from agente.integracoes.jev import EstadoJev, Jev, JevIndisponivel
-from agente.integracoes.redator import PedidoRedacao, Redator, RedatorIndisponivel
-from agente.politica import Politica, Regua
-from agente.tipos import EstadoConversa, Laudo, MotivoHumano
+from agente.politica import Politica
 from agente.turno.acoes import Acao
 from agente.turno.executar import Numeros
-from agente.turno.jev1 import LeituraJev1
-from agente.turno.jev3 import validar
 
 _MARCADOR = re.compile(r"\{([a-z_]+)\}")
-# Reprovou: o LLM reescreve uma vez, sabendo o que reprovou (seção 6).
-TENTATIVAS = 2
 _DIGITO = re.compile(r"\d")
 
 # Valor e prazo por extenso (sem acento, em minúsculas). O numeral sozinho é palavra comum ("os
@@ -92,19 +84,12 @@ def valores(numeros: Numeros) -> dict[str, str]:
     return preenchidos
 
 
-# O marcador que o texto tem de trazer para cobrir cada ação do turno (Jev 3: bate_com_acao).
+# O marcador que o texto tem de trazer para cobrir cada ação do turno (a prévia do turno confere).
 OBRIGATORIOS = {
     Acao.INFORM_DEBT: "divida",
     Acao.OFFER_DISCOUNT: "valor_final",
     Acao.SEND_CTN_LINK: "link_ctn",
     Acao.GENERATE_PIX: "pix_copia_e_cola",
-}
-
-# O tom da resposta a partir do tom do cliente (Jev 1). Irritado e hostil já saíram para o humano.
-TOM_ALVO = {
-    "cordial": "cordial",
-    "neutro": "cordial e direto",
-    "impaciente": "breve e direto, reconhecendo o incômodo",
 }
 
 
@@ -182,7 +167,7 @@ def anexar_recebedor(texto: str, numeros: Numeros, politica: Politica) -> str:
     """A frase do recebedor do Pix no fim do texto aprovado (D44), ou o texto igual.
 
     Só quando o turno traz o Pix e o `pix_recebedor` está preenchido. É o backend que a escreve, não
-    o LLM, e ela entra depois do Jev 3: o nome do recebedor não passa pelo `interpolar`, que
+    o LLM, e ela entra depois da prévia: o nome do recebedor não passa pelo `interpolar`, que
     recusaria dígito (o CNPJ, por exemplo) e é feito para o texto do LLM.
     """
     if numeros.br_code is None or not politica.pix_recebedor:
@@ -190,106 +175,3 @@ def anexar_recebedor(texto: str, numeros: Numeros, politica: Politica) -> str:
     frase = politica.texto_pix_recebedor.replace("{recebedor}", politica.pix_recebedor)
     # Em linha separada, para não ir junto quando o cliente copia o código Pix.
     return f"{texto}\n\n{frase}"
-
-
-def montar_pedido(
-    numeros: Numeros,
-    leitura: LeituraJev1 | None,
-    regua: Regua,
-    nome_cliente: str,
-    estado: EstadoConversa,
-    historico: list[tuple[str, str]],
-    politica: Politica,
-    reprovadas_antes: list[str] | None = None,
-) -> PedidoRedacao:
-    obrigatorios, opcionais = marcadores_do_turno(numeros)
-    sem_desconto = politica.reguas[regua].desconto_max_centavos == 0
-    return PedidoRedacao(
-        acoes=tuple(acao.value for acao in numeros.acoes),
-        marcadores=tuple(obrigatorios),
-        # Sem leitura (o toque no botão não passa pelo Jev 1), o tom é o neutro.
-        tom_alvo=TOM_ALVO.get(leitura.tom if leitura else "", TOM_ALVO["neutro"]),
-        estado=estado.value,
-        historico=tuple(historico),
-        nome_cliente=nome_cliente.split()[0],
-        reprovadas_antes=tuple(reprovadas_antes) if reprovadas_antes else None,
-        marcadores_opcionais=tuple(opcionais),
-        objecao_sem_desconto=leitura is not None and leitura.sim("objecao_valor") and sem_desconto,
-    )
-
-
-@dataclass(frozen=True)
-class Tentativa:
-    """Um texto do LLM, com os marcadores, e o que reprovou. Sem reprovadas, passou."""
-
-    texto: str
-    reprovadas: list[str]
-    # Os laudos do Jev 3; vazios quando a interpolação recusou o texto antes dele.
-    laudos: tuple[Laudo, ...] = ()
-
-
-@dataclass
-class Redacao:
-    """O resultado: o texto final aprovado ou, sem ele, o motivo de ir para o humano."""
-
-    tentativas: list[Tentativa] = field(default_factory=list)
-    texto: str | None = None
-    # Com o Jev ou o LLM fora, o turno vai para o humano (seção 9).
-    motivo: MotivoHumano | None = None
-    erro: str | None = None
-
-    def como_dict(self, saida: str) -> dict:
-        """Para o `turno.redacao`: as tentativas, o erro e o que saiu."""
-        dados: dict = {
-            "tentativas": [{"texto": t.texto, "reprovadas": t.reprovadas} for t in self.tentativas],
-            "saida": saida,
-        }
-        if self.erro is not None:
-            dados["erro"] = self.erro
-        return dados
-
-
-def redigir_validado(
-    redator: Redator,
-    jev: Jev,
-    pedido: PedidoRedacao,
-    numeros: Numeros,
-    estado: EstadoJev,
-    *,
-    validar_no_jev: bool = True,
-) -> Redacao:
-    """Redige, interpola e valida no Jev 3, com uma reescrita. Não grava nem envia nada.
-
-    Sem `validar_no_jev` (o botão do Pix no turno de uma chamada, D47), o texto que interpola vale:
-    sem dígito, valor por extenso nem link, e com os marcadores obrigatórios. O Jev não é chamado.
-    """
-    redacao = Redacao()
-    reprovadas: list[str] = []
-    for _ in range(TENTATIVAS):
-        try:
-            texto = redator.redigir(replace(pedido, reprovadas_antes=tuple(reprovadas) or None))
-        except RedatorIndisponivel as erro:
-            redacao.motivo, redacao.erro = MotivoHumano.REDATOR_INDISPONIVEL, str(erro)
-            return redacao
-        try:
-            final = interpolar(texto, numeros)
-        except RedacaoInvalida as erro:
-            # O texto que não interpola nem chega ao Jev 3.
-            reprovadas = erro.motivos
-            redacao.tentativas.append(Tentativa(texto, reprovadas))
-            continue
-        if not validar_no_jev:
-            redacao.tentativas.append(Tentativa(texto, []))
-            redacao.texto = final
-            return redacao
-        try:
-            validacao = validar(jev, final, list(numeros.acoes), numeros.como_dict(), estado)
-        except JevIndisponivel as erro:
-            redacao.motivo, redacao.erro = MotivoHumano.JEV_INDISPONIVEL, str(erro)
-            return redacao
-        redacao.tentativas.append(Tentativa(texto, validacao.reprovadas, validacao.laudos))
-        if validacao.aprovado:
-            redacao.texto = final
-            return redacao
-        reprovadas = validacao.reprovadas
-    return redacao

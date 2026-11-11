@@ -4,7 +4,7 @@ import pytest
 
 from agente.tipos import Laudo, MotivoHumano
 from agente.turno.acoes import Acao
-from agente.turno.jev1 import GATILHOS, desconfia_no_limiar
+from agente.turno.sinais import GATILHOS
 from agente.turno.uma_chamada import (
     MAX_HANDOFF_REPLY,
     MOTIVO_DO_SINAL,
@@ -126,11 +126,11 @@ def test_a_leitura_traz_os_sinais_e_o_tom_como_laudos():
     assert {(laudo.probabilidade, laudo.confianca) for laudo in leitura.laudos} == {(1.0, 1.0)}
 
 
-def test_a_leitura_com_a_guarda_do_golpe_vale_no_limiar_mesmo_com_o_sinal_falso(politica):
+def test_a_leitura_com_a_guarda_do_golpe_vale_sim_mesmo_com_o_sinal_falso():
     saida = _saida()
-    assert desconfia_no_limiar(saida.leitura(), politica) is False
-    assert desconfia_no_limiar(saida.leitura(golpe_pela_guarda=True), politica) is True
-    assert desconfia_no_limiar(_saida(desconfia_golpe=True).leitura(), politica) is True
+    assert saida.leitura().sim("desconfia_golpe") is False
+    assert saida.leitura(golpe_pela_guarda=True).sim("desconfia_golpe") is True
+    assert _saida(desconfia_golpe=True).leitura().sim("desconfia_golpe") is True
 
 
 def test_o_laudo_da_acao():

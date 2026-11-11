@@ -8,7 +8,7 @@ from agente.integracoes.ctn_teste import CTNDeCasos
 from agente.teste.casos import ativar_caso
 from tests.conftest import TESTADOR_1
 from tests.teste.auxiliares import CHATWOOT_ID, Mandante, montar_deps
-from tests.turno.test_orquestrador_gates import SEGUNDA_10H
+from tests.turno.auxiliares import SEGUNDA_10H
 
 
 @pytest.fixture

@@ -7,7 +7,7 @@ from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Cliente, Cobranca, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.politica import (
     LiberacaoPercentual,
     LiberacaoPiloto,
@@ -17,12 +17,11 @@ from agente.politica import (
     carregar_politica,
 )
 from agente.tipos import Modo, OrigemMensagem, ResultadoTurno
-from agente.turno.jev3 import aprovar_tudo
 from agente.turno.liberacao import liberar_tudo, modo_da_conversa
 from agente.turno.orquestrador import Dependencias, processar_turno
 
 from ..conftest import RAIZ
-from .test_orquestrador_gates import SEGUNDA_10H
+from .auxiliares import SEGUNDA_10H, _bruto
 
 EQUIPE = "+5583900000001"
 
@@ -127,7 +126,7 @@ def _deps(politica, modo):
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=modo,
-        jev=JevFalso(aprovar_tudo()),
+        llm_turno=LLMTurnoFalso(respostas=[_bruto()]),
     )
 
 

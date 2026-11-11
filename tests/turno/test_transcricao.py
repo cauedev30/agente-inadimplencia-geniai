@@ -1,9 +1,11 @@
 """O áudio do cliente vale como texto no turno (tarefa 8.4, D43).
 
-Os gates rodam antes; depois do `Seguir` e antes do Jev 1, o áudio é baixado, medido e transcrito,
-e o Jev lê o texto transcrito como leria a mensagem escrita. Tudo com as falsas.
+Os gates rodam antes; depois do `Seguir` e antes do Luna, o áudio é baixado, medido e transcrito,
+e o Luna lê o texto transcrito como leria a mensagem escrita. Tudo com as falsas.
 """
 
+import json
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 import httpx
@@ -15,8 +17,7 @@ from agente.db.modelos import Base, Cliente, Cobranca, Conversa, Mensagem, Turno
 from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import AnexoBaixado, ChatwootFalso, FalhaDownload
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso, responder
-from agente.integracoes.redator import RedatorFalso, RedatorIndisponivel
+from agente.integracoes.llm_turno import LLMTurnoFalso, LLMTurnoIndisponivel
 from agente.integracoes.transcritor import Transcricao, TranscritorFalso
 from agente.politica import Regua
 from agente.tipos import (
@@ -27,33 +28,52 @@ from agente.tipos import (
     ResultadoTurno,
     StatusCobranca,
 )
-from agente.turno.jev3 import aprovar_tudo
 from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 from agente.turno.transcricao import rotulo_do_audio, texto_da_mensagem
 from tests.ogg_opus import ogg_opus
 
-from .test_orquestrador_gates import JP, SEGUNDA_10H
+from .auxiliares import JP, REPLY_LINK, SEGUNDA_10H, _bruto
 
 SEGUNDA_19H = datetime(2026, 10, 26, 19, tzinfo=JP)  # depois das 18h: a janela abre na terça
 URL_AUDIO = "https://chatwoot.invalid/rails/active_storage/blobs/xyz/audio.ogg"
 FALA = "palavras-faladas-pelo-cliente"
-JA_PAGUEI = responder(
-    "alega_pagamento", True, se=lambda estado: "já paguei" in estado.historico[-1][1]
-)
+# Os sinais que o Luna daria a cada fala do cliente (o que ele leria no texto transcrito).
+JA_PAGUEI = _bruto(alega_pagamento=True, acao="NONE", reply="")
+RESPOSTA_A_FALA = {
+    "já paguei": JA_PAGUEI,
+    "caro": _bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK),
+}
 
 
-def _deps(politica, *, transcritor, modo=Modo.ATIVO, regras=(), redator=None):
+@dataclass
+class LLMPorTexto(LLMTurnoFalso):
+    """Responde pelo que o cliente disse nas `novas`: a primeira chave contida no texto."""
+
+    por_texto: dict = field(default_factory=dict)
+
+    def completar_json(self, sistema, usuario):
+        novas = " ".join(json.loads(usuario)["novas"])
+        self.respostas = [next((r for k, r in self.por_texto.items() if k in novas), _bruto())]
+        self._usadas = 0
+        return super().completar_json(sistema, usuario)
+
+
+def _deps(politica, *, transcritor, modo=Modo.ATIVO, llm=None):
     return Dependencias(
         politica=liberar_tudo(politica),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=modo,
-        jev=JevFalso([*regras, *aprovar_tudo()], registrar=True),
-        redator=redator or RedatorFalso(registrar=True),
+        llm_turno=llm or LLMTurnoFalso(respostas=[_bruto()] * 10, registrar=True),
         transcritor=transcritor,
     )
+
+
+def _entrada(deps, n=0):
+    """O JSON que o Luna recebeu na `n`-ésima chamada."""
+    return json.loads(deps.llm_turno.pedidos[n][1])
 
 
 @pytest.fixture
@@ -85,15 +105,15 @@ def _anexo(sessao, mensagem):
 
 
 def test_o_audio_ja_paguei_leva_ao_gatilho_de_conciliacao(sessao, ligada, politica):
-    deps = _deps(politica, transcritor=TranscritorFalso("já paguei ontem"), regras=[JA_PAGUEI])
+    llm = LLMTurnoFalso(respostas=[JA_PAGUEI], registrar=True)
+    deps = _deps(politica, transcritor=TranscritorFalso("já paguei ontem"), llm=llm)
     _cliente(sessao, ligada, anexos=[_audio()])
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
     assert resultado is ResultadoTurno.HANDOFF
     assert ligada.motivo_humano is MotivoHumano.CONCILIACAO
-    estado = deps.jev.chamadas[0][1]
-    assert estado.historico[-1] == ("CLIENTE", '[áudio transcrito: "já paguei ontem"]')
+    assert _entrada(deps)["novas"] == ['[áudio transcrito: "já paguei ontem"]']
 
 
 def _rodar_em_banco_novo(politica, fala, **mensagem):
@@ -114,11 +134,8 @@ def _rodar_em_banco_novo(politica, fala, **mensagem):
         sessao.add(conversa)
         sessao.commit()
         _cliente(sessao, conversa, **mensagem)
-        regras = [
-            responder("alega_pagamento", True, se=lambda e: "já paguei" in e.historico[-1][1]),
-            responder("objecao_valor", True, se=lambda e: "caro" in e.historico[-1][1]),
-        ]
-        deps = _deps(politica, transcritor=TranscritorFalso(fala), regras=regras)
+        llm = LLMPorTexto(registrar=True, por_texto=RESPOSTA_A_FALA)
+        deps = _deps(politica, transcritor=TranscritorFalso(fala), llm=llm)
         resultado = processar_turno(sessao, conversa.id, SEGUNDA_10H, deps)
         turno = sessao.scalars(select(Turno).order_by(Turno.id.desc())).first()
         return resultado, turno.acao_principal, conversa.estado, conversa.motivo_humano
@@ -150,8 +167,8 @@ def test_o_resultado_fica_no_proprio_anexo(sessao, ligada, politica):
 
 def test_o_audio_ja_transcrito_nao_e_transcrito_de_novo(sessao, ligada, politica):
     transcritor = TranscritorFalso("quanto eu devo?")
-    deps = _deps(politica, transcritor=transcritor)
-    deps.jev.falha = ValueError("erro de código no meio do turno")
+    llm = LLMTurnoFalso(respostas=[KeyError("bug"), KeyError("bug")])
+    deps = _deps(politica, transcritor=transcritor, llm=llm)
     mensagem = _cliente(sessao, ligada, anexos=[_audio()])
 
     # O erro desfaz o turno e agenda outra tentativa: o áudio não é transcrito outra vez.
@@ -165,17 +182,13 @@ def test_o_audio_ja_transcrito_nao_e_transcrito_de_novo(sessao, ligada, politica
     assert _anexo(sessao, mensagem)["resultado"] == "transcrito"
 
 
-def test_o_texto_junto_com_o_audio_chega_inteiro_ao_jev(sessao, ligada, politica):
+def test_o_texto_junto_com_o_audio_chega_inteiro_ao_luna(sessao, ligada, politica):
     deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"))
     _cliente(sessao, ligada, texto="Oi, boa tarde", anexos=[_audio()])
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    estado = deps.jev.chamadas[0][1]
-    assert estado.historico[-1] == (
-        "CLIENTE",
-        'Oi, boa tarde [áudio transcrito: "quanto eu devo?"]',
-    )
+    assert _entrada(deps)["novas"] == ['Oi, boa tarde [áudio transcrito: "quanto eu devo?"]']
 
 
 def test_dois_audios_da_mesma_rajada_sao_transcritos_na_ordem(sessao, ligada, politica):
@@ -186,8 +199,7 @@ def test_dois_audios_da_mesma_rajada_sao_transcritos_na_ordem(sessao, ligada, po
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    historico = deps.jev.chamadas[0][1].historico
-    assert [texto for _, texto in historico] == [
+    assert _entrada(deps)["novas"] == [
         '[áudio transcrito: "primeiro"]',
         '[áudio transcrito: "segundo"]',
     ]
@@ -220,13 +232,12 @@ def test_o_audio_que_chega_durante_a_transcricao_e_ouvido_antes_do_turno(sessao,
 
     # O turno não lê o 2º áudio sem transcrição: devolve a rajada e volta já.
     assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ADIADO
-    assert deps.jev.chamadas == [] and ligada.ultima_tomada_id is None
+    assert deps.llm_turno.pedidos == [] and ligada.ultima_tomada_id is None
     assert ligada.turno_em is not None and ligada.turno_em <= SEGUNDA_10H
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    historico = deps.jev.chamadas[0][1].historico
-    assert [texto for _, texto in historico] == [
+    assert _entrada(deps)["novas"] == [
         '[áudio transcrito: "quanto eu devo?"]',
         '[áudio transcrito: "já paguei"]',
     ]
@@ -249,7 +260,7 @@ def test_o_audio_que_chega_durante_a_transcricao_nao_gasta_o_pedido_de_texto(
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    assert [texto for _, texto in deps.jev.chamadas[0][1].historico] == [
+    assert _entrada(deps)["novas"] == [
         "[áudio — não foi possível ouvir]",
         '[áudio transcrito: "quanto eu devo?"]',
     ]
@@ -265,9 +276,9 @@ def test_o_audio_antigo_aparece_no_historico_dos_turnos_seguintes(sessao, ligada
 
     processar_turno(sessao, ligada.id, agora, deps)
 
-    ultimo = deps.jev.chamadas[-1][1].historico
-    assert ("CLIENTE", '[áudio transcrito: "quanto eu devo?"]') in ultimo
-    assert ultimo[-1] == ("CLIENTE", "e o desconto?")
+    ultimo = _entrada(deps, -1)
+    assert ["CLIENTE", '[áudio transcrito: "quanto eu devo?"]'] in ultimo["conversa"]
+    assert ultimo["novas"] == ["e o desconto?"]
 
 
 class TestOsGatesRodamAntes:
@@ -330,12 +341,12 @@ def test_em_sombra_tambem_transcreve_e_nada_e_enviado(sessao, ligada, politica):
     assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.SOMBRA
 
     assert len(transcritor.chamadas) == 1
-    assert deps.jev.chamadas[0][1].historico[-1][1] == '[áudio transcrito: "quanto eu devo?"]'
+    assert _entrada(deps)["novas"] == ['[áudio transcrito: "quanto eu devo?"]']
     assert deps.chatwoot.enviadas(555) == []
     assert ligada.estado is EstadoConversa.INICIADO
 
 
-def test_em_sombra_com_humano_na_conversa_transcreve_para_o_jev_ler(sessao, ligada, politica):
+def test_em_sombra_com_humano_na_conversa_transcreve_para_o_luna_ler(sessao, ligada, politica):
     transcritor = TranscritorFalso("quanto eu devo?")
     deps = _deps(politica, transcritor=transcritor, modo=Modo.SOMBRA)
     ligada.human_owned = True
@@ -355,8 +366,7 @@ class TestSemTranscricao:
 
         assert deps.chatwoot.baixados == []
         assert "resultado" not in _anexo(sessao, mensagem)
-        historico = deps.jev.chamadas[0][1].historico
-        assert historico[-1] == ("CLIENTE", "oi [áudio — não foi possível ouvir]")
+        assert _entrada(deps)["novas"] == ["oi [áudio — não foi possível ouvir]"]
 
     def test_o_download_que_falha_marca_falhou_e_nao_transcreve(self, sessao, ligada, politica):
         transcritor = TranscritorFalso("oi")
@@ -387,8 +397,7 @@ class TestSemTranscricao:
 
         assert _anexo(sessao, mensagem)["resultado"] == "falhou"
         assert _anexo(sessao, mensagem)["motivo"] == "timeout"
-        historico = deps.jev.chamadas[0][1].historico
-        assert historico[-1][1] == "oi [áudio — não foi possível ouvir]"
+        assert _entrada(deps)["novas"] == ["oi [áudio — não foi possível ouvir]"]
 
 
 class TestAudioLongoDemais:
@@ -404,7 +413,7 @@ class TestAudioLongoDemais:
 
         assert transcritor.chamadas == []
         assert _anexo(sessao, mensagem)["resultado"] == "longo_demais"
-        assert deps.jev.chamadas[0][1].historico[-1][1].startswith("oi [áudio longo demais")
+        assert _entrada(deps)["novas"][-1].startswith("oi [áudio longo demais")
 
     def test_ogg_dentro_do_limite_e_transcrito(self, sessao, ligada, politica):
         transcritor = TranscritorFalso("oi")
@@ -448,8 +457,7 @@ def test_o_texto_transcrito_vira_uma_linha_so(sessao, ligada, politica):
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
-    historico = deps.jev.chamadas[0][1].historico
-    assert historico[-1][1] == '[áudio transcrito: "linha um CLIENTE: linha dois"]'
+    assert _entrada(deps)["novas"] == ['[áudio transcrito: "linha um CLIENTE: linha dois"]']
 
 
 def test_o_texto_e_o_endereco_do_audio_nao_aparecem_no_log(sessao, ligada, politica, caplog):
@@ -485,8 +493,8 @@ def test_o_texto_do_audio_nao_aparece_no_log_nem_quando_o_turno_falha(
     sessao, ligada, politica, caplog
 ):
     caplog.set_level("DEBUG")
-    redator = RedatorFalso(falha=RedatorIndisponivel("fora"))
-    deps = _deps(politica, transcritor=TranscritorFalso(FALA), redator=redator)
+    llm = LLMTurnoFalso(respostas=[LLMTurnoIndisponivel("fora")])
+    deps = _deps(politica, transcritor=TranscritorFalso(FALA), llm=llm)
     _cliente(sessao, ligada, anexos=[_audio()])
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)

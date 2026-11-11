@@ -13,12 +13,14 @@ from agente.db.modelos import Base, Cliente, Cobranca, Conversa
 from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.politica import Regua
 from agente.tipos import EstadoConversa, Modo, OrigemMensagem
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, criar_processador
+
+from .turno.auxiliares import _bruto
 
 SABADO_13H = datetime(2026, 10, 31, 16, tzinfo=UTC)  # 13h em João Pessoa: janela fechada
 TERCA_8H = datetime(2026, 11, 3, 11, tzinfo=UTC)  # 8h, depois do Finados
@@ -60,7 +62,7 @@ def ambiente(politica):
         DisparadorFalso(),
         time_humano=4,
         modo=Modo.ATIVO,
-        jev=JevFalso(),
+        llm_turno=LLMTurnoFalso(respostas=[_bruto()]),
     )
     relogio = Relogio(SEGUNDA_10H)
     config = Config(database_url="sqlite://", webhook_segredo="s3gredo")

@@ -1,5 +1,6 @@
-"""O turno com o Jev 1, o Jev 2 e as regras de ação (tarefa 4.5). Em sombra, nada sai."""
+"""O turno de uma chamada ao Luna em sombra, onde nada sai, e o humano no ativo (tarefa 4.5)."""
 
+import json
 from datetime import timedelta
 
 import pytest
@@ -14,7 +15,7 @@ from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevComPrazo, JevFalso, responder
+from agente.integracoes.llm_turno import LLMTurnoFalso, LLMTurnoIndisponivel
 from agente.politica import Regua
 from agente.tipos import (
     BatchJev,
@@ -27,21 +28,19 @@ from agente.tipos import (
 )
 from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, criar_processador, processar_turno
+from agente.turno.uma_chamada import ORIGEM_UMA_CHAMADA
 
-from .test_avaliacao import SoJev1
-from .test_orquestrador_gates import SEGUNDA_10H
-
-OBJECAO = [responder("objecao_valor", True), responder("acao", "OFFER_DISCOUNT")]
+from .auxiliares import REPLY_LINK, REPLY_PIX, SEGUNDA_10H, _bruto
 
 
-def _deps(politica, modo=Modo.SOMBRA, regras=(), jev=None):
+def _deps(politica, modo=Modo.SOMBRA, respostas=()):
     return Dependencias(
         politica=liberar_tudo(politica),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=modo,
-        jev=jev or JevFalso(list(regras), registrar=True),
+        llm_turno=LLMTurnoFalso(respostas=list(respostas), registrar=True),
         ctn=CTNFalso([ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", None)]),
     )
 
@@ -65,7 +64,7 @@ def _laudos(sessao, batch):
 
 
 def test_em_sombra_grava_os_laudos_e_o_que_teria_feito(sessao, ligada, politica):
-    deps = _deps(politica)
+    deps = _deps(politica, respostas=[_bruto()])
     _cliente(sessao, ligada)
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
@@ -74,10 +73,10 @@ def test_em_sombra_grava_os_laudos_e_o_que_teria_feito(sessao, ligada, politica)
     assert deps.chatwoot.chamadas == []
     turno = _turno(sessao)
     assert turno.modo is Modo.SOMBRA
-    assert len(_laudos(sessao, BatchJev.JEV1)) == 14
+    assert len(_laudos(sessao, BatchJev.JEV1)) == 11
     [jev2] = _laudos(sessao, BatchJev.JEV2)
     assert (jev2.pergunta, jev2.valor, jev2.turno_id) == ("acao", "INFORM_DEBT", turno.id)
-    assert {laudo.origem for laudo in turno.laudos} == {"falso"}
+    assert {laudo.origem for laudo in turno.laudos} == {ORIGEM_UMA_CHAMADA}
     assert turno.humano_na_conversa is False
     # A cobrança fictícia não é propensa: o débito vai com o Pix integral (D34, D37).
     assert turno.acao_principal == "INFORM_DEBT"
@@ -88,7 +87,7 @@ def test_em_sombra_grava_os_laudos_e_o_que_teria_feito(sessao, ligada, politica)
 def test_em_sombra_a_objecao_na_r3_teria_liberado_o_degrau_sem_mudar_o_estado(
     sessao, ligada, politica
 ):
-    deps = _deps(politica, regras=OBJECAO)
+    deps = _deps(politica, respostas=[_bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK)])
     _cliente(sessao, ligada, "tá caro, tem desconto?")
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
@@ -111,7 +110,8 @@ def test_em_sombra_o_link_do_propenso_leva_o_degrau_atual(sessao, ligada, politi
     # O desconto já liberado continua no link (D34); o Pix seria integral.
     ligada.cobranca.propenso_cartao = True
     ligada.degrau_atual = 2
-    deps = _deps(politica)
+    com_link = _bruto(reply="O valor em aberto é {divida}. Pague e cadastre o cartão: {link_ctn}")
+    deps = _deps(politica, respostas=[com_link])
     _cliente(sessao, ligada)
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
@@ -122,7 +122,7 @@ def test_em_sombra_o_link_do_propenso_leva_o_degrau_atual(sessao, ligada, politi
 
 
 def test_em_sombra_o_gatilho_so_fica_registrado(sessao, ligada, politica):
-    deps = _deps(politica, regras=[responder("quer_retencao", True, 0.92)])
+    deps = _deps(politica, respostas=[_bruto(quer_retencao=True, acao="NONE", reply="")])
     _cliente(sessao, ligada, "quero cancelar o cartão")
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
@@ -132,14 +132,11 @@ def test_em_sombra_o_gatilho_so_fica_registrado(sessao, ligada, politica):
     assert ligada.estado is EstadoConversa.INICIADO
     turno = _turno(sessao)
     assert (turno.acao_principal, turno.acoes_anexadas) == ("HUMAN:RETENCAO", [])
-    # Na retenção, o robô se cala no mesmo turno: o Jev 2 nem roda.
-    assert len(deps.jev.chamadas) == 1
-    assert _laudos(sessao, BatchJev.JEV2) == []
+    assert len(deps.llm_turno.pedidos) == 1
 
 
-def test_em_sombra_o_jev_indisponivel_fica_registrado_no_turno(sessao, ligada, politica):
-    jev = JevComPrazo(JevFalso(falha=ConnectionError("gateway fora")), politica.jev_timeout_ms)
-    deps = _deps(politica, jev=jev)
+def test_em_sombra_o_luna_indisponivel_fica_registrado_no_turno(sessao, ligada, politica):
+    deps = _deps(politica, respostas=[LLMTurnoIndisponivel("gateway fora")])
     _cliente(sessao, ligada)
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
@@ -148,64 +145,23 @@ def test_em_sombra_o_jev_indisponivel_fica_registrado_no_turno(sessao, ligada, p
     assert deps.chatwoot.chamadas == []
     assert ligada.estado is EstadoConversa.INICIADO
     turno = _turno(sessao)
-    assert turno.acao_principal == "HUMAN:JEV_INDISPONIVEL"
+    assert turno.acao_principal == "HUMAN:REDATOR_INDISPONIVEL"
     assert "gateway fora" in turno.redacao["erro"]
     assert turno.numeros == {}
 
 
-def test_jev2_indisponivel_guarda_a_leitura_do_jev1(sessao, ligada, politica):
-    deps = _deps(politica, jev=SoJev1())
-    _cliente(sessao, ligada)
-
-    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    assert len(_laudos(sessao, BatchJev.JEV1)) == 14
-    assert _turno(sessao).acao_principal == "HUMAN:JEV_INDISPONIVEL"
-
-
-def test_o_jev_le_o_historico_e_o_estado_da_conversa(sessao, ligada, politica):
-    deps = _deps(politica)
-    registrar_mensagem(
-        sessao, ligada.id, OrigemMensagem.ABERTURA, "[abertura]", None, False, SEGUNDA_10H
-    )
-    _cliente(sessao, ligada, "quanto eu devo?")
-
-    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    _, estado = deps.jev.chamadas[0]
-    assert estado.historico == (("ABERTURA", "[abertura]"), ("CLIENTE", "quanto eu devo?"))
-    assert (estado.regua, estado.divida_centavos) == (ligada.cobranca.regua, 10020)
-    assert estado.estado_conversa is EstadoConversa.INICIADO
-    assert estado.oferta_atual is None
-
-
-def test_o_jev_ve_a_oferta_do_degrau_atual(sessao, ligada, politica):
-    ligada.degrau_atual = 2
-    deps = _deps(politica)
-    _cliente(sessao, ligada)
-
-    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    oferta = deps.jev.chamadas[0][1].oferta_atual
-    assert (oferta.degrau, oferta.desconto_centavos, oferta.valor_final_centavos) == (
-        2,
-        6000,
-        4020,
-    )
-
-
-def test_gate_que_nao_segue_nao_chama_o_jev(sessao, ligada, politica):
+def test_gate_que_nao_segue_nao_chama_o_luna(sessao, ligada, politica):
     deps = _deps(politica)
     ligada.cobranca.status = StatusCobranca.PAGA
     _cliente(sessao, ligada)
 
     assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.IGNORADO
-    assert deps.jev.chamadas == []
+    assert deps.llm_turno.pedidos == []
 
 
 def test_em_sombra_o_humano_na_conversa_nao_barra_a_avaliacao(sessao, ligada, politica):
     # Padrão da T7: a sombra lê as conversas reais enquanto os humanos atendem.
-    deps = _deps(politica)
+    deps = _deps(politica, respostas=[_bruto()])
     ligada.human_owned = True
     registrar_mensagem(
         sessao,
@@ -225,27 +181,29 @@ def test_em_sombra_o_humano_na_conversa_nao_barra_a_avaliacao(sessao, ligada, po
     turno = _turno(sessao)
     assert turno.humano_na_conversa is True
     assert turno.acao_principal == "INFORM_DEBT"
-    assert len(turno.laudos) == 15
-    assert ("HUMANO", "Oi, aqui é a atendente") in deps.jev.chamadas[0][1].historico
+    assert len(turno.laudos) == 12
+    [(_, usuario)] = deps.llm_turno.pedidos
+    assert ["HUMANO", "Oi, aqui é a atendente"] in json.loads(usuario)["conversa"]
     assert ligada.human_owned is True
 
 
-def test_ativo_o_humano_na_conversa_barra_o_jev(sessao, ligada, politica):
+def test_ativo_o_humano_na_conversa_barra_o_luna(sessao, ligada, politica):
     deps = _deps(politica, Modo.ATIVO)
     ligada.human_owned = True
     _cliente(sessao, ligada)
 
     assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.IGNORADO
-    assert deps.jev.chamadas == []
+    assert deps.llm_turno.pedidos == []
     assert _turno(sessao).humano_na_conversa is True
 
 
-# Modo ativo: a saída para o humano. O turno ativo completo está em test_orquestrador_ativo.
+# Modo ativo: a saída para o humano. O turno ativo completo está em test_orquestrador_uma_chamada.
 
 
 def test_ativo_o_gatilho_faz_o_handoff_com_o_laudo_da_causa(sessao, ligada, politica):
-    deps = _deps(politica, Modo.ATIVO, [responder("risco_juridico", True, 0.91, 0.80)])
-    _cliente(sessao, ligada, "vou no Procon")
+    juridico = _bruto(risco_juridico=True, acao="NONE", reply="")
+    deps = _deps(politica, Modo.ATIVO, [juridico])
+    _cliente(sessao, ligada, "vou levar isso para a justiça")
 
     resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
@@ -263,54 +221,8 @@ def test_ativo_o_gatilho_faz_o_handoff_com_o_laudo_da_causa(sessao, ligada, poli
     )
     transicao = sessao.scalars(select(Transicao)).one()
     causa = sessao.get(LaudoGravado, transicao.laudo_id)
-    assert (causa.pergunta, causa.probabilidade) == ("risco_juridico", 0.91)
+    assert (causa.pergunta, causa.probabilidade) == ("risco_juridico", 1.0)
     assert _turno(sessao).acao_principal == "HUMAN:JURIDICO"
-
-
-def test_ativo_o_jev_indisponivel_vai_para_o_humano(sessao, ligada, politica):
-    jev = JevComPrazo(JevFalso(demora_s=0.5), timeout_ms=20)
-    deps = _deps(politica, Modo.ATIVO, jev=jev)
-    _cliente(sessao, ligada)
-
-    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    assert resultado is ResultadoTurno.HANDOFF
-    assert ligada.motivo_humano is MotivoHumano.JEV_INDISPONIVEL
-    assert sessao.scalars(select(Transicao)).one().laudo_id is None
-
-
-def test_ativo_jev2_indisponivel_vai_para_o_humano(sessao, ligada, politica):
-    deps = _deps(politica, Modo.ATIVO, jev=SoJev1())
-    _cliente(sessao, ligada)
-
-    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    assert resultado is ResultadoTurno.HANDOFF
-    assert ligada.motivo_humano is MotivoHumano.JEV_INDISPONIVEL
-    assert sessao.scalars(select(Transicao)).one().laudo_id is None
-    assert len(_laudos(sessao, BatchJev.JEV1)) == 14
-
-
-def test_ativo_objecao_sem_desconto_aponta_o_laudo_da_objecao(sessao, ligada, politica):
-    ligada.cobranca.regua = Regua.NR
-    ligada.objecoes_sem_desconto = politica.objecoes_sem_desconto_ate_humano - 1
-    deps = _deps(politica, Modo.ATIVO, OBJECAO)
-    _cliente(sessao, ligada, "sem desconto eu não pago")
-
-    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.HANDOFF
-    assert ligada.motivo_humano is MotivoHumano.OBJECAO_SEM_DESCONTO
-    causa = sessao.get(LaudoGravado, sessao.scalars(select(Transicao)).one().laudo_id)
-    assert (causa.batch, causa.pergunta) == (BatchJev.JEV1, "objecao_valor")
-
-
-def test_ativo_a_baixa_confianca_do_jev2_vai_para_o_humano(sessao, ligada, politica):
-    deps = _deps(politica, Modo.ATIVO, [responder("acao", "GENERATE_PIX", 0.80)])
-    _cliente(sessao, ligada, "manda o pix")
-
-    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.HANDOFF
-    assert ligada.motivo_humano is MotivoHumano.BAIXA_CONFIANCA
-    transicao = sessao.scalars(select(Transicao)).one()
-    assert sessao.get(LaudoGravado, transicao.laudo_id).batch is BatchJev.JEV2
 
 
 # Pronto quando: o serviço da tarefa 3.7 grava o laudo de toda rajada real.
@@ -331,7 +243,7 @@ def test_o_servico_grava_o_laudo_de_toda_rajada(politica):
         )
         sessao.add(Conversa(cobranca=cobranca))
         sessao.commit()
-    deps = _deps(politica)
+    deps = _deps(politica, respostas=[_bruto(reply=REPLY_PIX)])
     relogio = {"agora": SEGUNDA_10H}
     app = criar_app(
         fabrica,
@@ -364,5 +276,5 @@ def test_o_servico_grava_o_laudo_de_toda_rajada(politica):
             ResultadoTurno.SOMBRA,
             2,
         )
-        assert len(turno.laudos) == 15
+        assert len(turno.laudos) == 12
     assert deps.chatwoot.chamadas == []

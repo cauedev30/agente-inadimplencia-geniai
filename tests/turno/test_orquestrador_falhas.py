@@ -13,7 +13,6 @@ from sqlalchemy import select
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Pagamento, Turno
 from agente.integracoes.ctn import CTNFalso
-from agente.integracoes.jev import responder
 from agente.integracoes.pix import PixFalso
 from agente.tipos import (
     EstadoConversa,
@@ -25,8 +24,10 @@ from agente.tipos import (
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.orquestrador import processar_turno
 
-from .test_orquestrador_ativo import _deps
-from .test_orquestrador_gates import SEGUNDA_10H
+from .auxiliares import SEGUNDA_10H, _bruto, _deps
+
+# Um turno desfeito pela falha volta a chamar o Luna: uma resposta para cada tentativa.
+RESPOSTAS = [_bruto()] * 10
 
 
 class CTNFora(CTNFalso):
@@ -85,7 +86,7 @@ def _rodar_ate_o_fim(sessao, conversa, deps, vezes):
 
 
 def test_o_pix_fora_leva_a_um_so_handoff_depois_das_tentativas(sessao, ligada, politica):
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     deps.pix = PixFora(10**6)
     _pergunta(sessao, ligada)
     n = politica.integracao_tentativas
@@ -106,7 +107,8 @@ def test_o_pix_fora_leva_a_um_so_handoff_depois_das_tentativas(sessao, ligada, p
 
 def test_o_ctn_fora_leva_a_um_so_handoff_depois_das_tentativas(sessao, ligada, politica):
     ligada.cobranca.propenso_cartao = True
-    deps = _deps(politica)
+    com_link = _bruto(reply="O valor em aberto é {divida}. Pague e cadastre o cartão: {link_ctn}")
+    deps = _deps(politica, [com_link] * 10)
     deps.ctn = CTNFora(10**6, deps.ctn.clientes.values())
     _pergunta(sessao, ligada)
     n = politica.integracao_tentativas
@@ -122,7 +124,7 @@ def test_o_ctn_fora_leva_a_um_so_handoff_depois_das_tentativas(sessao, ligada, p
 
 
 def test_a_espera_entre_as_tentativas_dobra(sessao, ligada, politica):
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     deps.pix = PixFora(10**6)
     _pergunta(sessao, ligada)
     base = politica.integracao_espera_segundos
@@ -138,7 +140,7 @@ def test_a_espera_entre_as_tentativas_dobra(sessao, ligada, politica):
 
 
 def test_a_falha_nao_consome_a_mensagem_do_cliente_e_fica_no_historico(sessao, ligada, politica):
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     deps.pix = PixFora(1)
     _pergunta(sessao, ligada)
 
@@ -153,7 +155,7 @@ def test_a_falha_nao_consome_a_mensagem_do_cliente_e_fica_no_historico(sessao, l
 
 
 def test_a_integracao_que_volta_fecha_o_turno_e_zera_a_conta(sessao, ligada, politica):
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     deps.pix = PixFora(1, agora=lambda: SEGUNDA_10H)
     _pergunta(sessao, ligada)
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
@@ -170,7 +172,13 @@ def test_a_integracao_que_volta_fecha_o_turno_e_zera_a_conta(sessao, ligada, pol
 def test_o_chatwoot_fora_no_handoff_espera_mais_a_cada_vez_e_sai_um_so_quando_volta(
     sessao, ligada, politica
 ):
-    deps = _deps(politica, [responder("quer_retencao", True, 0.92)])
+    retencao = _bruto(
+        quer_retencao=True,
+        acao="NONE",
+        reply="",
+        handoff_reply="Entendi, você quer cancelar. Passei a conversa para a nossa equipe.",
+    )
+    deps = _deps(politica, [retencao] * 10)
     quebra = {"ativa": True}
     nota = deps.chatwoot.nota_privada
 
@@ -200,7 +208,7 @@ def test_o_chatwoot_fora_no_handoff_espera_mais_a_cada_vez_e_sai_um_so_quando_vo
 
 
 def test_o_handoff_das_tentativas_esperadas_so_sai_dentro_da_janela(sessao, ligada, politica):
-    deps = _deps(politica)
+    deps = _deps(politica, RESPOSTAS)
     deps.pix = PixFora(10**6)
     _pergunta(sessao, ligada)
     sexta_17h59 = SEGUNDA_10H.replace(day=30, hour=17, minute=59)

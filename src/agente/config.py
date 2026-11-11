@@ -8,20 +8,10 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agente.integracoes.ctn_eficaz import UNIDADE_PADRAO, URL_EFICAZ
-from agente.integracoes.jev_typesafe import MODELO_PADRAO, URL_TYPESAFE
-from agente.integracoes.redator import URL_OPENAI
+from agente.integracoes.llm_turno import URL_OPENAI
 from agente.integracoes.transcritor import MODELO_TRANSCRICAO
 
 _SEGREDO_WEBCHAT_MINIMO = 32
-
-# Por que o Jev real não pode ler conversa de cliente ainda (D12). Vai ao erro do serviço e à
-# recusa do `agente reproduzir`.
-MENSAGEM_JEV_SEM_LIBERACAO = (
-    "AGENTE_JEV_API_KEY está definida, mas AGENTE_JEV_DADOS_REAIS_LIBERADOS não é true: a TypeSafe "
-    "ainda não confirmou por escrito Zero Data Retention e No Training (D12), então conversa real "
-    "não pode ir ao Jev real. Tire a chave do ambiente para usar o Jev falso, ou libere depois da "
-    "confirmação."
-)
 
 
 def mensagem_llm_sem_liberacao(fontes: Sequence[str], destinos: Sequence[str]) -> str:
@@ -49,9 +39,9 @@ class ConfigPolitica(BaseSettings):
 
 
 class ConfigRedator(ConfigPolitica):
-    """O LLM que redige (D42, T6), para o serviço e o `agente comparar-redatores`."""
+    """O Luna do turno de uma chamada (D42, D59), para o serviço."""
 
-    # Sem a chave, o serviço usa o RedatorFalso.
+    # Sem a chave, o serviço não sobe.
     llm_api_key: str | None = None
     llm_url: str = URL_OPENAI
     llm_modelo: str = "gpt-6-luna"
@@ -66,40 +56,6 @@ class ConfigRedator(ConfigPolitica):
     @classmethod
     def _liberacao_do_llm_vazia_e_fechada(cls, valor):
         return False if isinstance(valor, str) and not valor.strip() else valor
-
-
-class ConfigJev(ConfigPolitica):
-    """O Jev real da TypeSafe (T10), para o serviço, `agente simular` e `agente reproduzir`."""
-
-    # Sem a chave, o serviço usa o JevFalso.
-    jev_api_key: str | None = None
-    jev_url: str = URL_TYPESAFE
-    jev_modelo: str = MODELO_PADRAO
-    # Enquanto a TypeSafe não confirmar ZDR e No Training, só texto inventado vai ao Jev real.
-    jev_dados_reais_liberados: bool = False
-
-    @field_validator("jev_api_key", mode="before")
-    @classmethod
-    def _chave_vazia_e_desligada(cls, valor):
-        # Sem a quebra de linha ou o espaço que vem da colagem: no cabeçalho, ela dá 401 sem pista.
-        return valor.strip() if isinstance(valor, str) and valor.strip() else None
-
-    @field_validator("jev_url", "jev_modelo", mode="before")
-    @classmethod
-    def _vazio_volta_ao_padrao(cls, valor, info):
-        # O .env copiado do .env.example traz a variável vazia.
-        padrao = {"jev_url": URL_TYPESAFE, "jev_modelo": MODELO_PADRAO}[info.field_name]
-        return valor.strip() if isinstance(valor, str) and valor.strip() else padrao
-
-    @field_validator("jev_dados_reais_liberados", mode="before")
-    @classmethod
-    def _liberacao_vazia_e_fechada(cls, valor):
-        return False if isinstance(valor, str) and not valor.strip() else valor
-
-    @property
-    def jev_dados_reais_bloqueados(self) -> bool:
-        """Há chave, mas conversa real não foi liberada."""
-        return self.jev_api_key is not None and not self.jev_dados_reais_liberados
 
 
 class ConfigCTN(ConfigPolitica):
@@ -127,13 +83,10 @@ class ConfigCTN(ConfigPolitica):
         return self.ctn_api_key is not None
 
 
-class Config(ConfigRedator, ConfigJev, ConfigCTN):
+class Config(ConfigRedator, ConfigCTN):
     database_url: str
     modo: Literal["sombra", "ativo"] = "sombra"
     log_level: str = "INFO"
-    # Quem conduz o turno (D47): o pipeline do Jev (o padrão) ou uma chamada só ao Luna
-    # (experimento).
-    turno: Literal["pipeline", "uma_chamada"] = "pipeline"
 
     # Chatwoot (T3). Vazios até a conta, a inbox e o token do Agent Bot existirem.
     chatwoot_url: str | None = None
@@ -160,12 +113,6 @@ class Config(ConfigRedator, ConfigJev, ConfigCTN):
     webchat_website_token: str | None = None  # o token público da inbox Website (vai ao navegador)
     webchat_inbox: int | None = None  # a inbox Website, para reconhecer a conversa do webchat (7.3)
     webchat_url_base: str | None = None  # o domínio do link da 6ª mensagem (G7)
-
-    @field_validator("turno", mode="before")
-    @classmethod
-    def _turno_vazio_volta_ao_padrao(cls, valor):
-        # O .env copiado do .env.example traz a variável vazia.
-        return valor.strip() if isinstance(valor, str) and valor.strip() else "pipeline"
 
     @field_validator(
         "webhook_segredo",

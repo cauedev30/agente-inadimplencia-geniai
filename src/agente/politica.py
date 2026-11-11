@@ -25,7 +25,6 @@ class Regua(StrEnum):
 
 
 DiaSemana = Literal["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
-Limiar = Annotated[float, Field(ge=0, le=1)]
 
 
 class _Imutavel(BaseModel):
@@ -222,7 +221,6 @@ class Politica(_Imutavel):
     # O handoff expira o Pix pendente? Padrão não: o Pix continua valendo e o pagamento conta.
     handoff_expira_pix: bool = False
     objecoes_sem_desconto_ate_humano: int = Field(ge=1)
-    confianca_minima: Limiar
     rajada_segundos: int = Field(ge=0)
     audio_max_segundos: int = Field(ge=1)
     # O download do áudio do cliente (D43): o maior arquivo, o prazo de tudo e, para o formato cuja
@@ -239,7 +237,6 @@ class Politica(_Imutavel):
     # Os pedidos de texto, quando a rajada fica sem nada legível (só áudio que não foi lido; D43).
     pedir_texto_audio_longo: str = Field(min_length=1)
     pedir_texto_audio_falhou: str = Field(min_length=1)
-    jev_timeout_ms: int = Field(ge=1)
     integracao_tentativas: int = Field(ge=1)
     erro_interno_tentativas: int = Field(ge=1)
     integracao_espera_segundos: int = Field(ge=1)
@@ -276,8 +273,6 @@ class Politica(_Imutavel):
     reguas: dict[Regua, ReguaParametros]
     janela: Janela
     propensao: Propensao
-    limiares_jev1: dict[str, Limiar]
-    limiares_jev2: dict[str, Limiar]
     carteira: Carteira = Carteira()
     liberacao: Liberacao = LiberacaoSombra()
     # Ligado, os testadores do piloto recebem os casos do cardápio e não a carteira (D56).
@@ -296,24 +291,6 @@ class Politica(_Imutavel):
     def _sem_o_teto_no_whatsapp(cls, valor: frozenset[MotivoHumano]):
         if MotivoHumano.TETO in valor:
             raise ValueError("TETO não pode ficar no WhatsApp: a 6ª mensagem leva o link (D33)")
-        return valor
-
-    @field_validator("limiares_jev1")
-    @classmethod
-    def _um_limiar_por_gatilho(cls, valor: dict[str, Limiar]):
-        # Fora do topo do módulo: o jev1 importa a política.
-        from agente.turno.jev1 import GATILHOS
-
-        faltando = sorted(set(GATILHOS.values()) - set(valor))
-        if faltando:
-            raise ValueError(f"faltam os limiares: {', '.join(faltando)}")
-        # O `noul` já vira "não" abaixo de 0,5 (jev_typesafe.py): um limiar menor não tem efeito.
-        sem_efeito = sorted(nome for nome, limiar in valor.items() if limiar < 0.5)
-        if sem_efeito:
-            raise ValueError(
-                f"{', '.join(sem_efeito)}: limiar abaixo de 0,5 não tem efeito "
-                "(o Jev 1 já responde não abaixo disso); use 0,5 ou mais"
-            )
         return valor
 
     @field_validator("texto_pix_recebedor")

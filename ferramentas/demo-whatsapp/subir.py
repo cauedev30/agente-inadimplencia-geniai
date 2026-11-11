@@ -5,7 +5,7 @@ Uso, de dentro de repo/:
 
 O kit é uma pasta fora do git com o `politica-demo.toml` e a `carteira-demo.csv`; o script grava
 nela `demo.db`, `segredo_webhook.txt`, `servico.log`, `tunel.log` e `url_tunel.txt`. As chaves vêm
-de `<segredos>/chatwoot-teste.local.json`, `typesafe.local.json` e `openai.local.json`; elas só
+de `<segredos>/chatwoot-teste.local.json` e `openai.local.json`; elas só
 entram no ambiente dos subprocessos, nunca num .env nem no log. A URL do túnel leva o segredo do
 webhook, então ela só é impressa mascarada.
 
@@ -37,7 +37,6 @@ MARCA_DO_SEGREDO = "<segredo>"
 PRAZO_DE_ESPERA_SEGUNDOS = 30
 
 ARQUIVO_CHATWOOT = "chatwoot-teste.local.json"
-ARQUIVO_TYPESAFE = "typesafe.local.json"
 ARQUIVO_OPENAI = "openai.local.json"
 
 # `api.trycloudflare.com` aparece no log do cloudflared (é quem cria o túnel): não é o túnel.
@@ -63,7 +62,7 @@ def _exigir(segredos: Mapping, chaves: tuple[str, ...], arquivo: str) -> None:
         raise ErroDaDemo(f"faltam as chaves {', '.join(faltando)} em {arquivo}")
 
 
-def validar_segredos(chatwoot: Mapping, typesafe: Mapping, openai: Mapping) -> None:
+def validar_segredos(chatwoot: Mapping, openai: Mapping) -> None:
     """Falha cedo, antes de subir qualquer coisa. Só os nomes das chaves entram nas mensagens."""
     _exigir(chatwoot, ("url", "conta", "inbox", "token"), ARQUIVO_CHATWOOT)
     if not chatwoot.get("token_bot"):
@@ -77,33 +76,27 @@ def validar_segredos(chatwoot: Mapping, typesafe: Mapping, openai: Mapping) -> N
             f"o token_bot de {ARQUIVO_CHATWOOT} é igual ao token do usuário: o agente precisa do "
             "token do Agent Bot (D.4)"
         )
-    _exigir(typesafe, ("api_key",), ARQUIVO_TYPESAFE)
     _exigir(openai, ("api_key",), ARQUIVO_OPENAI)
 
 
 def montar_ambiente(
     *,
     chatwoot: Mapping,
-    typesafe: Mapping,
     openai: Mapping,
     kit: Path,
     segredo_webhook: str,
     ambiente_base: Mapping[str, str],
-    turno: str = "pipeline",
 ) -> dict[str, str]:
     """O ambiente dos subprocessos: o do processo, sem nenhuma AGENTE_* herdada, mais as da demo.
 
-    O `turno` é o `AGENTE_TURNO` (D47): `pipeline`, o padrão, ou `uma_chamada`, o experimento.
-
-    Os padrões de URL e de modelo do Jev e do Luna vêm do código (config.py): não se repetem aqui.
+    Os padrões de URL e de modelo do Luna vêm do código (config.py): não se repetem aqui.
     """
-    validar_segredos(chatwoot, typesafe, openai)
+    validar_segredos(chatwoot, openai)
     ambiente = {c: v for c, v in ambiente_base.items() if not c.upper().startswith("AGENTE_")}
     ambiente.update(
         {
             "PYTHONUTF8": "1",
             "AGENTE_MODO": "ativo",
-            "AGENTE_TURNO": turno,
             "AGENTE_POLITICA_PATH": str(kit / "politica-demo.toml"),
             "AGENTE_DATABASE_URL": f"sqlite:///{(kit / 'demo.db').resolve().as_posix()}",
             "AGENTE_WEBHOOK_SEGREDO": segredo_webhook,
@@ -113,11 +106,6 @@ def montar_ambiente(
             # O token do Agent Bot, e não o do usuário: com o do usuário, a resposta do agente
             # voltaria no webhook como mensagem de um atendente e viraria "humano assumiu".
             "AGENTE_CHATWOOT_TOKEN": str(chatwoot["token_bot"]),
-            "AGENTE_JEV_API_KEY": str(typesafe["api_key"]),
-            # A demo manda ao Jev real só texto inventado (a carteira de teste e o celular do Cauê),
-            # então a trava da ZDR (D12) é liberada só neste processo:
-            # decisions/2026-11-04-demo-whatsapp-jev-real-dado-inventado.md
-            "AGENTE_JEV_DADOS_REAIS_LIBERADOS": "true",
             "AGENTE_LLM_API_KEY": str(openai["api_key"]),
             # Mesma razão: o Chatwoot é o de teste e o dado é inventado; a trava da OpenAI (M2)
             # barra o Chatwoot real com o Luna real sem esta liberação.
@@ -261,22 +249,19 @@ def preparar_banco(kit: Path, ambiente: Mapping[str, str], carteira: Path) -> No
         )
 
 
-def subir(kit: Path, pasta_segredos: Path, porta: int, turno: str = "pipeline") -> int:
+def subir(kit: Path, pasta_segredos: Path, porta: int) -> int:
     for arquivo in ("politica-demo.toml", "carteira-demo.csv"):
         if not (kit / arquivo).is_file():
             raise ErroDaDemo(f"falta {arquivo} no kit ({kit})")
     chatwoot = ler_json(pasta_segredos / ARQUIVO_CHATWOOT)
-    typesafe = ler_json(pasta_segredos / ARQUIVO_TYPESAFE)
     openai = ler_json(pasta_segredos / ARQUIVO_OPENAI)
     segredo = ler_ou_criar_segredo_do_webhook(kit / "segredo_webhook.txt")
     ambiente = montar_ambiente(
         chatwoot=chatwoot,
-        typesafe=typesafe,
         openai=openai,
         kit=kit,
         segredo_webhook=segredo,
         ambiente_base=os.environ,
-        turno=turno,
     )
 
     preparar_banco(kit, ambiente, kit / "carteira-demo.csv")
@@ -328,7 +313,6 @@ def subir(kit: Path, pasta_segredos: Path, porta: int, turno: str = "pipeline") 
         processos.append(servico)
         _esperar(lambda: _servico_responde(porta), "o serviço responder em /saude", servico)
 
-        print(f"turno da demo: {turno}")
         print(f"demo no ar: {mascarar_segredo(url_do_webhook(url_do_tunel, segredo), segredo)}")
         print("Ctrl+C encerra o serviço e o túnel.")
         while all(processo.poll() is None for processo in processos):
@@ -354,20 +338,9 @@ def main(argv: list[str] | None = None) -> int:
         help="pasta dos *.local.json (padrão: ../secrets, ao lado do repo)",
     )
     parser.add_argument("--porta", type=int, default=8000)
-    parser.add_argument(
-        "--turno",
-        choices=("pipeline", "uma_chamada"),
-        default="pipeline",
-        help="o AGENTE_TURNO da demo (D47): o pipeline do Jev ou o turno de uma chamada",
-    )
     argumentos = parser.parse_args(argv)
     try:
-        return subir(
-            argumentos.kit.resolve(),
-            argumentos.segredos.resolve(),
-            argumentos.porta,
-            argumentos.turno,
-        )
+        return subir(argumentos.kit.resolve(), argumentos.segredos.resolve(), argumentos.porta)
     except ErroDaDemo as erro:
         print(f"erro: {erro}", file=sys.stderr)
         return 2

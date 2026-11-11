@@ -23,7 +23,7 @@ from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
-from agente.integracoes.jev import JevFalso
+from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.integracoes.pix import PixFalso, StatusPix
 from agente.pagamento import confirmar
 from agente.pagamento.concluir import concluir_pagamentos, contar_sem_concluir
@@ -93,7 +93,7 @@ def _deps(politica, **mudancas):
         disparador=DisparadorFalso(),
         time_humano=4,
         modo=Modo.ATIVO,
-        jev=JevFalso(),
+        llm_turno=LLMTurnoFalso(),
         ctn=CTNFalso([ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", None)]),
         pix=PixFalso(agora=lambda: AGORA),
     )

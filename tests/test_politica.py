@@ -14,7 +14,6 @@ def test_arquivo_padrao_carrega(politica):
     assert politica.mensalidade_centavos == 3340
     assert politica.teto_resolucao == 5
     assert politica.regua_acima_de_6 is Regua.R6
-    assert politica.confianca_minima == 0.60
 
 
 def test_o_link_baixa_sozinho_no_ctn_por_padrao(politica):
@@ -59,11 +58,9 @@ def test_janela_padrao(politica):
     assert date(2026, 12, 25) in janela.feriados
 
 
-def test_propensao_e_limiares(politica):
+def test_propensao(politica):
     assert politica.propensao.n_meses == 3
     assert politica.propensao.tolerancia_dias == 3
-    assert politica.limiares_jev1["quer_retencao"] == 0.80
-    assert politica.limiares_jev2["GENERATE_PIX"] == 0.90
 
 
 def _arquivo_com(tmp_path, original, novo):
@@ -80,7 +77,6 @@ def _arquivo_com(tmp_path, original, novo):
         ("desconto_max_centavos = 9000", "desconto_max_centavos = -1", "desconto_max_centavos"),
         ("n_degraus = 3", "n_degraus = 0", "n_degraus"),
         ("teto_resolucao = 5", "teto_resolucao = 0", "teto_resolucao"),
-        ("quer_retencao = 0.80", "quer_retencao = 1.5", "quer_retencao"),
         ('fuso = "America/Fortaleza"', 'fuso = "America/Lugar_Nenhum"', "fuso"),
         ('sab = ["08:00", "12:00"]', 'sab = ["12:00", "08:00"]', "sab"),
     ],
@@ -155,7 +151,6 @@ def test_a_saida_no_whatsapp_tem_padrao(politica):
         "Entendo a sua preocupação. Um atendente da unidade vai continuar com você aqui mesmo, "
         "nesta conversa."
     )
-    assert politica.limiares_jev1["desconfia_golpe"] == 0.70
 
 
 def test_motivo_desconhecido_na_saida_no_whatsapp_e_recusado(tmp_path):
@@ -188,25 +183,6 @@ def test_o_texto_do_recebedor_sem_o_marcador_e_recusado(tmp_path):
     )
     with pytest.raises(PoliticaInvalida, match="texto_pix_recebedor"):
         carregar_politica(caminho)
-
-
-def test_limiar_do_jev1_faltando_e_recusado(tmp_path):
-    caminho = _arquivo_com(tmp_path, "desconfia_golpe = 0.70", "")
-    with pytest.raises(PoliticaInvalida, match="limiares_jev1.*desconfia_golpe"):
-        carregar_politica(caminho)
-
-
-@pytest.mark.parametrize("valor", ["0.49", "0.0", "0.30"])
-def test_limiar_do_jev1_abaixo_de_0_5_e_recusado_porque_nao_tem_efeito(tmp_path, valor):
-    # O `noul` já vira "não" abaixo de 0,5: um limiar menor nunca muda o resultado.
-    caminho = _arquivo_com(tmp_path, "desconfia_golpe = 0.70", f"desconfia_golpe = {valor}")
-    with pytest.raises(PoliticaInvalida, match="limiares_jev1.*desconfia_golpe.*0,5"):
-        carregar_politica(caminho)
-
-
-def test_limiar_do_jev1_em_0_5_e_aceito(tmp_path):
-    caminho = _arquivo_com(tmp_path, "desconfia_golpe = 0.70", "desconfia_golpe = 0.50")
-    assert carregar_politica(caminho).limiares_jev1["desconfia_golpe"] == 0.5
 
 
 def test_o_teto_no_whatsapp_e_recusado(tmp_path):
