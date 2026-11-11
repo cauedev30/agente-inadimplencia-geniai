@@ -113,3 +113,14 @@ com a correção quando a hora chegar (texto completo na fonte).
   laudos); `roteiros/demo.yaml` e `v1-operacao.yaml` são da era do Jev e os `texto_tem` de Pix e CTN podem não bater mais; a
   docstring do `ensaiar.py` ainda cita `demo.yaml`; `MotivoHumano.REDATOR_INDISPONIVEL` sem uso (enum mantido).
 - Escolha da 1.7: a rajada só com foto/arquivo vai ao humano; com áudio junto, o turno segue para transcrever.
+- **Para a revisão da PARADA 1 olhar (achado do ensaio de 2026-11-11, nao corrigido):** no ensaio local (SQLite), o webhook
+  respondeu 500 com `sqlite3.OperationalError: database is locked` (1ª rodada: 5 vezes e o caso-3 falhou, 1/6; rodada só do
+  caso-3: 2 vezes e passou; 2ª rodada completa: 6 respostas 500 e passou 10/10). `criar_motor` não configura espera do SQLite
+  (padrão de 5 s). Pergunta: o turno segura transação de escrita aberta durante a chamada ao Luna (~8 s)? Se sim, o webhook
+  espera nesse desenho e isso pode pesar também no Postgres do `dev2`. Hipótese não verificada; a "carga da máquina" foi
+  descartada (a 2ª rodada rodou com a máquina livre).
+- Achados da tarefa 1.9 (documentos): o serviço só sobe com `AGENTE_LLM_DADOS_REAIS_LIBERADOS=true` (trava M2 sempre ativa;
+  decidir a retenção da OpenAI, T6, ou ajustar a trava antes da 2.3); fora do piloto o webhook ainda grava a mensagem (só o
+  turno é ignorado) e mensagem de atendente fora do piloto marca `human_owned`; D38 diverge do código (vale a D47); resquícios
+  de nome do Jev (`PERGUNTAS_JEV1`, `LeituraJev1`, `BatchJev`, comentário do webhook, `ConfigPolitica` cita `agente simular`);
+  `/saude` diz "sem tocar no banco" (a 2.1 muda).
