@@ -105,3 +105,7 @@ com a correção quando a hora chegar (texto completo na fonte).
 - Achados da tarefa 1.4/1.6: `Dependencias.disparador` sem leitor no turno (só `pagamento/concluir.py` usa um, com
   dependências próprias); `pagamento/concluir.py` envia a confirmação do Pix sem checar o piloto (hoje só recebe quem teve
   Pix gerado pelo agente, ou seja, o piloto; lembrar no piloto real).
+- Achado da tarefa 1.5: uma linha antiga de `pagamento` com a pendência `RESOLVER_WEBCHAT` em `pendencias` ficaria sem passo
+  (`_PASSOS` perdeu a chave); o erro é capturado e logado. Só afeta banco com dado antigo; o serviço ainda não está hospedado.
+- Efeito da 1.5 a lembrar: a fixa do golpe (`HUMANO_NO_WHATSAPP`) só sai no motivo `DESCONFIANCA`; com outro motivo e
+  `desconfia_golpe` sim, a 6ª é a `CANAL_EXTERNO` comum (como o plano manda).
