@@ -13,8 +13,10 @@ services:
     volumes:
       - /opt/agente-inadimplencia/politica-teste.toml:/etc/agente/politica.toml:ro
       - ../../cardapio-teste.toml:/etc/agente/cardapio-teste.toml:ro
-    ports:
-      - "127.0.0.1:8000:8000"
+    # Nenhuma porta publicada no servidor (compartilhado): o túnel chega ao agente pela rede do compose
+    # (http://agente:8000). A 8000 do host é do Caddy do gateway; não usar.
+    expose:
+      - "8000"
     depends_on:
       postgres:
         condition: service_healthy

@@ -9,9 +9,10 @@ pública para o webhook do Chatwoot).
 - Docker com o plugin `docker compose` no servidor.
 - O servidor é **compartilhado** (7,6 GB). Os limites do compose somam 1152 MB (agente 512, Postgres
   512, túnel 128): não suba mais que isso, nem aumente os limites sem avisar quem divide a máquina.
-- As credenciais já rotacionadas: o token do Agent Bot, a chave do Luna e a SSH.
-- A decisão da retenção de dados da OpenAI (T6). Sem ela, o serviço só sobe com
-  `AGENTE_LLM_DADOS_REAIS_LIBERADOS=true`, e esse valor só vale depois dela.
+- A chave do Luna no `agente.env`. A rotação da SSH, do token do Agent Bot e da OpenAI antiga ficou para
+  depois (decisão do Cauê, 2026-11-11); quando rotacionar a OpenAI, troque a chave aqui também.
+- `AGENTE_LLM_DADOS_REAIS_LIBERADOS=true` só no teste (3 testadores, casos fictícios, sem a chave do CTN).
+  A conferência da retenção da OpenAI (T6) é exigência **antes do piloto real**.
 
 ## Onde fica cada arquivo no servidor
 
@@ -69,8 +70,17 @@ docker compose -f deploy/dev2/compose.yaml logs -f agente
 docker compose -f deploy/dev2/compose.yaml logs --tail 200 postgres
 ```
 
-O `/saude` do serviço (`curl http://127.0.0.1:8000/saude`, de dentro do servidor) dá 503 se o laço
-dos turnos parou há mais de 60 segundos.
+O `/saude` do serviço dá 503 se o laço dos turnos parou há mais de 60 segundos. Como o compose não
+publica porta, consulte de dentro do contêiner:
+`docker compose -f deploy/dev2/compose.yaml exec agente python -c "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8000/saude').read())"`.
+
+## Portas
+
+**Este projeto não usa nenhuma porta do servidor.** O `agente` só `expose` a 8000 dentro da rede do
+compose (o túnel da Cloudflare chega por ali), e o Postgres também não publica porta. Assim não
+disputamos porta com ninguém. A 8000 do host é do Caddy do gateway (outro projeto): não publique nada
+nela. Se um dia o agente precisar de uma porta no host, escolha uma livre (`ss -ltn`) e rotule aqui e
+em `labels:` do compose com o nome do projeto e o motivo.
 
 ## Testes do Postgres
 
