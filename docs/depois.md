@@ -143,7 +143,7 @@ com a correção quando a hora chegar (texto completo na fonte).
     (AUD-03), `erros_no_log` pode achar a linha `ERROR` da tentativa anterior (`log.exception("o turno da conversa ... falhou")`,
     depois do byte de início do passo) e marcar o passo como ERRO. Só se aparecer no ensaio do `dev2`.
 - Achados da tarefa 1.9 (documentos): o serviço só sobe com `AGENTE_LLM_DADOS_REAIS_LIBERADOS=true` (trava M2 sempre ativa;
-  decidir a retenção da OpenAI, T6, ou ajustar a trava antes da 2.3); fora do piloto o webhook ainda grava a mensagem (só o
+  **decidido em 2026-11-11 pelo Cauê:** no `dev2`, `true` só para o teste, com os 3 testadores e casos fictícios; **conferir a retenção da OpenAI no painel (T6: treino e dias de guarda) é exigência ANTES DO PILOTO REAL**, quando o CTN real entrar); fora do piloto o webhook ainda grava a mensagem (só o
   turno é ignorado) e mensagem de atendente fora do piloto marca `human_owned`; D38 diverge do código (vale a D47); resquícios
   de nome do Jev (`PERGUNTAS_JEV1`, `LeituraJev1`, `BatchJev`, comentário do webhook, `ConfigPolitica` cita `agente simular`);
   (o `/saude` já enxerga o laço parado desde a 2.1).
