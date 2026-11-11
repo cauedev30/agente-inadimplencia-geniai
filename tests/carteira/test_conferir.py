@@ -32,6 +32,7 @@ class CTNEspiao(CTNFalso):
     def __init__(self, **resto):
         super().__init__(**resto)
         self.chamadas = []
+        self.janelas = []  # o `meses` de cada leitura do histórico
 
     def mensalidades_em_aberto(self, matricula):
         self.chamadas.append("mensalidades")
@@ -39,6 +40,7 @@ class CTNEspiao(CTNFalso):
 
     def historico_pagamentos(self, matricula, meses):
         self.chamadas.append("historico")
+        self.janelas.append(meses)
         return super().historico_pagamentos(matricula, meses)
 
 
@@ -140,6 +142,54 @@ def test_propenso_quando_o_historico_tem_tres_pix_seguidos(sessao, politica):
 
     assert conferencia.propenso is True
     assert cobranca.propenso_cartao is True
+
+
+# ---- a propensão olha os pagamentos antes do atraso, até o `ult_mesref` (D58) ----
+
+R3_ABERTAS = (("2026/08", 3340), ("2026/09", 3340), ("2026/10", 3340))
+ULT_MESREF = date(2026, 7, 1)  # o último mês pago; agosto a outubro estão em aberto
+PIX_ANTES_DO_ATRASO = (date(2026, 5, 10), date(2026, 6, 11), date(2026, 7, 12))
+
+
+def test_devedor_r3_com_3_pix_seguidos_antes_do_ult_mesref_sai_propenso(sessao, politica):
+    cobranca = _cobranca(sessao, ult_mesref=ULT_MESREF)
+    ctn = _ctn(_abertas(*R3_ABERTAS), _pix(*PIX_ANTES_DO_ATRASO))
+
+    conferencia = conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA)
+
+    assert conferencia.propenso is True
+    assert cobranca.propenso_cartao is True
+    # Hoje é novembro: de hoje até um mês antes de maio são 8 meses (n_meses 3 + 1 + 4 de atraso).
+    assert ctn.janelas == [8]
+
+
+def test_sem_ult_mesref_a_janela_e_a_de_hoje_e_o_mesmo_historico_nao_basta(sessao, politica):
+    cobranca = _cobranca(sessao, ult_mesref=None)
+    ctn = _ctn(_abertas(*R3_ABERTAS), _pix(*PIX_ANTES_DO_ATRASO))
+
+    conferencia = conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA)
+
+    assert conferencia.propenso is False
+    assert ctn.janelas == [politica.propensao.n_meses + 1]
+
+
+def test_pagamento_depois_do_ult_mesref_nao_estraga_a_sequencia_de_antes(sessao, politica):
+    # Um Pix e um boleto parciais do atraso, depois do último mês pago: ficam fora da propensão.
+    cobranca = _cobranca(sessao, ult_mesref=ULT_MESREF)
+    historico = _pix(*PIX_ANTES_DO_ATRASO, date(2026, 9, 20)) + [
+        PagamentoHistorico(date(2026, 10, 3), FormaHistorico.BOLETO, 1000)
+    ]
+    ctn = _ctn(_abertas(*R3_ABERTAS), historico)
+
+    assert conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA).propenso is True
+
+
+def test_a_sequencia_quebrada_antes_do_ult_mesref_nao_e_propensa(sessao, politica):
+    cobranca = _cobranca(sessao, ult_mesref=ULT_MESREF)
+    historico = _pix(date(2026, 5, 10), date(2026, 7, 12))  # falta junho
+    ctn = _ctn(_abertas(*R3_ABERTAS), historico)
+
+    assert conferir_cobranca(sessao, ctn, politica, cobranca.id, AGORA).propenso is False
 
 
 def test_propenso_some_se_o_historico_nao_sustenta(sessao, politica):

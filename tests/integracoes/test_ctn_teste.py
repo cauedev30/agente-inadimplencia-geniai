@@ -202,13 +202,14 @@ def test_o_caso_sem_historico_vem_vazio():
     assert _ctn_de_casos().historico_pagamentos(SIM_5, meses=12) == []
 
 
-def test_a_janela_do_historico_conta_a_partir_do_ultimo_mes_pago():
-    # O CTN real conta os `meses` a partir de hoje, e os pagamentos de quem deve 3 meses cairiam
-    # fora da janela da propensão (n_meses + 1): o caso conta a partir do mês do `ult_mesref`.
+def test_a_janela_do_historico_conta_a_partir_de_hoje_como_o_ctn_real():
+    # O histórico do caso 2 é de maio, junho e julho (dia 5); hoje é 10/11. Como no CTN real, os
+    # `meses` contam de hoje (a conferência pede os meses até o `ult_mesref`, D58).
     ctn = _ctn_de_casos()
-    assert len(ctn.historico_pagamentos(SIM_2, meses=4)) == 3
-    assert [p.data.month for p in ctn.historico_pagamentos(SIM_2, meses=2)] == [6, 7]
-    assert ctn.historico_pagamentos(SIM_2, meses=1)[0].data == date(2026, 7, 5)
+    assert ctn.historico_pagamentos(SIM_2, meses=4) == []
+    assert [p.data for p in ctn.historico_pagamentos(SIM_2, meses=5)] == [date(2026, 7, 5)]
+    assert [p.data.month for p in ctn.historico_pagamentos(SIM_2, meses=6)] == [6, 7]
+    assert [p.data.month for p in ctn.historico_pagamentos(SIM_2, meses=7)] == [5, 6, 7]
 
 
 def test_o_mes_base_do_caso_fica_fixo_depois_do_ativar():

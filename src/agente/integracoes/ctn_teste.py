@@ -146,19 +146,17 @@ class CTNDeCasos:
         return ConsultaMensalidades(self._abertas(matricula, caso), caso.meses_atraso)
 
     def historico_pagamentos(self, matricula: str, meses: int) -> list[PagamentoHistorico]:
-        """Os pagamentos do caso, em datas reais antes do 1º mês em aberto.
-
-        A janela de `meses` conta a partir do mês do `ult_mesref`, não de hoje: contada de hoje, o
-        histórico de quem deve 3 meses ou mais ficaria todo fora da janela da propensão
-        (`n_meses + 1`), e o caso 2 nunca sairia propenso."""
+        """Os pagamentos do caso, em datas reais antes do 1º mês em aberto, na janela de `meses`
+        contados de hoje, como o CTN real (a conferência pede os meses até o `ult_mesref`, D58)."""
         caso = self._caso(matricula)
         if caso is None:
             return []
         primeiro = self._indice_do_1o_mes_em_aberto(matricula, caso)
+        atual = _indice(self._hoje())
         pagamentos = []
         for item in caso.historico:
             indice = primeiro - item.meses_atras
-            if primeiro - 1 - indice >= meses:
+            if atual - indice >= meses:
                 continue
             data = date(indice // 12, indice % 12 + 1, item.dia)
             pagamentos.append(PagamentoHistorico(data, item.forma, self._mensalidade))

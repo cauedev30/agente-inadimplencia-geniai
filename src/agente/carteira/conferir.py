@@ -50,7 +50,7 @@ from sqlalchemy.orm import Session
 from agente.db.modelos import Cobranca
 from agente.db.travas import travar_conversas_e_cobranca
 from agente.dominio.divida import classificar_regua
-from agente.dominio.propensao import eh_propenso
+from agente.dominio.propensao import eh_propenso, meses_do_historico, pagamentos_ate_o_ult_mesref
 from agente.integracoes.ctn import (
     CTN,
     ClienteNaoEncontrado,
@@ -204,12 +204,10 @@ def conferir_cobranca(
     try:
         consulta = ctn.consultar_mensalidades(matricula)
         abertas, desempatou = _abertas_a_cobrar(cobranca, consulta.abertas, politica, agora)
-        # Um mês a mais, porque o mês corrente pode não ter pagamento ainda (como no importar).
-        historico = (
-            ctn.historico_pagamentos(matricula, meses=politica.propensao.n_meses + 1)
-            if abertas
-            else []
-        )
+        # A propensão olha os pagamentos antes do atraso, até o `ult_mesref` (D58); sem ele, a
+        # janela de hoje (com um mês a mais, porque o mês corrente pode não ter pagamento ainda).
+        janela = meses_do_historico(politica, cobranca.ult_mesref, _dia(agora, politica))
+        historico = ctn.historico_pagamentos(matricula, meses=janela) if abertas else []
     except ClienteNaoEncontrado:
         log.warning(
             "o CTN não conhece a matrícula da cobrança %s; segue com o retrato", cobranca_id
@@ -261,7 +259,9 @@ def conferir_cobranca(
         cobranca.regua = classificar_regua(len(abertas), None, politica)
     cobranca.mensalidades_abertas = len(abertas)
     cobranca.divida_centavos = sum(mensalidade.valor_centavos for mensalidade in abertas)
-    cobranca.propenso_cartao = eh_propenso(historico, politica)
+    cobranca.propenso_cartao = eh_propenso(
+        pagamentos_ate_o_ult_mesref(historico, cobranca.ult_mesref), politica
+    )
     sessao.flush()
     return Conferencia(
         meses_em_aberto=meses,

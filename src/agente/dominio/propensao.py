@@ -1,13 +1,43 @@
 """Propensão ao cartão (D36): quem já paga Pix todo mês no mesmo dia tem uma recorrência pronta."""
 
+from datetime import date
 from itertools import pairwise
 
 from agente.politica import Politica
 from agente.tipos import FormaHistorico, PagamentoHistorico
 
 
+def _indice(dia: date) -> int:
+    return dia.year * 12 + dia.month
+
+
 def _indice_do_mes(pagamento: PagamentoHistorico) -> int:
-    return pagamento.data.year * 12 + pagamento.data.month
+    return _indice(pagamento.data)
+
+
+def meses_do_historico(politica: Politica, ult_mesref: date | None, hoje: date | None) -> int:
+    """Quantos meses, contados de hoje, o histórico de pagamentos tem de cobrir (D58).
+
+    A propensão olha como a pessoa pagava ANTES de atrasar, até o mês do `ult_mesref`: quem deve 3
+    meses ou mais nunca tem `n_meses` pagamentos seguidos na janela de hoje. A janela vai de hoje
+    até um mês antes do primeiro dos `n_meses` pagamentos que terminam no `ult_mesref` (o mês a
+    mais cobre o mês corrente, que pode não ter pagamento ainda). Sem `ult_mesref` (CSV, cobrança
+    antiga) ou sem a data de hoje, é a janela de hoje: `n_meses + 1`."""
+    n_meses = politica.propensao.n_meses
+    if ult_mesref is None or hoje is None:
+        return n_meses + 1
+    return n_meses + 1 + max(0, _indice(hoje) - _indice(ult_mesref))
+
+
+def pagamentos_ate_o_ult_mesref(
+    historico: list[PagamentoHistorico], ult_mesref: date | None
+) -> list[PagamentoHistorico]:
+    """Os pagamentos até o fim do mês do `ult_mesref`; os de depois (pagamento parcial do atraso)
+    ficam de fora e não estragam a sequência de antes. Sem `ult_mesref`, todos."""
+    if ult_mesref is None:
+        return historico
+    limite = _indice(ult_mesref)
+    return [p for p in historico if _indice(p.data) <= limite]
 
 
 def eh_propenso(historico: list[PagamentoHistorico], politica: Politica) -> bool:

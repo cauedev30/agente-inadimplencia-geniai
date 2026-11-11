@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from agente.db.modelos import Cliente, Cobranca
 from agente.dominio.divida import calcular_divida, classificar_regua
-from agente.dominio.propensao import eh_propenso
+from agente.dominio.propensao import eh_propenso, meses_do_historico, pagamentos_ate_o_ult_mesref
 from agente.dominio.telefone import normalizar_telefone
 from agente.integracoes.ctn import CTN
 from agente.politica import Politica, Regua
@@ -97,11 +97,20 @@ def _ler_linha(registro: dict[str, str], politica: Politica) -> _Linha:
     )
 
 
-def _propenso(ctn: CTN, matricula: str, politica: Politica) -> bool:
-    # Um mês a mais, porque o mês corrente pode não ter pagamento ainda. Matrícula desconhecida
-    # volta como histórico vazio (contrato do CTN), e sem histórico o cliente não é propenso.
-    historico = ctn.historico_pagamentos(matricula, meses=politica.propensao.n_meses + 1)
-    return eh_propenso(historico, politica)
+def _propenso(
+    ctn: CTN,
+    matricula: str,
+    politica: Politica,
+    ult_mesref: date | None = None,
+    hoje: date | None = None,
+) -> bool:
+    # Os pagamentos antes do atraso, até o `ult_mesref` (D58). Sem ele (CSV) ou sem a data de hoje,
+    # a janela de hoje, com um mês a mais porque o mês corrente pode não ter pagamento ainda.
+    # Matrícula desconhecida volta como histórico vazio (contrato do CTN), e sem histórico o
+    # cliente não é propenso.
+    meses = meses_do_historico(politica, ult_mesref, hoje)
+    historico = ctn.historico_pagamentos(matricula, meses=meses)
+    return eh_propenso(pagamentos_ate_o_ult_mesref(historico, ult_mesref), politica)
 
 
 def _dia(momento: datetime, politica: Politica):
@@ -168,7 +177,10 @@ def _gravar(
         "campanha": campanha,
     }
     if ctn is not None:
-        valores["propenso_cartao"] = _propenso(ctn, linha.matricula, politica)
+        hoje = None if agora is None else _dia(agora, politica)
+        valores["propenso_cartao"] = _propenso(
+            ctn, linha.matricula, politica, linha.ult_mesref, hoje
+        )
     ativa = None
     reativada = False
     if cliente.id is not None:

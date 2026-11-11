@@ -5,7 +5,7 @@ import pytest
 from alembic import command
 from sqlalchemy import select
 
-from agente.carteira.importar import importar_carteira, normalizar_telefone
+from agente.carteira.importar import _propenso, importar_carteira, normalizar_telefone
 from agente.cli import main
 from agente.db.modelos import Cliente, Cobranca
 from agente.db.sessao import criar_sessao
@@ -72,6 +72,24 @@ def test_propensao_vem_do_historico_do_ctn(sessao, politica):
     }
     assert propensos["F-0004"] is True
     assert propensos["F-0003"] is False
+
+
+def test_a_propensao_da_importacao_olha_os_pagamentos_ate_o_ult_mesref(politica):
+    # Pix em maio, junho e julho; hoje é 22/11 e o último mês pago foi julho.
+    matricula = "F-0004"
+    historico = [
+        PagamentoHistorico(date(2026, mes, 10), FormaHistorico.PIX, 3340) for mes in (5, 6, 7)
+    ]
+    ctn = CTNFalso(historicos={matricula: historico}, hoje=date(2026, 11, 22))
+
+    # Sem o ult_mesref (CSV): a janela de hoje não alcança maio a julho.
+    assert _propenso(ctn, matricula, politica) is False
+    assert _propenso(ctn, matricula, politica, date(2026, 7, 1), date(2026, 11, 22)) is True
+    # Um pagamento depois do ult_mesref (parcial do atraso) não estraga a sequência de antes.
+    ctn.historicos[matricula].append(
+        PagamentoHistorico(date(2026, 9, 3), FormaHistorico.BOLETO, 1000)
+    )
+    assert _propenso(ctn, matricula, politica, date(2026, 7, 1), date(2026, 11, 22)) is True
 
 
 def test_importar_de_novo_atualiza_sem_duplicar(sessao, politica, tmp_path):
