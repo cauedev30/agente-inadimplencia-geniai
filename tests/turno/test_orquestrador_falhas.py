@@ -13,6 +13,7 @@ from sqlalchemy import select
 from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Pagamento, Turno
 from agente.integracoes.ctn import CTNFalso
+from agente.integracoes.llm_turno import LLMTurnoIndisponivel
 from agente.integracoes.pix import PixFalso
 from agente.tipos import (
     EstadoConversa,
@@ -121,6 +122,39 @@ def test_o_ctn_fora_leva_a_um_so_handoff_depois_das_tentativas(sessao, ligada, p
     assert len(_handoffs(deps)) == 1
     assert ligada.motivo_humano is MotivoHumano.INTEGRACAO_INDISPONIVEL
     assert deps.ctn.links == {}
+
+
+def test_o_luna_que_falha_e_volta_reagenda_e_envia_a_resposta_sem_handoff(sessao, ligada, politica):
+    # AUD-03: falha na 1ª chamada, responde na 2ª; sem handoff, sem fixa e com uma só resposta.
+    deps = _deps(politica, [LLMTurnoIndisponivel("fora do ar"), _bruto()])
+    _pergunta(sessao, ligada)
+
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ERRO
+    assert ligada.turno_em == SEGUNDA_10H + timedelta(seconds=politica.integracao_espera_segundos)
+    assert deps.chatwoot.enviadas(555) == []
+
+    assert processar_turno(sessao, ligada.id, ligada.turno_em, deps) is ResultadoTurno.ENVIADO
+
+    [texto] = deps.chatwoot.enviadas(555)
+    assert "R$ 100,20" in texto and texto != TEXTO_CANAL_EXTERNO
+    assert _handoffs(deps) == []
+    assert ligada.falhas_turno == 0 and ligada.estado is not EstadoConversa.ATENDIMENTO_HUMANO
+    assert len(deps.llm_turno.pedidos) == 2
+    # A rajada não se perdeu: a 2ª chamada leu a mesma pergunta.
+    assert "quanto eu devo?" in deps.llm_turno.pedidos[1][1]
+
+
+def test_o_luna_fora_sem_parar_leva_a_um_so_handoff_depois_das_tentativas(sessao, ligada, politica):
+    deps = _deps(politica, [])  # a falsa sem resposta levanta LLMTurnoIndisponivel
+    _pergunta(sessao, ligada)
+    n = politica.integracao_tentativas
+
+    resultados = _rodar_ate_o_fim(sessao, ligada, deps, n + 2)
+
+    assert resultados == [ResultadoTurno.ERRO] * (n - 1) + [ResultadoTurno.HANDOFF]
+    assert len(_handoffs(deps)) == 1
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+    assert ligada.motivo_humano is MotivoHumano.INTEGRACAO_INDISPONIVEL
 
 
 def test_a_espera_entre_as_tentativas_dobra(sessao, ligada, politica):

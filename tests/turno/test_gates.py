@@ -8,6 +8,7 @@ from agente.db.historico import registrar_mensagem
 from agente.tipos import EstadoConversa, OrigemMensagem, StatusCobranca, TipoFixa
 from agente.turno.gates import (
     Adiar,
+    ComprovanteSemTexto,
     Fixa,
     ForaDas24h,
     Ignorar,
@@ -102,9 +103,29 @@ def test_rajada_so_com_anexo_nao_aceito_e_ignorada(sessao, conversa, politica):
     assert _avaliar(sessao, conversa, [mensagem], politica) == Ignorar("anexo_nao_aceito")
 
 
-def test_comprovante_em_imagem_segue(sessao, conversa, politica):
-    mensagem = _cliente(sessao, conversa, texto="", anexos=[{"tipo": "image"}])
+@pytest.mark.parametrize("tipo", ["image", "file"])
+def test_so_imagem_ou_arquivo_sem_texto_vai_ao_humano(sessao, conversa, politica, tipo):
+    mensagem = _cliente(sessao, conversa, texto="", anexos=[{"tipo": tipo}])
+    assert _avaliar(sessao, conversa, [mensagem], politica) == ComprovanteSemTexto()
+
+
+def test_imagem_com_texto_na_rajada_segue(sessao, conversa, politica):
+    foto = _cliente(sessao, conversa, texto="", anexos=[{"tipo": "image"}])
+    texto = _cliente(sessao, conversa, texto="segue o comprovante", mid="cw-2")
+    assert _avaliar(sessao, conversa, [foto, texto], politica) == Seguir()
+    legenda = _cliente(sessao, conversa, texto="segue", anexos=[{"tipo": "image"}], mid="cw-3")
+    assert _avaliar(sessao, conversa, [legenda], politica) == Seguir()
+
+
+def test_imagem_com_audio_sem_texto_segue_para_o_audio_ser_ouvido(sessao, conversa, politica):
+    mensagem = _cliente(sessao, conversa, texto="", anexos=[{"tipo": "image"}, {"tipo": "audio"}])
     assert _avaliar(sessao, conversa, [mensagem], politica) == Seguir()
+
+
+def test_imagem_sem_texto_fora_da_janela_espera_a_abertura(sessao, conversa, politica):
+    mensagem = _cliente(sessao, conversa, texto="", anexos=[{"tipo": "image"}], momento=DOMINGO)
+    resultado = _avaliar(sessao, conversa, [mensagem], politica, agora=DOMINGO)
+    assert resultado == Adiar(datetime(2026, 11, 3, 8, tzinfo=JP))
 
 
 def test_fora_da_janela_adia_ate_a_abertura(sessao, conversa, politica):

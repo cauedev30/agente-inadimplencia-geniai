@@ -193,14 +193,14 @@ def _roteiro(nome="a", **campos):
 POLITICA_BASE = """\
 mensalidade_centavos = 3340
 # O piloto: liberacao = { modo = "piloto", telefones = ["+55..."] }
-telefones_equipe = ["+558387468188"]  # DEMO
-liberacao = { modo = "piloto", telefones = ["+558387468188"] }  # DEMO: só o celular do Cauê
+telefones_equipe = ["+5583900000009"]  # DEMO
+liberacao = { modo = "piloto", telefones = ["+5583900000009"] }  # DEMO: só o celular do Cauê
 """
 
 
 def test_a_politica_do_ensaio_troca_as_duas_linhas_e_deixa_o_resto():
     nova = ensaiar.politica_do_ensaio(POLITICA_BASE, ["+5583900000001", "+5583900000002"])
-    assert "+558387468188" not in nova.replace('telefones = ["+55..."]', "")
+    assert "+5583900000009" not in nova.replace('telefones = ["+55..."]', "")
     assert 'telefones_equipe = ["+5583900000001", "+5583900000002"]' in nova
     assert (
         'liberacao = { modo = "piloto", telefones = ["+5583900000001", "+5583900000002"] }' in nova

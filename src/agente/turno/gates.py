@@ -2,8 +2,9 @@
 
 O segredo, o JSON, a conta, a inbox e o dedupe já ficaram no webhook (tarefa 3.4). Aqui ficam os
 gates do turno, nesta ordem: cobrança ativa, humano na conversa, reinício, anexo, janela de
-atendimento, janela de 24h do WhatsApp, teto, a cobrança quitada no CTN e o toque no botão "Pagar
-com Pix". O toque no botão é a única mensagem que dispensa a janela de atendimento (D40).
+atendimento, janela de 24h do WhatsApp, teto, a cobrança quitada no CTN, a foto ou o arquivo sem
+texto (vai ao humano) e o toque no botão "Pagar com Pix". O toque no botão é a única mensagem que
+dispensa a janela de atendimento (D40).
 """
 
 from dataclasses import dataclass
@@ -67,7 +68,32 @@ class Quitada:
     orquestrador leva a conversa ao humano conferir (CONCILIACAO), uma vez só."""
 
 
-Gate = Seguir | Ignorar | Adiar | ForaDas24h | Fixa | Reiniciar | PagarPix | Quitada
+@dataclass(frozen=True)
+class ComprovanteSemTexto:
+    """A rajada é só foto ou arquivo, sem texto (AUD-07): o Luna não os lê, então a conversa vai ao
+    humano conferir (CONCILIACAO)."""
+
+
+Gate = (
+    Seguir
+    | Ignorar
+    | Adiar
+    | ForaDas24h
+    | Fixa
+    | Reiniciar
+    | PagarPix
+    | Quitada
+    | ComprovanteSemTexto
+)
+
+
+def _so_imagem_ou_arquivo(mensagens: list[Mensagem]) -> bool:
+    """Sem texto em nenhuma mensagem, sem áudio (que é transcrito) e com ao menos uma imagem ou um
+    arquivo."""
+    tipos = [anexo.get("tipo") for mensagem in mensagens for anexo in mensagem.anexos]
+    if any(mensagem.texto.strip() for mensagem in mensagens) or "audio" in tipos:
+        return False
+    return "image" in tipos or "file" in tipos
 
 
 def _so_anexo_nao_aceito(mensagens: list[Mensagem], politica: Politica) -> bool:
@@ -105,8 +131,9 @@ def avaliar_gates(
     """Os gates do turno, na ordem do módulo; o humano na conversa sempre barra.
 
     `quitada_no_ctn` (a conferência de hoje achou a cobrança quitada) troca o `Seguir` e o
-    `PagarPix` por `Quitada`. Ela é o último gate: humano, reinício, janela de atendimento, janela
-    de 24h e teto valem primeiro, e a quitada nunca manda texto livre onde eles não deixam."""
+    `PagarPix` por `Quitada`. Ela vem depois dos outros: humano, reinício, janela de atendimento,
+    janela de 24h e teto valem primeiro, e a quitada nunca manda texto livre onde eles não deixam.
+    """
     if not mensagens:
         return Ignorar("sem_mensagem")
     if conversa.cobranca.status is not StatusCobranca.ATIVA:
@@ -136,6 +163,8 @@ def avaliar_gates(
         return Fixa(TipoFixa.CANAL_EXTERNO)
     if quitada_no_ctn:
         return Quitada()
+    if _so_imagem_ou_arquivo(mensagens):
+        return ComprovanteSemTexto()
     if toque:
         return PagarPix()
     return Seguir()

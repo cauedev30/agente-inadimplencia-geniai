@@ -55,10 +55,14 @@ def ler_evento(dados: dict) -> EventoMensagem | None:
     """Lê um `message_created`. Outros eventos devolvem None."""
     if dados.get("event") != "message_created":
         return None
+    conversa = dados.get("conversation") or {}
+    if conversa.get("id") is None or dados.get("id") is None:
+        # Sem a conversa ou a mensagem não há o que tratar: vale como evento ignorado (AUD-34).
+        return None
     remetente = dados.get("sender") or {}
     # No `outgoing` o `sender` é o atendente: o telefone do cliente só vem no contato da conversa
     # (`conversation.meta.sender`). Na mensagem do cliente, o próprio `sender` vale mais.
-    contato = ((dados["conversation"].get("meta") or {}).get("sender")) or {}
+    contato = ((conversa.get("meta") or {}).get("sender")) or {}
     if dados.get("message_type") == "outgoing":
         telefone = contato.get("phone_number")
     else:
@@ -71,7 +75,7 @@ def ler_evento(dados: dict) -> EventoMensagem | None:
         texto = BOTAO_PAGAR_PIX.texto
     return EventoMensagem(
         mensagem_id=str(dados["id"]),
-        conversa_chatwoot_id=int(dados["conversation"]["id"]),
+        conversa_chatwoot_id=int(conversa["id"]),
         conta_id=(dados.get("account") or {}).get("id"),
         inbox_id=(dados.get("inbox") or {}).get("id"),
         tipo=dados.get("message_type", ""),

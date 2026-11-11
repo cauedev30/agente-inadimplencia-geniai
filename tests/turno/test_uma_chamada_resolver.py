@@ -129,23 +129,16 @@ def test_saida_com_campo_faltando_tambem_e_json_invalido(conversa, politica):
     assert [t.reprovadas for t in resolucao.tentativas] == [("json_invalido",)] * 2
 
 
-def test_llm_fora_sem_guarda_vai_a_redator_indisponivel_em_uma_chamada(conversa, politica):
-    resolucao, llm, _ = _resolver(conversa, politica, [LLMTurnoIndisponivel("o LLM respondeu 500")])
-
-    assert resolucao.motivo is MotivoHumano.REDATOR_INDISPONIVEL
-    assert resolucao.erro == "o LLM respondeu 500"
-    assert resolucao.reply is None and resolucao.texto_handoff is None
-    assert len(llm.pedidos) == 1
+def test_llm_fora_sem_guarda_levanta_para_as_tentativas_com_espera(conversa, politica):
+    with pytest.raises(LLMTurnoIndisponivel, match="o LLM respondeu 500"):
+        _resolver(conversa, politica, [LLMTurnoIndisponivel("o LLM respondeu 500")])
 
 
-def test_llm_fora_na_segunda_tentativa_tambem_e_indisponivel(conversa, politica):
+def test_llm_fora_na_segunda_tentativa_tambem_levanta(conversa, politica):
     ruim = _bruto(reply="sem marcador nenhum")
 
-    resolucao, llm, _ = _resolver(conversa, politica, [ruim, LLMTurnoIndisponivel("prazo")])
-
-    assert resolucao.motivo is MotivoHumano.REDATOR_INDISPONIVEL
-    assert len(llm.pedidos) == 2
-    assert len(resolucao.tentativas) == 1
+    with pytest.raises(LLMTurnoIndisponivel, match="prazo"):
+        _resolver(conversa, politica, [ruim, LLMTurnoIndisponivel("prazo")])
 
 
 def test_llm_fora_com_a_guarda_sai_o_motivo_da_guarda_sem_texto(conversa, politica):
@@ -428,12 +421,13 @@ def test_o_como_dict_traz_as_tentativas_a_causa_e_o_caminho(conversa, politica):
 
 
 def test_o_como_dict_com_erro_e_sem_veredito(conversa, politica):
-    resolucao, _, _ = _resolver(conversa, politica, [LLMTurnoIndisponivel("fora")])
+    guarda = palavra_chave(["isso é golpe?"])
+    resolucao, _, _ = _resolver(conversa, politica, [LLMTurnoIndisponivel("fora")], guarda=guarda)
 
-    dados = resolucao.como_dict("HUMAN:REDATOR_INDISPONIVEL")
+    dados = resolucao.como_dict("HUMAN:DESCONFIANCA")
 
     assert dados["erro"] == "fora" and dados["tentativas"] == []
-    assert "causa" not in dados and dados["caminho"] == "uma_chamada"
+    assert dados["causa"] == "palavra_chave:golpe" and dados["caminho"] == "uma_chamada"
 
 
 def test_guarda_com_o_json_invalido_anexa_a_tentativa_e_o_motivo(conversa, politica):

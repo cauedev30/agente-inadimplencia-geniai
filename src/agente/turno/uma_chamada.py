@@ -561,7 +561,7 @@ class ResolucaoTurno:
     # O texto com os marcadores, já aprovado na prévia; None no `NONE`, no humano e sem texto.
     reply: str | None = None
     texto_handoff: str | None = None
-    # O do veredito, ou `REDATOR_INDISPONIVEL`.
+    # O do veredito, ou o da guarda quando o Luna está fora.
     motivo: MotivoHumano | None = None
     tentativas: list[TentativaUmaChamada] = field(default_factory=list)
     erro: str | None = None
@@ -618,7 +618,8 @@ def resolver_turno(
 
     Não toca no banco: a prévia vem de quem chama. A cada tentativa a decisão roda do começo, então
     um sinal que só aparece na 2ª também leva ao humano. Com a guarda (D44), há uma chamada só, que
-    serve para o texto do handoff (decisão 5).
+    serve para o texto do handoff (decisão 5). O Luna fora do ar levanta `LLMTurnoIndisponivel`,
+    exceto com a guarda, que segue ao humano na hora.
     """
     resolucao = ResolucaoTurno()
     reprovadas: list[str] = []
@@ -628,12 +629,13 @@ def resolver_turno(
         try:
             saida = ler_saida(llm.completar_json(*montar_mensagens(entrada, reprovadas)))
         except LLMTurnoIndisponivel as erro:
+            if guarda is None:
+                # Sem a guarda, a falha passageira do Luna sobe para as tentativas com espera do
+                # orquestrador (AUD-03); esgotadas, o handoff é o das integrações.
+                raise
             resolucao.erro = str(erro)
-            if guarda is not None:
-                resolucao.veredito = _veredito_da_guarda(guarda)
-                resolucao.motivo = guarda[0]
-            else:
-                resolucao.motivo = MotivoHumano.REDATOR_INDISPONIVEL
+            resolucao.veredito = _veredito_da_guarda(guarda)
+            resolucao.motivo = guarda[0]
             return resolucao
         except ValueError:
             # O JSONInvalido e o ValidationError do `ler_saida` são ValueError.

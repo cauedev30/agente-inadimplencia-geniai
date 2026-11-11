@@ -342,16 +342,18 @@ def test_a_palavra_chave_com_o_llm_fora_leva_o_handoff_com_a_fixa(
     assert _turno(sessao).acao_principal == "HUMAN:JURIDICO"
 
 
-def test_o_llm_fora_sem_palavra_chave_leva_redator_indisponivel(sessao, ligada, cliente, politica):
+def test_o_llm_fora_sem_palavra_chave_espera_e_tenta_de_novo_sem_handoff(
+    sessao, ligada, cliente, politica
+):
+    # AUD-03: a falha passageira do Luna não vai ao humano na hora.
     deps = _deps(politica, [LLMTurnoIndisponivel("fora do ar")])
 
-    assert cliente("quanto eu devo?", deps) is ResultadoTurno.HANDOFF
+    assert cliente("quanto eu devo?", deps) is ResultadoTurno.ERRO
 
-    assert ligada.motivo_humano is MotivoHumano.REDATOR_INDISPONIVEL
-    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
-    assert _laudos(sessao, BatchJev.JEV1) == []
-    turno = _turno(sessao)
-    assert turno.acao_principal == "HUMAN:REDATOR_INDISPONIVEL" and "erro" in turno.redacao
+    assert ligada.estado is not EstadoConversa.ATENDIMENTO_HUMANO and ligada.falhas_turno == 1
+    assert ligada.turno_em is not None
+    assert deps.chatwoot.enviadas(555) == []
+    assert _turno(sessao).redacao["erro"] == "LLMTurnoIndisponivel"
 
 
 # Duas tentativas reprovadas

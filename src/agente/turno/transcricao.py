@@ -29,6 +29,8 @@ FALHOU = "falhou"
 NOTA_TRANSCRICAO = "Transcrição do áudio (agente): "
 ROTULO_LONGO_DEMAIS = "[áudio longo demais — não ouvido]"
 ROTULO_NAO_OUVIDO = "[áudio — não foi possível ouvir]"
+# O que o histórico mostra no lugar da foto ou do PDF, que o Luna não lê.
+ROTULOS_DE_ANEXO = {"image": "[imagem enviada]", "file": "[arquivo enviado]"}
 
 
 def _e_audio(anexo: dict) -> bool:
@@ -46,9 +48,13 @@ def rotulo_do_audio(anexo: dict) -> str:
 
 
 def texto_da_mensagem(mensagem: Mensagem) -> str:
-    """O texto da mensagem e, depois dele, o rótulo de cada áudio. Outros anexos não entram."""
+    """O texto da mensagem e, depois dele, o rótulo de cada áudio, imagem e arquivo (AUD-07)."""
     partes = [mensagem.texto.strip()] if mensagem.texto.strip() else []
-    partes += [rotulo_do_audio(anexo) for anexo in mensagem.anexos if _e_audio(anexo)]
+    for anexo in mensagem.anexos:
+        if _e_audio(anexo):
+            partes.append(rotulo_do_audio(anexo))
+        elif anexo.get("tipo") in ROTULOS_DE_ANEXO:
+            partes.append(ROTULOS_DE_ANEXO[anexo["tipo"]])
     return " ".join(partes)
 
 
@@ -56,8 +62,8 @@ def pedido_de_texto(mensagens: list[Mensagem]) -> str | None:
     """Se a rajada ficou sem nada legível, o resultado que decide o texto do pedido.
 
     Sem nada legível: nenhum texto, nenhum áudio transcrito e nenhum outro anexo (a imagem e o
-    arquivo seguem para o Jev, como na v1). Devolve `longo_demais` se algum áudio passou do limite
-    e `falhou` nos outros casos; None quando há o que ler.
+    arquivo sem texto já foram ao humano no gate). Devolve `longo_demais` se algum áudio passou do
+    limite e `falhou` nos outros casos; None quando há o que ler.
     """
     anexos = [anexo for mensagem in mensagens for anexo in mensagem.anexos]
     audios = [anexo for anexo in anexos if _e_audio(anexo)]

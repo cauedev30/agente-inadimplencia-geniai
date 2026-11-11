@@ -242,13 +242,13 @@ class TestSeHaOQueLer:
         assert len(deps.llm_turno.pedidos) >= 1
         assert FALHOU not in deps.chatwoot.enviadas(555)
 
-    def test_so_imagem_continua_como_hoje(self, sessao, ligada, politica):
+    def test_so_imagem_vai_ao_humano_sem_o_pedido_de_texto(self, sessao, ligada, politica):
         deps = _deps(politica, transcritor=None)
         _cliente(sessao, ligada, anexos=[{"tipo": "image", "url": None}])
 
-        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+        assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.HANDOFF
 
-        assert len(deps.llm_turno.pedidos) >= 1
+        assert deps.llm_turno.pedidos == []
         assert FALHOU not in deps.chatwoot.enviadas(555)
 
 

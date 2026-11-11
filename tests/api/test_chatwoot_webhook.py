@@ -449,6 +449,24 @@ def test_pendente_no_chatwoot_devolve_a_conversa_ao_robo(cliente_http, fabrica):
         assert sessao.scalars(select(Conversa)).one().human_owned is False
 
 
+def test_message_created_sem_conversation_responde_200_e_e_ignorado(cliente_http):
+    evento = _evento()
+    del evento["conversation"]
+
+    resposta = _postar(cliente_http, evento)
+
+    assert resposta.status_code == 200 and resposta.json() == {"resultado": "ignorado"}
+
+
+def test_message_created_sem_id_responde_200_e_e_ignorado(cliente_http):
+    evento = _evento()
+    del evento["id"]
+
+    resposta = _postar(cliente_http, evento)
+
+    assert resposta.status_code == 200 and resposta.json() == {"resultado": "ignorado"}
+
+
 def test_outro_status_nao_devolve(cliente_http):
     _postar(cliente_http, _evento())
     evento = {"event": "conversation_status_changed", "id": 555, "status": "resolved"}

@@ -113,6 +113,32 @@ def test_o_audio_ja_paguei_leva_ao_gatilho_de_conciliacao(sessao, ligada, politi
     assert _entrada(deps)["novas"] == ['[áudio transcrito: "já paguei ontem"]']
 
 
+@pytest.mark.parametrize("tipo", ["image", "file"])
+def test_so_foto_ou_arquivo_sem_texto_vai_ao_humano_sem_chamar_o_luna(
+    sessao, ligada, politica, tipo
+):
+    # AUD-07: o comprovante em foto ou PDF sem texto vai a quem confere (CONCILIACAO).
+    deps = _deps(politica, transcritor=None)
+    _cliente(sessao, ligada, anexos=[{"tipo": tipo, "url": URL_AUDIO}])
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.HANDOFF
+    assert ligada.motivo_humano is MotivoHumano.CONCILIACAO
+    assert deps.llm_turno.pedidos == []
+
+
+def test_foto_com_texto_segue_o_turno_e_o_historico_mostra_o_rotulo(sessao, ligada, politica):
+    deps = _deps(politica, transcritor=None)
+    _cliente(sessao, ligada, texto="segue o comprovante", anexos=[{"tipo": "image"}])
+    _cliente(sessao, ligada, anexos=[{"tipo": "file"}], mid="cw-2")
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.ENVIADO
+    assert _entrada(deps)["novas"] == ["segue o comprovante [imagem enviada]", "[arquivo enviado]"]
+
+
 def _rodar_em_banco_novo(politica, fala, **mensagem):
     """Uma conversa nova, a mensagem dada e um turno: o que o cliente ver acontecer."""
     fabrica = criar_sessao("sqlite://")
@@ -480,9 +506,16 @@ class TestRotulo:
         mensagem = _cliente(sessao, ligada, texto="  oi  ")
         assert texto_da_mensagem(mensagem) == "oi"
 
-    def test_anexo_que_nao_e_audio_nao_vira_rotulo(self, sessao, ligada):
-        mensagem = _cliente(sessao, ligada, anexos=[{"tipo": "image", "url": None}])
-        assert texto_da_mensagem(mensagem) == ""
+    def test_imagem_e_arquivo_viram_rotulo_e_outro_anexo_nao(self, sessao, ligada):
+        mensagem = _cliente(
+            sessao,
+            ligada,
+            texto="olha",
+            anexos=[{"tipo": "image"}, {"tipo": "file"}, {"tipo": "video"}],
+        )
+        assert texto_da_mensagem(mensagem) == "olha [imagem enviada] [arquivo enviado]"
+        video = _cliente(sessao, ligada, anexos=[{"tipo": "video"}], mid="cw-2")
+        assert texto_da_mensagem(video) == ""
 
     @pytest.mark.parametrize(
         ("anexo", "rotulo"),

@@ -30,7 +30,7 @@ from agente.integracoes.chatwoot import Chatwoot
 from agente.integracoes.ctn import CTN, ClienteNaoEncontrado, CTNFalso, CTNIndisponivel
 from agente.integracoes.ctn_teste import CTNDeCasos
 from agente.integracoes.disparador import Disparador, FalhaNoEnvio
-from agente.integracoes.llm_turno import LLMTurno
+from agente.integracoes.llm_turno import LLMTurno, LLMTurnoIndisponivel
 from agente.integracoes.pix import PixBanco, PixFalso, PixIndisponivel
 from agente.integracoes.transcritor import Transcritor
 from agente.politica import Politica
@@ -53,6 +53,7 @@ from agente.turno.executar import executar, proximo_estado
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import (
     Adiar,
+    ComprovanteSemTexto,
     Fixa,
     ForaDas24h,
     Gate,
@@ -114,10 +115,11 @@ class ConferenciaNaoFeita(CTNIndisponivel):
     não cita valor estimado e tem de esperar, como espera a integração fora do ar."""
 
 
-# O que conta como integração fora do ar (CTN, Pix e Chatwoot): é tentado de novo e
+# O que conta como integração fora do ar (CTN, Pix, Chatwoot e o Luna): é tentado de novo e
 # depois vai ao humano. Qualquer outro erro é bug de código: tem o próprio teto (`erros_turno`).
 _FALHAS_DE_INTEGRACAO = (
     httpx.HTTPError,
+    LLMTurnoIndisponivel,
     ClienteNaoEncontrado,
     CTNIndisponivel,
     FalhaNoEnvio,
@@ -1077,6 +1079,34 @@ def _quitada(
     return ResultadoTurno.HANDOFF
 
 
+def _comprovante_sem_texto(
+    sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
+) -> ResultadoTurno:
+    """Foto ou arquivo sem texto (gate `ComprovanteSemTexto`, AUD-07): sem Luna, o humano confere.
+
+    A saída é a CONCILIACAO, a mesma do "já paguei": o atendente vê o comprovante no Chatwoot.
+    """
+    if _cobranca_fechou_no_meio(sessao, conversa):
+        fechar_turno(
+            sessao,
+            turno.id,
+            ResultadoTurno.IGNORADO,
+            redacao={"saida": "IGNORADO", "motivo": "sem_cobranca_ativa"},
+            momento=agora,
+        )
+        return ResultadoTurno.IGNORADO
+    _handoff(sessao, conversa, MotivoHumano.CONCILIACAO, deps, agora)
+    fechar_turno(
+        sessao,
+        turno.id,
+        ResultadoTurno.HANDOFF,
+        acao_principal=rotulo_humano(MotivoHumano.CONCILIACAO),
+        redacao={"saida": "HANDOFF", "motivo": "anexo_sem_texto"},
+        momento=agora,
+    )
+    return ResultadoTurno.HANDOFF
+
+
 def _rodar_turno(
     sessao: Session,
     conversa: Conversa,
@@ -1129,6 +1159,8 @@ def _rodar_turno(
         return _pagar_pix(sessao, conversa, turno, deps, agora)
     if isinstance(gate, Quitada):
         return _quitada(sessao, conversa, turno, deps, agora)
+    if isinstance(gate, ComprovanteSemTexto):
+        return _comprovante_sem_texto(sessao, conversa, turno, deps, agora)
     if isinstance(gate, Fixa) and gate.tipo is TipoFixa.CANAL_EXTERNO:
         if ja_saiu_pelo_teto(sessao, conversa):
             # Já recebeu a 6ª e o atendente devolveu a conversa ao robô: volta ao humano, sem
