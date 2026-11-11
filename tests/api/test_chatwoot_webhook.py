@@ -699,27 +699,54 @@ def test_o_app_passa_os_casos_das_dependencias_ao_webhook(banco_de_teste, politi
 def test_a_corrida_na_criacao_do_caso_nao_derruba_o_webhook(
     banco_de_teste, politica_de_teste, monkeypatch
 ):
-    """A outra entrega da mesma 1ª mensagem criou o caso antes e a nossa quebra o índice único: o
-    savepoint desfaz só a nossa criação, e o webhook segue com a procura da conversa (aqui a outra
-    entrega não deixou nada visível, então a resposta é a de sempre)."""
+    """A outra entrega da mesma 1ª mensagem já criou e gravou tudo (caso, conversa e mensagem) e a
+    nossa quebra o índice único: o savepoint desfaz só a nossa criação, a procura da conversa acha a
+    dela e a mensagem repetida é a resposta (como na produção)."""
     from sqlalchemy.exc import IntegrityError
 
+    from agente.db.historico import registrar_mensagem
+    from agente.db.modelos import Conversa
+    from agente.teste.casos import ativar_caso
+
     fabrica, casos = banco_de_teste
+    evento = _evento_do_testador("+5583988887777")
+    # O que a outra entrega deixou, já confirmado no banco (visível depois do nosso savepoint).
+    with fabrica() as sessao:
+        outra = ativar_caso(sessao, casos, politica_de_teste, "+5583988887777", 1, AGORA)
+        conversa = Conversa(cobranca=outra, chatwoot_conversa_id=evento["conversation"]["id"])
+        sessao.add(conversa)
+        sessao.flush()
+        registrar_mensagem(
+            sessao, conversa.id, OrigemMensagem.CLIENTE, "Oi", str(evento["id"]), False, AGORA
+        )
+        sessao.commit()
+
+    # Na nossa transação a outra entrega ainda não existia: as 2 primeiras procuras não acham nada.
+    vazias = {"_conversa_ligada": 1, "_cobranca_ativa_do_telefone": 1}
+    for nome, vezes in vazias.items():
+        original = getattr(chatwoot_webhook, nome)
+        restantes = [vezes]
+
+        def vazia_na_1a_vez(*args, _original=original, _restantes=restantes, **kwargs):
+            if _restantes[0] > 0:
+                _restantes[0] -= 1
+                return None
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(chatwoot_webhook, nome, vazia_na_1a_vez)
 
     def perde_a_corrida(sessao, *_args, **_kwargs):
-        sessao.add(Cliente(matricula_ctn="SIM-1-7777", nome="Ana", telefone="+5583988887777"))
+        sessao.add(Cliente(matricula_ctn="SIM-1-9999", nome="Zé", telefone="+5583988889999"))
         sessao.flush()
         raise IntegrityError("insert", {}, Exception("uq_cobranca_ativa_por_cliente"))
 
     monkeypatch.setattr(chatwoot_webhook, "garantir_caso", perde_a_corrida)
     with fabrica() as sessao:
         resultado = chatwoot_webhook.receber_evento(
-            sessao,
-            _evento_do_testador("+5583988887777"),
-            politica_de_teste,
-            CONFIG_TESTE,
-            AGORA,
-            casos=casos,
+            sessao, evento, politica_de_teste, CONFIG_TESTE, AGORA, casos=casos
         )
-        assert resultado == "sem_cobranca"
-        assert sessao.scalars(select(Cliente)).all() == []
+        assert resultado == "repetida"
+        # A criação que perdeu a corrida foi desfeita; só ficou o que a outra entrega gravou.
+        assert [c.matricula_ctn for c in sessao.scalars(select(Cliente))] == ["SIM-1-7777"]
+        assert len(sessao.scalars(select(Cobranca)).all()) == 1
+        assert len(sessao.scalars(select(Mensagem)).all()) == 1

@@ -65,10 +65,16 @@ class _Estado:
     pagos: set[str] = field(default_factory=set)
     # As baixas de cada `/paguei <n>`, pela chave dele: o mesmo comando não paga duas vezes.
     baixas: dict[str, list[BaixaCTN]] = field(default_factory=dict)
+    # O mês de "hoje" (ano * 12 + mês - 1) em que o caso começou: os meses do caso são relativos a
+    # ele, e não ao dia corrente, para o caso não deslizar na virada do mês, no meio da conversa.
+    mes_base: int | None = None
+
+    def copia(self) -> "_Estado":
+        return _Estado(self.telefone, set(self.pagos), dict(self.baixas), self.mes_base)
 
 
 class CTNDeCasos:
-    """Responde pelas matrículas simuladas do cardápio, relativo ao dia de `hoje()`.
+    """Responde pelas matrículas simuladas do cardápio, relativo ao mês de `hoje()` no `ativar`.
 
     Só tem as leituras do `CTN`: o retrato e as baixas ficam com o CTN real (vêm vazios aqui), e o
     link e a baixa são do `CTNEscritaDeTeste`. O estado de cada matrícula nasce do cardápio na 1ª
@@ -101,18 +107,21 @@ class CTNDeCasos:
     def _estado(self, matricula: str) -> _Estado:
         return self._estados.setdefault(matricula, _Estado())
 
-    def _indice_do_1o_mes_em_aberto(self, caso: CasoTeste) -> int:
-        return _indice(self._hoje()) - caso.meses_atraso
+    def _indice_do_1o_mes_em_aberto(self, matricula: str, caso: CasoTeste) -> int:
+        estado = self._estado(matricula)
+        if estado.mes_base is None:  # a matrícula nunca foi ativada: vale o mês da 1ª leitura
+            estado.mes_base = _indice(self._hoje())
+        return estado.mes_base - caso.meses_atraso
 
-    def _meses_do_caso(self, caso: CasoTeste) -> list[str]:
-        primeiro = self._indice_do_1o_mes_em_aberto(caso)
+    def _meses_do_caso(self, matricula: str, caso: CasoTeste) -> list[str]:
+        primeiro = self._indice_do_1o_mes_em_aberto(matricula, caso)
         return [_mes(primeiro + k) for k in range(caso.meses_atraso)]
 
     def _abertas(self, matricula: str, caso: CasoTeste) -> list[MensalidadeAberta]:
         pagos = self._estado(matricula).pagos
         return [
             MensalidadeAberta(mes, self._mensalidade)
-            for mes in self._meses_do_caso(caso)
+            for mes in self._meses_do_caso(matricula, caso)
             if mes not in pagos
         ]
 
@@ -145,7 +154,7 @@ class CTNDeCasos:
         caso = self._caso(matricula)
         if caso is None:
             return []
-        primeiro = self._indice_do_1o_mes_em_aberto(caso)
+        primeiro = self._indice_do_1o_mes_em_aberto(matricula, caso)
         pagamentos = []
         for item in caso.historico:
             indice = primeiro - item.meses_atras
@@ -173,15 +182,28 @@ class CTNDeCasos:
 
     # ---- as operações do teste ----
 
-    def ativar(self, matricula: str, telefone: str) -> None:
-        """Volta a matrícula ao começo do caso, com o telefone do testador."""
+    def ativar(self, matricula: str, telefone: str) -> "_Estado | None":
+        """Volta a matrícula ao começo do caso, com o telefone do testador, e fixa o mês base no de
+        hoje. Devolve o estado anterior (`None` se não havia): quem chama o passa ao `restaurar` se
+        o banco desfizer a troca (o estado vive na memória e não volta sozinho no rollback)."""
         self._exigir_caso(matricula)
         with self._trava:
-            self._estados[matricula] = _Estado(telefone=telefone)
+            anterior = self._estados.get(matricula)
+            self._estados[matricula] = _Estado(telefone=telefone, mes_base=_indice(self._hoje()))
+            return None if anterior is None else anterior.copia()
+
+    def restaurar(self, matricula: str, anterior: "_Estado | None") -> None:
+        """Desfaz um `ativar`: o estado volta ao que ele devolveu (sem estado, a matrícula nasce de
+        novo na 1ª leitura)."""
+        with self._trava:
+            if anterior is None:
+                self._estados.pop(matricula, None)
+            else:
+                self._estados[matricula] = anterior
 
     def ult_mesref(self, matricula: str) -> date:
         """O dia 1 do mês anterior ao 1º mês em aberto: o `ult_mesref` que a cobrança guarda."""
-        indice = self._indice_do_1o_mes_em_aberto(self._exigir_caso(matricula)) - 1
+        indice = self._indice_do_1o_mes_em_aberto(matricula, self._exigir_caso(matricula)) - 1
         return date(indice // 12, indice % 12 + 1, 1)
 
     def pagar_meses(self, matricula: str, n: int, pago_em: datetime, chave: str) -> list[BaixaCTN]:

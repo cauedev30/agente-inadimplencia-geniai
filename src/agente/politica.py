@@ -166,6 +166,10 @@ class CasoTeste(_Imutavel):
         return valor
 
 
+# A campanha da importação diária do CTN (o padrão do `agente importar-ctn`).
+CAMPANHA_DO_CTN = "ctn"
+
+
 class ModoTeste(_Imutavel):
     """O modo teste (D56): os testadores recebem casos inventados no lugar da carteira.
 
@@ -177,6 +181,16 @@ class ModoTeste(_Imutavel):
     caso_padrao: int = Field(default=1, ge=1)
     texto_abertura: str = Field(min_length=1)
     casos: tuple[CasoTeste, ...] = ()
+
+    @field_validator("campanha")
+    @classmethod
+    def _nao_e_a_do_ctn(cls, valor: str) -> str:
+        if valor == CAMPANHA_DO_CTN:
+            raise ValueError(
+                f"campanha: '{CAMPANHA_DO_CTN}' é a da importação diária da carteira real; o "
+                "teste misturaria as duas"
+            )
+        return valor
 
     @field_validator("texto_abertura")
     @classmethod

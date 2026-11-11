@@ -1,12 +1,13 @@
 """Os casos do modo teste: quem é testador, a trava de subida e a ativação de um caso (D56)."""
 
+from collections.abc import Callable
 from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from agente.carteira.conferir import conferir_cobranca
-from agente.db.modelos import Cliente, Cobranca
+from agente.db.modelos import Cliente, Cobranca, Conversa
 from agente.dominio.divida import calcular_divida, classificar_regua
 from agente.dominio.telefone import normalizar_telefone, variantes_telefone
 from agente.integracoes.ctn_teste import CasoInexistente, CTNDeCasos, matricula_simulada
@@ -69,6 +70,22 @@ def _ativas_do_telefone(sessao: Session, telefone: str, campanha: str | None) ->
     return list(sessao.scalars(consulta))
 
 
+def conversa_viva_do_testador(
+    sessao: Session, telefone: str, campanha: str, fora_a_conversa: int
+) -> Conversa | None:
+    """A conversa ligada ao Chatwoot da cobrança ATIVA de teste do telefone (a mais recente), sem
+    contar `fora_a_conversa`. É onde cai a mensagem que chegou numa conversa que já foi trocada."""
+    for cobranca in reversed(_ativas_do_telefone(sessao, telefone, campanha)):
+        vivas = [
+            c
+            for c in cobranca.conversas
+            if c.chatwoot_conversa_id is not None and c.id != fora_a_conversa
+        ]
+        if vivas:
+            return vivas[-1]
+    return None
+
+
 def ativar_caso(
     sessao: Session,
     casos: CTNDeCasos,
@@ -76,8 +93,13 @@ def ativar_caso(
     telefone: str,
     numero: int,
     agora: datetime,
+    desfazer: list[Callable[[], None]] | None = None,
 ) -> Cobranca:
     """Põe o testador no caso `numero` do cardápio, desde o começo. Não faz commit.
+
+    O estado do `CTNDeCasos` vive na memória e não volta no rollback do banco: com `desfazer`, o
+    que restaura o estado anterior da matrícula é acrescentado à lista, e quem chama o executa se
+    desfizer a transação. Se a própria ativação falha, o estado já é restaurado aqui.
 
     Encerra a cobrança ATIVA de teste dele (a troca de caso), cria ou atualiza o `Cliente` da
     matrícula simulada e cria uma cobrança nova, que a conferência de sempre grava (meses, dívida e
@@ -106,21 +128,27 @@ def ativar_caso(
         sessao.add(cliente)
     cliente.nome = caso.nome
     cliente.telefone = telefone
-    casos.ativar(matricula, telefone)
-    cobranca = Cobranca(
-        cliente=cliente,
-        regua=classificar_regua(caso.meses_atraso, None, politica),
-        mensalidades_abertas=caso.meses_atraso,
-        mensalidades_retrato=caso.meses_atraso,
-        divida_centavos=calcular_divida(caso.meses_atraso, politica),
-        propenso_cartao=False,
-        campanha=teste.campanha,
-        ult_mesref=casos.ult_mesref(matricula),
-    )
-    sessao.add(cobranca)
-    sessao.flush()
-    # Grava `conferida_em`, `meses_em_aberto` e a propensão, pelo caminho de sempre.
-    conferir_cobranca(sessao, casos, politica, cobranca.id, agora)
+    anterior = casos.ativar(matricula, telefone)
+    try:
+        cobranca = Cobranca(
+            cliente=cliente,
+            regua=classificar_regua(caso.meses_atraso, None, politica),
+            mensalidades_abertas=caso.meses_atraso,
+            mensalidades_retrato=caso.meses_atraso,
+            divida_centavos=calcular_divida(caso.meses_atraso, politica),
+            propenso_cartao=False,
+            campanha=teste.campanha,
+            ult_mesref=casos.ult_mesref(matricula),
+        )
+        sessao.add(cobranca)
+        sessao.flush()
+        # Grava `conferida_em`, `meses_em_aberto` e a propensão, pelo caminho de sempre.
+        conferir_cobranca(sessao, casos, politica, cobranca.id, agora)
+    except BaseException:
+        casos.restaurar(matricula, anterior)
+        raise
+    if desfazer is not None:
+        desfazer.append(lambda: casos.restaurar(matricula, anterior))
     return cobranca
 
 

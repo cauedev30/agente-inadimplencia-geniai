@@ -323,6 +323,13 @@ def test_o_caso_padrao_inexistente_e_recusado(tmp_path):
         carregar_politica(_politica_de_teste(tmp_path, teste=teste))
 
 
+def test_a_campanha_do_teste_nao_pode_ser_a_da_importacao_do_ctn(tmp_path):
+    # Com a campanha `ctn` o teste se misturaria com a importação diária da carteira real.
+    teste = TESTE + 'campanha = "ctn"\n'
+    with pytest.raises(PoliticaInvalida, match="campanha"):
+        carregar_politica(_politica_de_teste(tmp_path, teste=teste))
+
+
 @pytest.mark.parametrize("sem", ["{valor}", "{nome}"])
 def test_o_texto_de_abertura_sem_nome_ou_valor_e_recusado(tmp_path, sem):
     teste = TESTE.replace(sem, "")

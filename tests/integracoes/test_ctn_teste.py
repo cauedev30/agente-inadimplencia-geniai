@@ -211,6 +211,51 @@ def test_a_janela_do_historico_conta_a_partir_do_ultimo_mes_pago():
     assert ctn.historico_pagamentos(SIM_2, meses=1)[0].data == date(2026, 7, 5)
 
 
+def test_o_mes_base_do_caso_fica_fixo_depois_do_ativar():
+    # Meses relativos a `hoje()` deslizariam na virada do mês, no meio da conversa do testador.
+    dia = [date(2026, 11, 30)]
+    ctn = CTNDeCasos(_casos(), MENSALIDADE, lambda: dia[0])
+    ctn.ativar(SIM_1, TELEFONE)
+    antes = _meses(ctn, SIM_1)
+    ult_mesref = ctn.ult_mesref(SIM_1)
+    assert antes == ["2026/08", "2026/09", "2026/10"]
+
+    dia[0] = date(2026, 12, 1)
+
+    assert _meses(ctn, SIM_1) == antes
+    assert ctn.ult_mesref(SIM_1) == ult_mesref
+    assert len(ctn.pagar_meses(SIM_1, 1, AGORA, "k")) == 1
+    assert _meses(ctn, SIM_1) == antes[1:]
+    # Ativar de novo recomeça no mês de hoje.
+    ctn.ativar(SIM_1, TELEFONE)
+    assert _meses(ctn, SIM_1) == ["2026/09", "2026/10", "2026/11"]
+
+
+def test_o_ativar_devolve_o_estado_anterior_e_o_restaurar_o_traz_de_volta():
+    ctn = _ctn_de_casos()
+    ctn.ativar(SIM_1, TELEFONE)
+    ctn.pagar_meses(SIM_1, 2, AGORA, "k")
+    pagos = _meses(ctn, SIM_1)
+
+    anterior = ctn.ativar(SIM_1, TELEFONE)
+    assert len(_meses(ctn, SIM_1)) == 3
+
+    ctn.restaurar(SIM_1, anterior)
+    assert _meses(ctn, SIM_1) == pagos
+    # As baixas do `/paguei` voltam também: o mesmo comando não paga duas vezes.
+    assert len(ctn.pagar_meses(SIM_1, 2, AGORA, "k")) == 2
+    assert _meses(ctn, SIM_1) == pagos
+
+
+def test_restaurar_o_estado_de_uma_matricula_que_nao_tinha_nenhum_a_deixa_sem_estado():
+    ctn = _ctn_de_casos()
+    anterior = ctn.ativar(SIM_3, TELEFONE)
+    assert anterior is None
+    ctn.pagar_meses(SIM_3, 1, AGORA, "k")
+    ctn.restaurar(SIM_3, anterior)
+    assert len(_meses(ctn, SIM_3)) == 4
+
+
 def test_o_ult_mesref_e_o_dia_1_do_mes_anterior_ao_1o_mes_em_aberto():
     ctn = _ctn_de_casos()
     assert ctn.ult_mesref(SIM_1) == date(2026, 7, 1)

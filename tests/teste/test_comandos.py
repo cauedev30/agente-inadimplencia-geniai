@@ -19,12 +19,14 @@ from agente.teste.casos import ativar_caso
 from agente.teste.comandos import Comando, ler_comando
 from agente.tipos import (
     EstadoConversa,
+    EstadoEnvio,
     Modo,
     OrigemMensagem,
     ResultadoTurno,
     StatusCobranca,
 )
-from agente.turno.fila import mensagens_pendentes
+from agente.turno.fila import agendar_turno, mensagens_pendentes
+from agente.turno.gates import humano_na_conversa
 from agente.turno.jev3 import aprovar_tudo
 from agente.turno.orquestrador import Dependencias, _historico, _historico_e_novas, processar_turno
 from tests.conftest import TESTADOR_1, TESTADOR_2
@@ -329,9 +331,15 @@ def test_o_comando_depois_do_handoff_funciona_e_devolve_a_conversa_ao_robo(
 
     assert testador.roda(deps) is ResultadoTurno.FIXA
 
+    sessao.refresh(conversa_de_teste)
+    # A conversa antiga ficou com o humano (é histórico); a do Chatwoot agora é outra, sem humano.
+    assert conversa_de_teste.human_owned is True
+    assert conversa_de_teste.chatwoot_conversa_id is None
     nova = _conversa_do_chatwoot(sessao)
+    assert nova.id != conversa_de_teste.id
     assert nova.human_owned is False
     assert nova.estado is not EstadoConversa.ATENDIMENTO_HUMANO
+    assert not humano_na_conversa(nova)
     assert ("mudar_status", CHATWOOT_ID, "pending") in deps.chatwoot.chamadas
 
 
@@ -503,3 +511,173 @@ def test_o_turno_do_comando_nao_muda_o_estado_da_conversa(
     testador.roda(deps)
     assert conversa_de_teste.estado is antes
     assert sessao.scalars(select(Transicao)).all() == []
+
+
+# ---- as correções da revisão da PARADA 1 (lote C1) ----
+
+
+class ChatwootQueNaoMudaOStatus(ChatwootFalso):
+    def mudar_status(self, conversa_id, status):
+        self.chamadas.append(("mudar_status", conversa_id, status))
+        raise FalhaNoEnvio("chatwoot fora")
+
+
+def test_a_mensagem_que_chegou_na_conversa_ja_trocada_vai_para_a_viva_sem_chamar_o_chatwoot(
+    sessao, testador, conversa_de_teste, deps
+):
+    testador.manda("/caso 3")
+    assert testador.roda(deps) is ResultadoTurno.FIXA
+    viva = _conversa_do_chatwoot(sessao)
+    enviadas_antes = len(deps.chatwoot.chamadas)
+    # O webhook ainda via a conversa antiga ligada (READ COMMITTED) e gravou o "Oi" nela.
+    testador.manda("Oi")
+    agendar_turno(sessao, conversa_de_teste.id, SEGUNDA_10H)
+    sessao.commit()
+    assert conversa_de_teste.chatwoot_conversa_id is None
+
+    assert testador.roda(deps) is ResultadoTurno.FIXA
+
+    # Nada saiu (o envio a `None` daria 404 e se repetiria) e o "Oi" é da conversa viva.
+    assert len(deps.chatwoot.chamadas) == enviadas_antes
+    assert deps.chatwoot.enviadas(None) == []
+    assert mensagens_pendentes(sessao, conversa_de_teste.id) == []
+    assert [m.texto for m in mensagens_pendentes(sessao, viva.id)] == ["Oi"]
+    assert viva.turno_em is not None
+    assert conversa_de_teste.turno_em is None
+    assert conversa_de_teste.falhas_turno == 0
+
+    # O turno da conversa viva responde ao "Oi" normalmente (com o LLM).
+    resultado = processar_turno(sessao, viva.id, SEGUNDA_10H + timedelta(minutes=30), deps)
+    assert resultado is not ResultadoTurno.ERRO
+    assert deps.jev.chamadas
+
+
+def test_a_mensagem_na_conversa_morta_sem_conversa_viva_e_consumida_sem_envio(
+    sessao, testador, conversa_de_teste, deps
+):
+    conversa_de_teste.chatwoot_conversa_id = None
+    conversa_de_teste.cobranca.status = StatusCobranca.ENCERRADA
+    sessao.commit()
+    testador.manda("Oi")
+
+    assert testador.roda(deps) is ResultadoTurno.FIXA
+
+    assert deps.chatwoot.chamadas == []
+    assert mensagens_pendentes(sessao, conversa_de_teste.id) == []
+
+
+def test_o_rollback_do_reset_devolve_o_estado_do_caso_na_memoria(
+    sessao, politica_de_teste, casos, conversa_de_teste, testador
+):
+    casos.pagar_meses("SIM-1-7777", 2, SEGUNDA_10H, "k")
+    abertas = [a.mes_ano for a in casos.mensalidades_em_aberto("SIM-1-7777")]
+    assert len(abertas) == 1
+    deps = _deps(politica_de_teste, casos, ChatwootQueFalha(falhas=1))
+    testador.manda("#reiniciar")
+
+    assert testador.roda(deps) is ResultadoTurno.ERRO
+
+    # O banco desfez a troca; a memória tem de ter desfeito também (senão o caso mostraria 3 meses
+    # em aberto e o `/paguei n` pagaria meses já pagos).
+    sessao.refresh(conversa_de_teste.cobranca)
+    assert conversa_de_teste.cobranca.status is StatusCobranca.ATIVA
+    assert [a.mes_ano for a in casos.mensalidades_em_aberto("SIM-1-7777")] == abertas
+
+
+def test_o_status_que_falha_depois_do_commit_nao_desfaz_a_troca_nem_repete_o_envio(
+    sessao, politica_de_teste, casos, conversa_de_teste, testador
+):
+    conversa_de_teste.human_owned = True
+    conversa_de_teste.estado = EstadoConversa.ATENDIMENTO_HUMANO
+    sessao.commit()
+    chatwoot = ChatwootQueNaoMudaOStatus()
+    deps = _deps(politica_de_teste, casos, chatwoot)
+    testador.manda("/caso 4")
+
+    assert testador.roda(deps) is ResultadoTurno.FIXA
+
+    nova = _conversa_do_chatwoot(sessao)
+    assert nova.cobranca.cliente.matricula_ctn == "SIM-4-7777"
+    assert len(chatwoot.enviadas(CHATWOOT_ID)) == 1
+    assert [c for c in chatwoot.chamadas if c[0] == "mudar_status"] == [
+        ("mudar_status", CHATWOOT_ID, "pending")
+    ]
+    assert conversa_de_teste.falhas_turno == 0
+    assert mensagens_pendentes(sessao, conversa_de_teste.id) == []
+
+
+def _gravar_envio_pendente(sessao, conversa):
+    mensagem = registrar_mensagem(
+        sessao,
+        conversa.id,
+        OrigemMensagem.AGENTE,
+        "Pague 3 meses por R$ 100",
+        None,
+        True,
+        SEGUNDA_10H,
+        envio=EstadoEnvio.PENDENTE,
+    )
+    sessao.commit()
+    return mensagem
+
+
+def test_a_troca_de_caso_descarta_a_mensagem_pendente_do_agente_da_conversa_antiga(
+    sessao, testador, conversa_de_teste, deps
+):
+    pendente = _gravar_envio_pendente(sessao, conversa_de_teste)
+    testador.manda("/caso 3")
+
+    assert testador.roda(deps) is ResultadoTurno.FIXA
+
+    sessao.refresh(pendente)
+    assert pendente.envio is EstadoEnvio.DESCARTADA
+    assert pendente.conta_no_teto is False
+    # Só a resposta do comando saiu; a pendente antiga não vai para a conversa nova.
+    assert len(deps.chatwoot.enviadas(CHATWOOT_ID)) == 1
+
+
+@pytest.mark.parametrize("comando", ["/caso", "/ajuda", "/caso 9"])
+def test_o_comando_que_nao_troca_o_caso_mantem_o_retorno_do_envio_pendente(
+    sessao, politica_de_teste, testador, conversa_de_teste, deps, comando
+):
+    _gravar_envio_pendente(sessao, conversa_de_teste)
+    testador.manda(comando)
+
+    assert testador.roda(deps) is ResultadoTurno.FIXA
+
+    sessao.refresh(conversa_de_teste)
+    agora = SEGUNDA_10H + timedelta(minutes=testador.n)
+    assert conversa_de_teste.turno_em == agora + politica_de_teste.espera_integracao(1)
+
+
+def test_o_comando_sem_envio_pendente_deixa_o_turno_zerado(
+    sessao, testador, conversa_de_teste, deps
+):
+    testador.manda("/caso")
+    testador.roda(deps)
+    sessao.refresh(conversa_de_teste)
+    assert conversa_de_teste.turno_em is None
+
+
+def test_o_reinicio_com_o_comando_reset_da_politica_do_dev2(
+    sessao, politica_de_teste, casos, conversa_de_teste, testador
+):
+    politica = politica_de_teste.model_copy(update={"comando_reinicio": "/reset"})
+    deps = _deps(politica, casos)
+    assert ler_comando("/reset", politica) == Comando("reset", None, "")
+    assert ler_comando("#reiniciar", politica) is None
+    antiga = conversa_de_teste.cobranca
+    testador.manda("/reset")
+
+    assert testador.roda(deps) is ResultadoTurno.FIXA
+
+    nova = _conversa_do_chatwoot(sessao)
+    assert nova.cobranca_id != antiga.id
+    assert nova.cobranca.cliente.matricula_ctn == "SIM-1-7777"
+    assert _ultimo_turno(sessao).acao_principal == "TESTE:RESET"
+    _nao_chamou_o_llm(deps)
+    ajuda = Mandante(sessao, nova)
+    ajuda.n = testador.n
+    ajuda.manda("/ajuda")
+    ajuda.roda(deps)
+    assert "/reset" in deps.chatwoot.enviadas(CHATWOOT_ID)[-1]

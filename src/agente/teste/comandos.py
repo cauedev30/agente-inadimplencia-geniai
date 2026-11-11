@@ -8,7 +8,8 @@ do teto) e consome a rajada. Tudo o que o modo teste diz ao testador começa com
 
 import logging
 import re
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -20,7 +21,7 @@ from agente.db.travas import travar_conversas_e_cobranca
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.ctn_teste import CasoInexistente, numero_do_caso
 from agente.politica import CasoTeste, Politica
-from agente.teste.casos import ativar_caso, do_piloto
+from agente.teste.casos import ativar_caso, conversa_viva_do_testador, do_piloto
 from agente.tipos import OrigemMensagem, ResultadoTurno, StatusCobranca
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import humano_na_conversa
@@ -108,6 +109,12 @@ class _Rajada:
     turno: Turno
     deps: "Dependencias"
     agora: datetime
+    # O que desfaz, na memória, o que o turno mudou fora do banco (o estado do `CTNDeCasos`): roda
+    # se o turno for desfeito.
+    desfazer: list[Callable[[], None]] = field(default_factory=list)
+    # A conversa do Chatwoot que volta a Pendente depois do commit (o robô assume), se o turno
+    # trocou o caso de um testador que estava com humano.
+    devolver_ao_robo: int | None = None
 
     @property
     def politica(self) -> Politica:
@@ -151,6 +158,7 @@ def _tratar_caso(rajada: _Rajada, comando: Comando) -> Cobranca | None:
             conversa.cobranca.cliente.telefone,
             numero,
             rajada.agora,
+            rajada.desfazer,
         )
     except CasoInexistente:  # o cardápio já foi conferido acima; só por segurança
         _responder(rajada, f"[TESTE] Não existe o caso {numero}. " + _lista_de_casos(politica))
@@ -182,8 +190,13 @@ def _trocar_de_conversa(
 
     As mensagens da rajada que vieram depois do comando passam para a nova, com um turno agendado:
     sem isso, `/caso 2` e `Oi` dentro dos mesmos 7 s deixavam o `Oi` sem resposta. Com humano na
-    conversa, a do Chatwoot volta a Pendente (o robô assume).
+    conversa, a do Chatwoot volta a Pendente (o robô assume), mas só depois do commit, em
+    `_devolver_ao_robo`: um `mudar_status` que falha não pode desfazer a troca nem repetir o envio.
+    A mensagem do agente que ficou PENDENTE na conversa antiga é descartada: ela era da conversa e
+    do caso que acabaram, e não pode sair na conversa nova.
     """
+    from agente.turno.orquestrador import _descartar, _envio_pendente  # evita o import circular
+
     sessao, antiga, agora = rajada.sessao, rajada.conversa, rajada.agora
     chatwoot_id = antiga.chatwoot_conversa_id
     com_humano = humano_na_conversa(antiga)
@@ -199,8 +212,11 @@ def _trocar_de_conversa(
     rajada.turno.mensagens_ids = [m.id for m in mensagens[: posicao + 1]]
     if depois:
         agendar_turno(sessao, nova.id, agora)
+    pendente = _envio_pendente(sessao, antiga.id)
+    if pendente is not None:
+        _descartar(sessao, pendente)
     if com_humano:
-        rajada.deps.chatwoot.mudar_status(chatwoot_id, "pending")
+        rajada.devolver_ao_robo = chatwoot_id
     sessao.flush()
     return nova
 
@@ -215,14 +231,12 @@ def _fechar_e_confirmar(
     return ResultadoTurno.FIXA
 
 
-def _tratar_comandos(
-    sessao: Session, conversa: Conversa, agora: datetime, deps: "Dependencias"
-) -> ResultadoTurno:
-    mensagens = tomar_turno(sessao, conversa.id)
-    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
-    turno.humano_na_conversa = humano_na_conversa(conversa)
-    rajada = _Rajada(sessao, conversa, turno, deps, agora)
+def _rodar_comandos(rajada: _Rajada, mensagens: list[Mensagem]) -> ResultadoTurno:
+    from agente.turno.orquestrador import _envio_pendente  # evita o import circular
+
+    sessao, conversa, deps = rajada.sessao, rajada.conversa, rajada.deps
     rotulo = ""
+    trocou = False
     for posicao, mensagem in enumerate(mensagens):
         comando = ler_comando(mensagem.texto, deps.politica)
         if comando is None:
@@ -233,9 +247,43 @@ def _tratar_comandos(
         cobranca = _tratar(rajada, comando)
         if cobranca is not None:
             _trocar_de_conversa(rajada, cobranca, mensagens, posicao)
+            trocou = True
             # O resto da rajada é da conversa nova (e dos comandos que ela ainda traga).
             break
-    return _fechar_e_confirmar(sessao, conversa, turno, rotulo, agora)
+    if not trocou and _envio_pendente(sessao, conversa.id) is not None:
+        # O `tomar_turno` zerou o turno de retorno da mensagem do agente que ficou PENDENTE: sem ele
+        # o reenvio só sairia na próxima mensagem do testador.
+        conversa.turno_em = rajada.agora + deps.politica.espera_integracao(1)
+    return _fechar_e_confirmar(sessao, conversa, rajada.turno, rotulo, rajada.agora)
+
+
+def _devolver_ao_robo(rajada: _Rajada) -> None:
+    """Melhor esforço, depois do commit: se falhar, a conversa fica com o status que tinha (o
+    atendente a devolve ao robô marcando Pendente) e o caso já trocou."""
+    if rajada.devolver_ao_robo is None:
+        return
+    try:
+        rajada.deps.chatwoot.mudar_status(rajada.devolver_ao_robo, "pending")
+    except Exception:
+        log.exception("não consegui devolver a conversa do Chatwoot ao robô (status Pendente)")
+
+
+def _tratar_comandos(
+    sessao: Session, conversa: Conversa, agora: datetime, deps: "Dependencias"
+) -> ResultadoTurno:
+    mensagens = tomar_turno(sessao, conversa.id)
+    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
+    turno.humano_na_conversa = humano_na_conversa(conversa)
+    rajada = _Rajada(sessao, conversa, turno, deps, agora)
+    try:
+        resultado = _rodar_comandos(rajada, mensagens)
+    except BaseException:
+        # O banco desfaz o turno (quem chamou faz o rollback); a memória do `CTNDeCasos`, não.
+        for desfazer in reversed(rajada.desfazer):
+            desfazer()
+        raise
+    _devolver_ao_robo(rajada)
+    return resultado
 
 
 def _tratar_encerrado(
@@ -247,6 +295,32 @@ def _tratar_encerrado(
     turno.humano_na_conversa = humano_na_conversa(conversa)
     _responder(_Rajada(sessao, conversa, turno, deps, agora), TEXTO_ENCERRADO)
     return _fechar_e_confirmar(sessao, conversa, turno, ROTULO_ENCERRADO, agora)
+
+
+def _levar_para_a_conversa_viva(
+    sessao: Session,
+    conversa: Conversa,
+    pendentes: list[Mensagem],
+    agora: datetime,
+    telefone: str,
+    campanha: str,
+) -> ResultadoTurno:
+    """A conversa já foi trocada (perdeu o vínculo com o Chatwoot) e ainda recebeu mensagem: o
+    webhook a gravou nela porque, até o commit da troca, ainda a via ligada.
+
+    A mensagem vai para a conversa da cobrança ATIVA do mesmo telefone, com o turno agendado nela,
+    e nada é enviado daqui (sem o id do Chatwoot o envio daria 404 e se repetiria). Sem conversa
+    viva, o que sobrou é consumido sem resposta e o aviso fica no log."""
+    tomar_turno(sessao, conversa.id)
+    viva = conversa_viva_do_testador(sessao, telefone, campanha, conversa.id)
+    if viva is None:
+        log.warning("a conversa %s não tem vínculo com o Chatwoot nem conversa viva", conversa.id)
+    else:
+        for mensagem in pendentes:
+            mensagem.conversa_id = viva.id
+        agendar_turno(sessao, viva.id, agora)
+    sessao.commit()
+    return ResultadoTurno.FIXA
 
 
 def antes_do_turno(
@@ -270,6 +344,10 @@ def antes_do_turno(
     pendentes = mensagens_pendentes(sessao, conversa.id)
     if not pendentes:
         return None
+    if conversa.chatwoot_conversa_id is None:
+        return _levar_para_a_conversa_viva(
+            sessao, conversa, pendentes, agora, cobranca.cliente.telefone, teste.campanha
+        )
     if any(ler_comando(m.texto, deps.politica) is not None for m in pendentes):
         return _tratar_comandos(sessao, conversa, agora, deps)
     if cobranca.status is not StatusCobranca.ATIVA:
