@@ -141,6 +141,10 @@ class ChatwootHttp:
 
     def mensagens_do_agente(self, conversa_id: int) -> list[tuple[str, str]]:
         resposta = self._cliente.get(f"/conversations/{conversa_id}/messages")
+        if resposta.status_code in (401, 403):
+            # O token do Agent Bot não lê as mensagens: 401 no Chatwoot real, conferido em
+            # 2026-11-11; sem conferir, manda.
+            return []
         resposta.raise_for_status()
         return [
             (str(mensagem["id"]), mensagem.get("content") or "")

@@ -165,6 +165,23 @@ def test_erro_ao_listar_as_mensagens_vira_excecao(chatwoot):
         chatwoot.mensagens_do_agente(42)
 
 
+@respx.mock
+@pytest.mark.parametrize("status", [401, 403])
+def test_sem_permissao_para_ler_as_mensagens_a_conferencia_volta_vazia(chatwoot, status):
+    # O token do Agent Bot não lê as mensagens (401 no Chatwoot real): "não sei o que já saiu".
+    respx.get(f"{BASE}/messages").mock(return_value=httpx.Response(status))
+
+    assert chatwoot.mensagens_do_agente(42) == []
+
+
+@respx.mock
+def test_erro_do_servidor_ao_listar_as_mensagens_continua_levantando(chatwoot):
+    respx.get(f"{BASE}/messages").mock(return_value=httpx.Response(500))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        chatwoot.mensagens_do_agente(42)
+
+
 def test_falsa_lista_as_mensagens_do_agente_com_o_id_que_devolveu():
     falsa = ChatwootFalso()
     falsa.enviar_mensagem(42, "Olá")

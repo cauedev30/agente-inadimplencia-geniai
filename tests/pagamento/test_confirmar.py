@@ -1,10 +1,12 @@
 """A confirmação do pagamento: baixa, mensagem fixa e encerramento (tarefa 6.1)."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import httpx
 import pytest
+import respx
 from sqlalchemy import event, select, update
 from sqlalchemy.dialects import postgresql
 
@@ -20,7 +22,7 @@ from agente.db.modelos import (
     Transicao,
 )
 from agente.db.sessao import criar_sessao
-from agente.integracoes.chatwoot import ChatwootFalso
+from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.llm_turno import LLMTurnoFalso
@@ -476,6 +478,30 @@ def test_a_resposta_perdida_do_chatwoot_nao_reenvia_a_confirmacao(sessao, ligada
     assert _pendentes(sessao) == []
     mensagem = sessao.scalars(select(Mensagem).where(Mensagem.origem == OrigemMensagem.FIXA)).one()
     assert (mensagem.envio, mensagem.chatwoot_message_id) == (EstadoEnvio.ENVIADA, "falso-1")
+
+
+@respx.mock
+def test_com_o_token_que_nao_le_as_mensagens_a_confirmacao_sai_mesmo_assim(
+    sessao, ligada, politica
+):
+    deps = _deps(politica)
+    txid = _pix(sessao, ligada, deps)
+    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
+    base = "https://chatwoot.invalid/api/v1/accounts/7/conversations/555/messages"
+    # O Chatwoot real: o token do Agent Bot envia (200) mas não lista (401).
+    respx.get(base).mock(return_value=httpx.Response(401))
+    envio = respx.post(base).mock(return_value=httpx.Response(200, json={"id": 77}))
+
+    with ChatwootHttp("https://chatwoot.invalid", conta=7, token="segredo") as chatwoot:
+        deps.chatwoot = chatwoot
+        concluir_pagamentos(sessao, deps, AGORA)
+
+    pagamento = sessao.scalars(select(Pagamento)).one()
+    assert envio.call_count == 1
+    assert "Recebemos o seu pagamento" in json.loads(envio.calls.last.request.content)["content"]
+    assert Pendencia.MENSAGEM.value not in pagamento.pendencias and _pendentes(sessao) == []
+    mensagem = sessao.scalars(select(Mensagem).where(Mensagem.origem == OrigemMensagem.FIXA)).one()
+    assert (mensagem.envio, mensagem.chatwoot_message_id) == (EstadoEnvio.ENVIADA, "77")
 
 
 def test_o_webhook_repetido_com_a_conclusao_pendente_nao_refaz_nada(sessao, ligada, deps):
