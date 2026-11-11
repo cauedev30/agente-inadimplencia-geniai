@@ -139,7 +139,9 @@ com a correção quando a hora chegar (texto completo na fonte).
     para o handoff; já era assim antes do enxugamento; mexe em envio.
   - (d) Resquício de nome: `ConfigRedator` (`config.py` ~38) hoje só guarda o Luna.
   - (e) 1º contato com dois POSTs simultâneos no SQLite responde 500 (já descrito no item do banco bloqueado; o ensaio
-    aceita um 200 só).
+    aceita um 200 só). (f) Resíduo possível do ensaio: na nova tentativa que dá certo depois de um turno de ERRO
+    (AUD-03), `erros_no_log` pode achar a linha `ERROR` da tentativa anterior (`log.exception("o turno da conversa ... falhou")`,
+    depois do byte de início do passo) e marcar o passo como ERRO. Só se aparecer no ensaio do `dev2`.
 - Achados da tarefa 1.9 (documentos): o serviço só sobe com `AGENTE_LLM_DADOS_REAIS_LIBERADOS=true` (trava M2 sempre ativa;
   decidir a retenção da OpenAI, T6, ou ajustar a trava antes da 2.3); fora do piloto o webhook ainda grava a mensagem (só o
   turno é ignorado) e mensagem de atendente fora do piloto marca `human_owned`; D38 diverge do código (vale a D47); resquícios
