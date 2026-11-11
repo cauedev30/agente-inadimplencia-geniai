@@ -428,7 +428,8 @@ def _ler_turno_fechado(banco: Path, chatwoot_message_id: str) -> Obtido | None:
         if mensagem is None:
             return None
         turnos = con.execute(
-            "SELECT * FROM turno WHERE resultado IS NOT NULL AND resultado != 'ADIADO' ORDER BY id"
+            "SELECT * FROM turno WHERE resultado IS NOT NULL "
+            "AND resultado NOT IN ('ADIADO', 'ERRO') ORDER BY id"
         ).fetchall()
         turno = next((t for t in turnos if mensagem["id"] in _json(t["mensagens_ids"], [])), None)
         if turno is None:
@@ -464,7 +465,9 @@ def esperar_turno(
     intervalo_s: float = 0.5,
     inicio: float | None = None,
 ) -> Obtido | None:
-    """Espera o turno fechado (nem nulo nem ADIADO) que contém a mensagem; None no prazo.
+    """Espera o turno fechado (nem nulo, nem ADIADO, nem ERRO) que contém a mensagem; None no prazo.
+
+    O turno ERRO (falha passageira do Luna, AUD-03) é tentado de novo; só a nova tentativa vale.
 
     O tempo (`segundos`) conta do `inicio` (um `time.perf_counter()`; o padrão é agora), porque os
     campos `aberto_em` e `fechado_em` do turno não servem de relógio.

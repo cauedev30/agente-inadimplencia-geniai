@@ -113,12 +113,33 @@ com a correção quando a hora chegar (texto completo na fonte).
   laudos); `roteiros/demo.yaml` e `v1-operacao.yaml` são da era do Jev e os `texto_tem` de Pix e CTN podem não bater mais; a
   docstring do `ensaiar.py` ainda cita `demo.yaml`; `MotivoHumano.REDATOR_INDISPONIVEL` sem uso (enum mantido).
 - Escolha da 1.7: a rajada só com foto/arquivo vai ao humano; com áudio junto, o turno segue para transcrever.
-- **Para a revisão da PARADA 1 olhar (achado do ensaio de 2026-11-11, nao corrigido):** no ensaio local (SQLite), o webhook
-  respondeu 500 com `sqlite3.OperationalError: database is locked` (1ª rodada: 5 vezes e o caso-3 falhou, 1/6; rodada só do
-  caso-3: 2 vezes e passou; 2ª rodada completa: 6 respostas 500 e passou 10/10). `criar_motor` não configura espera do SQLite
-  (padrão de 5 s). Pergunta: o turno segura transação de escrita aberta durante a chamada ao Luna (~8 s)? Se sim, o webhook
-  espera nesse desenho e isso pode pesar também no Postgres do `dev2`. Hipótese não verificada; a "carga da máquina" foi
-  descartada (a 2ª rodada rodou com a máquina livre).
+- **Banco bloqueado no ensaio** (revisão da PARADA 1, 2026-11-11, causa verificada nos `servico.log` dos ensaios 0306, 0940
+  e 0948): os 500 `database is locked` (11 no total) são todos `INSERT INTO cliente`, a corrida do 1º contato entre dois
+  POSTs simultâneos (`chatwoot_webhook.py` ~170-174 → `casos.py` ~139-158): o perdedor leu dentro da transação e tenta
+  escrever, e o SQLite devolve `OperationalError` na hora, sem esperar o timeout; `except IntegrityError` não pega. A
+  mensagem fica gravada uma vez. No Postgres vira `IntegrityError` no índice único de `matricula_ctn` e o tratamento A8
+  cobre (a confirmar na 2.2). A falha do caso-3 na 1ª rodada foi de rede até o Luna (`getaddrinfo failed`, 2 vezes), não
+  do banco; a correção do ensaio (pular turno ERRO) saiu no lote da PARADA 1.
+- **O turno segura a trava de escrita durante a chamada ao Luna** (`orquestrador.py` ~1032-1052, `fila.py` ~73,
+  `historico.py` ~64): no Postgres o UPDATE da `conversa` trava a linha, e o `agendar_turno` do webhook
+  (`chatwoot_webhook.py` ~256 → `fila.py` ~41) espera o commit do turno (de ~8 s a ~30 s no pior caso; não há
+  `lock_timeout`). O webhook só demora, não dá 500 nem duplica turno (`chatwoot_message_id` único). **A conferir na 2.4:**
+  quanto o Chatwoot espera a resposta do webhook (suspeita: 5 s) e o que faz quando o Agent Bot passa do prazo. Não é
+  regressão; o código da tag fazia igual.
+- **Achados DEPOIS da revisão da PARADA 1** (2026-11-11):
+  - (a) `_limpar_retorno` compara com um `turno_em` velho (`orquestrador.py` ~960-963, `expire_on_commit=False` em
+    `db/sessao.py` ~36): se o cliente escreve durante o turno, o agendamento do webhook é trocado por `agora` e corta a
+    rajada de 7 s, e numa janela de milissegundos troca por `None` (mensagem sem turno; parte do AUD-35). Correção
+    mínima: `sessao.refresh(conversa, ["turno_em"])` antes de comparar; mexe em estado.
+  - (b) Dois eventos tortos que dão 500, do tipo do AUD-34: `chatwoot_webhook.py` ~183 (`int(dados.get("id", 0))` com
+    `"id": null`) e ~78 (`int(conversa["id"])` com id não numérico). Correção mínima: ler o id com `.get` e devolver
+    "ignorado".
+  - (c) Toque no "Pagar com Pix" fora da janela, com o teto atingido ou a cobrança quitada, manda o handoff com mensagem
+    fora do horário (`turno/gates.py` ~153-165 → `orquestrador.py` ~1160-1179): a exceção da D40 vale para o Pix, não
+    para o handoff; já era assim antes do enxugamento; mexe em envio.
+  - (d) Resquício de nome: `ConfigRedator` (`config.py` ~38) hoje só guarda o Luna.
+  - (e) 1º contato com dois POSTs simultâneos no SQLite responde 500 (já descrito no item do banco bloqueado; o ensaio
+    aceita um 200 só).
 - Achados da tarefa 1.9 (documentos): o serviço só sobe com `AGENTE_LLM_DADOS_REAIS_LIBERADOS=true` (trava M2 sempre ativa;
   decidir a retenção da OpenAI, T6, ou ajustar a trava antes da 2.3); fora do piloto o webhook ainda grava a mensagem (só o
   turno é ignorado) e mensagem de atendente fora do piloto marca `human_owned`; D38 diverge do código (vale a D47); resquícios

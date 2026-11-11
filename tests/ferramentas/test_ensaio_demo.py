@@ -607,6 +607,26 @@ def test_esperar_turno_ignora_o_turno_aberto_e_o_adiado_e_espera_o_seguinte(banc
     assert obtido.acao_principal == "OFFER_DISCOUNT"
 
 
+def test_esperar_turno_pula_o_turno_de_erro_e_devolve_o_da_nova_tentativa(banco):
+    caminho, fabrica = banco
+    with fabrica() as sessao:
+        conversa = _cobranca(sessao)
+        mensagem = _mensagem(sessao, conversa, 100001)
+        _turno(sessao, conversa, [mensagem], resultado=ResultadoTurno.ERRO, acao_principal=None)
+        sessao.commit()
+    # Só o turno de ERRO (o Luna falhou): o ensaio segue esperando até o prazo.
+    assert ensaiar.esperar_turno(caminho, "100001", prazo_s=0.3, intervalo_s=0.05) is None
+
+    with fabrica() as sessao:
+        conversa = sessao.query(Conversa).one()
+        mensagem = sessao.query(Mensagem).one()
+        _turno(sessao, conversa, [mensagem], acao_principal="OFFER_DISCOUNT")
+        sessao.commit()
+    obtido = ensaiar.esperar_turno(caminho, "100001", prazo_s=2, intervalo_s=0.05)
+    assert obtido.acao_principal == "OFFER_DISCOUNT"
+    assert obtido.resultado == "ENVIADO"
+
+
 def test_esperar_turno_acha_o_turno_pela_lista_de_mensagens_juntadas(banco):
     caminho, fabrica = banco
     with fabrica() as sessao:
