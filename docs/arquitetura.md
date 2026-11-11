@@ -1,245 +1,200 @@
 # Arquitetura do agente
 
-Baseada no desenho [`arquitetura/agente-inadimplente-jev.excalidraw`](arquitetura/agente-inadimplente-jev.excalidraw),
-uma proposta de 2026-09-23. Abra o arquivo em [excalidraw.com](https://excalidraw.com).
-
-O desenho foi feito sobre um protótipo anterior de agente de cobrança. Este projeto começa do zero, mas
-segue a mesma lógica. Onde o desenho e as decisões divergem, valem as decisões
-([`decisoes.md`](decisoes.md)).
+Reescrita em 2026-11-11 (D59, D60, D61). Saíram do código e ficam na tag `antes-do-enxugamento`: o pipeline do Jev
+(leitura, decisão e validação), a simulação e a comparação de redatores.
+Sem efeito pelas três decisões: o modo sombra e o webchat.
+Onde esta página e as decisões divergirem, valem as decisões ([`decisoes.md`](decisoes.md)). A
+numeração das seções segue a das versões anteriores, porque os comentários do código as citam (seção 1: gates; 3:
+estados; 4: ações; 5: backend; 9: falhas).
 
 ## Princípio
 
-**Quem decide não escreve, quem escreve não decide.**
+**O Luna lê e escreve; o código confere e executa.**
 
-- O **Jev** (TypeSafe AI) é um modelo de avaliação. Ele responde perguntas tipadas (escolha, nota ou
-  sim/não) com uma probabilidade e uma confiança, e não escreve texto. Lê toda mensagem do cliente,
-  define o estado da conversa e confere a resposta antes do envio.
-- O **backend** faz as contas: a dívida (D24), o degrau do desconto (D35), a propensão ao cartão
-  (D36), o Pix e o link do CTN.
-- O **LLM** só redige o texto, a partir da ação já decidida e dos números já calculados. Ele não
-  escolhe ação e não produz nenhum número.
+- O **Luna** (`gpt-6-luna`, D42) lê a conversa e devolve, numa chamada só, os sinais da mensagem do cliente, a ação do
+  turno, o texto da resposta e o texto do encaminhamento ao humano (D59). Ele não recebe nenhum valor em dinheiro, link
+  nem código Pix: escreve **marcadores** (`{divida}`, `{valor_final}`, `{link_ctn}`, `{pix_copia_e_cola}`…).
+- O **backend** faz as contas e executa: a dívida (D24), o degrau do desconto (D35), a propensão ao cartão (D36), o Pix e
+  o link do CTN. Troca cada marcador pelo valor certo.
+- O **código** confere tudo o que o Luna devolveu: a ação é permitida, os marcadores são os da ação, o texto não traz
+  dígito nem valor solto, os gatilhos de humano e a guarda de palavra-chave vencem o texto, e o teto vale (D33).
 
 ## O turno, em uma linha
 
 ```
-mensagem do cliente → gates em código → (áudio: baixa e transcreve) → JEV 1 (leitura) → JEV 2 (decisão)
-→ backend calcula → LLM redige → JEV 3 (validação) → Chatwoot → WhatsApp
+webhook do Chatwoot → rajada (7 s) → gates → [áudio: transcreve] → uma chamada ao Luna
+→ validação pelo código → backend executa (degrau, link, Pix) → envio pelo Chatwoot  |  handoff
 ```
 
-## 1. Gates em código (determinísticos)
+## 1. Entrada e gates (determinísticos)
 
-São certezas, não probabilidades, e por isso ficam fora do Jev:
+São certezas, não probabilidades, e por isso ficam em código.
 
-- segredo do webhook, JSON válido, conta e inbox;
-- dedupe por `message_id`;
-- existe cobrança ativa para este telefone;
-- um humano já está na conversa (`human_owned`);
-- comando de reinício;
-- tipo do anexo e duração do áudio (até 2 min);
-- **áudio do cliente** (D43): depois dos gates e antes do Jev 1, o áudio é baixado do Chatwoot (só da
-  origem dele, até 5 MB, no prazo de 15 s), medido e transcrito pelo `gpt-4o-mini-transcribe`. O
-  resultado (`transcrito`, `longo_demais` ou `falhou`) fica no anexo, e cada áudio é transcrito uma vez
-  só. O histórico que o Jev e o LLM leem mostra `[áudio transcrito: "<texto>"]`; o áudio que não foi
-  lido aparece como `[áudio longo demais — não ouvido]` ou `[áudio — não foi possível ouvir]`. Cada
-  transcrição vira uma nota privada na conversa. Os gates rodam antes: o áudio fora da janela ou das
-  24h só é transcrito quando o turno roda. Sem a chave da transcrição, o áudio não é lido;
-- **áudio sem leitura**: a rajada sem nenhum texto, sem outro anexo e sem áudio transcrito recebe a
-  fixa `PEDIR_TEXTO` ("Seu áudio passou de 2 minutos..." ou "Não consegui ouvir seu áudio..."), sem Jev
-  e sem LLM, **fora do teto**. Na 2ª vez da conversa, o humano assume, com o motivo `AUDIO` (D5);
-- **janela de atendimento**: segunda a sexta, das 8h às 18h; sábado, das 8h às 12h. Domingo e feriado
-  ficam fora. Fora da janela, nada é enviado (D11, D16), salvo a resposta ao toque no botão "Pagar
-  com Pix", que sai na hora (D40). O desenho dizia "seg–sáb, 08h–20h"; valem as decisões.
-- janela de 24h do WhatsApp e template;
-- **teto de 5 mensagens de resolução**, com a 6ª fixa: a confirmação, se o cliente pagou, ou o canal
-  externo (D33, D19). A abertura não conta. A confirmação de pagamento sai sempre, fora do teto.
+1. **Webhook** (`POST /webhooks/chatwoot/{segredo}`). Confere o segredo, o JSON, a conta e a inbox e descarta o evento
+   repetido (`message_id`). A mensagem do cliente é gravada e agenda o turno para daqui a `rajada_segundos` (7 s); cada
+   nova mensagem empurra o turno, que junta a rajada inteira. A mensagem de um atendente grava e marca a conversa como
+   do humano. A mudança de status para Pendente devolve a conversa ao robô. No modo teste, o primeiro contato de um
+   testador do piloto cria o caso padrão.
+2. **Piloto.** O turno de quem está fora da lista de telefones do piloto (`liberacao`) é consumido e ignorado, sem Luna,
+   sem CTN e sem mensagem (D61).
+3. **Comandos do testador** (modo teste): `/caso`, `/paguei`, `/nota` e o reinício são tratados antes de tudo, nunca
+   chegam ao Luna e ficam fora do teto.
+4. **Conferência no CTN.** Com o CTN real (e nos casos do modo teste) e uma vez por dia por cobrança, os lançamentos e as
+   baixas do cliente confirmam os meses e o valor exatos antes de qualquer valor ser citado (D49). Sem conferência
+   válida, o turno espera como se a integração estivesse fora do ar.
+5. **Gates**, nesta ordem (`turno/gates.py`):
+   - cobrança ativa;
+   - reinício (só telefones da equipe);
+   - humano na conversa;
+   - anexo que o agente não lê;
+   - **janela de atendimento**: segunda a sexta, 8h às 18h; sábado, 8h às 12h; domingo e feriado fora (D11, D16). Fora
+     dela nada é enviado e o turno volta quando ela abre; só o toque no botão "Pagar com Pix" passa (D40);
+   - **janela de 24h do WhatsApp**: passada, o humano assume com uma nota, sem mensagem ao cliente;
+   - **teto de 5 mensagens**, com a 6ª fixa (D33, D60). A abertura não conta, e a confirmação de pagamento sai sempre,
+     fora do teto;
+   - cobrança quitada no CTN: o humano confere (`CONCILIACAO`), com a mensagem só na 1ª vez;
+   - foto ou PDF sem texto: o humano confere o comprovante (`CONCILIACAO`);
+   - toque no botão "Pagar com Pix": segue direto ao Pix fixo (seção 5), sem o Luna.
 
-## 2. Jev 1: leitura (roda em toda mensagem do cliente)
+   Passando todos, o turno segue ao Luna.
+6. **Áudio** (D43). Depois dos gates, o áudio é baixado do Chatwoot (só da origem dele, até 5 MB, até 2 min), transcrito
+   pelo `gpt-4o-mini-transcribe`, uma vez, e entra no histórico como `[áudio transcrito: "…"]`; o que não se lê aparece
+   como `[áudio longo demais — não ouvido]` ou `[áudio — não foi possível ouvir]`. A rajada só com áudio que não se lê
+   leva uma fixa que pede o texto, fora do teto; na 2ª vez, o humano assume (`AUDIO`). Cada transcrição vira uma nota
+   privada na conversa.
 
-Um único batch, de 70 a 500 ms e cerca de US$ 0,00008. Todas as perguntas rodam em paralelo contra o
-mesmo state (histórico, dívida, política e estado atual).
+## 2. A chamada ao Luna e o handoff
 
-| Pergunta | Tipo | O que detecta |
-|---|---|---|
-| `tom` | score | cordial · neutro · impaciente · irritado · hostil |
-| `quer_retencao` | bool | quer cancelar, encerrar a relação ou ameaça sair |
-| `risco_juridico` | bool | cita Procon, advogado, processo, ação |
-| `alega_pagamento` | bool | afirma que já pagou |
-| `contesta_divida` | bool | nega dever ou diz não ser a pessoa |
-| `desconfia_golpe` | bool | desconfia que a cobrança é golpe ou pede prova de que a mensagem é mesmo do Cartão de Todos (D44) |
-| `terceiro` | bool | quem escreve não é o devedor |
-| `vulnerabilidade` | bool | desemprego, doença, luto, dificuldade |
-| `objecao_valor` | bool | acha caro, diz que não consegue pagar tudo ou pede desconto |
-| `atrito_clinica` | bool | reclama da clínica ou do atendimento da rede |
-| `quer_conta_energia` | bool | quer pagar na conta de energia (Energisa) |
-| `intencao_pagar` | score | nenhuma · hesitante · disposto · pronto |
-| `entendeu_proposta` | bool | entendeu o que foi oferecido |
-| `repete_sem_avancar` | bool | está em loop, repetindo o mesmo ponto |
+**A chamada** (`turno/uma_chamada.py`). A entrada traz o primeiro nome, a régua, o degrau, a forma já enviada, as ações
+permitidas (cada uma com "quando usar", "o que o texto faz" e os marcadores), as regras da cobrança, o histórico e a
+rajada. A saída é um JSON com os sinais, o tom, a ação, o `reply` e o `handoff_reply`.
 
-**Gatilhos de saída: o robô sai e entra o humano.** No caso de retenção, o agente se cala no mesmo
-turno, antes de redigir qualquer coisa.
+**A decisão** é do código: vence a primeira regra que bate. A guarda de palavra-chave (golpe, jurídico, pedido de humano),
+um sinal de saída, o tom irritado ou hostil, o pedido de humano, o terceiro, a ação fora das permitidas e, por fim, a ação
+com o que vai junto (seção 4).
 
-| Gatilho | Limiar | Motivo |
-|---|---|---|
-| `quer_retencao` | ≥ 0,80 | RETENÇÃO |
-| `risco_juridico` | ≥ 0,70 | JURÍDICO |
-| `alega_pagamento` | ≥ 0,70 | CONCILIAÇÃO |
-| `contesta_divida` | ≥ 0,70 | CONTESTAÇÃO |
-| `desconfia_golpe` | ≥ 0,70 | DESCONFIANÇA (sem link, no próprio WhatsApp, D44) |
-| `vulnerabilidade` | ≥ 0,75 | CAUTELA |
-| `atrito_clinica` | ≥ 0,70 | ATRITO |
-| `quer_conta_energia` | ≥ 0,70 | ENERGISA (a troca é manual, D30) |
-| `tom` irritado ou hostil | — | TOM |
+| Sinal | Motivo |
+|---|---|
+| `quer_retencao` | `RETENCAO` |
+| `risco_juridico` | `JURIDICO` |
+| `alega_pagamento` | `CONCILIACAO` |
+| `contesta_divida` | `CONTESTACAO` |
+| `desconfia_golpe` | `DESCONFIANCA` (D44) |
+| `vulnerabilidade` | `CAUTELA` |
+| `atrito_clinica` | `ATRITO` |
+| `quer_conta_energia` | `ENERGISA` (a troca é manual, D30) |
+| `quer_humano` | `PEDIU_HUMANO` |
+| tom `irritado` ou `hostil` | `TOM` |
 
-Os limiares das duas perguntas novas seguem os das vizinhas e também precisam de calibração. A ordem
-da tabela é a ordem em que os gatilhos vencem: a DESCONFIANÇA vem logo depois da CONTESTAÇÃO, e quem
-diz "é golpe, eu já paguei" vai antes para a CONCILIAÇÃO, que pede o comprovante.
+O `terceiro` (quem escreve não é o devedor) não vai ao humano: o Luna escreve só uma mensagem curta, sem falar da dívida.
 
-No handoff, o agente deixa no Chatwoot uma nota privada com o laudo do Jev, uma etiqueta com o motivo,
-atribui a conversa e põe o status como aberta. O estado vira `ATENDIMENTO_HUMANO`. Com o D5, o cliente
-é levado para o canal externo da franquia, com a fixa `CANAL_EXTERNO` e o botão do webchat (D32).
-
-**A exceção é a DESCONFIANÇA (D44).** Mandar um link a quem já desconfia de golpe só aumenta a
-desconfiança. Os motivos de `motivos_humano_no_whatsapp` (no `politica.toml`, hoje só a DESCONFIANÇA)
-fazem o mesmo handoff, com a nota, a etiqueta, a atribuição e o estado, mas mandam a fixa
-`HUMANO_NO_WHATSAPP`: o texto de `texto_humano_no_whatsapp`, sem botão, e o token do webchat nem é
-gerado. O atendente segue na mesma conversa do WhatsApp.
-
-Alegação de pagamento e contestação saem do robô por decisão de negócio: insistir vira constrangimento
-(CDC, art. 42). O Jev só classifica; quem autoriza a ação é a regra da aplicação.
+**O handoff.** Toda saída do robô passa a conversa a um atendente **na mesma conversa do WhatsApp** (D60): uma nota
+privada com o motivo, a etiqueta, a atribuição ao time (`AGENTE_CHATWOOT_TIME_HUMANO`) e o status aberto. O estado vira
+`ATENDIMENTO_HUMANO`. Quando há mensagem ao cliente, ela é o texto de encaminhamento que o Luna redigiu (1 ou 2 frases,
+até 300 caracteres, sem dígito nem marcador) seguido da fixa *"Para resolver da melhor forma, um atendente da unidade vai
+continuar com você aqui mesmo, nesta conversa."* Quem desconfia de golpe recebe uma frase própria (D44). Fica sem
+mensagem ao cliente a volta ao humano de quem já recebeu a 6ª ou o aviso de cobrança quitada, e o caso das 24h vencidas.
+Outros motivos: `TETO`, `AUDIO`, `VALIDACAO`, `FORA_DAS_24H`, `INTEGRACAO_INDISPONIVEL`, `ERRO_INTERNO` e
+`PAGAMENTO_DIVERGENTE`. O rodízio entre os atendentes é a atribuição automática do Chatwoot (*a confirmar* na conta do
+JP Sul, D60).
 
 ## 3. Estados da conversa
 
-`INICIADO` → `ENGAJADO` → `EM_NEGOCIACAO` → `AGUARDANDO_PAGAMENTO` → `PAGO` → `ENCERRADO`, mais
-`EM_RISCO` e `ATENDIMENTO_HUMANO` (com motivo).
+`INICIADO` → `ENGAJADO` → `AGUARDANDO_PAGAMENTO` → `PAGO` → `ENCERRADO`, mais `ATENDIMENTO_HUMANO` (com motivo).
 
-- **`AGUARDANDO_PAGAMENTO`:** guarda a forma enviada (Pix ou link do CTN), o valor e o degrau do
-  desconto. O Pix vale 24h (parâmetro, G2.4); sem pagamento, o agente não volta a procurar o cliente.
-  Se o cliente volta a escrever, a conversa segue dentro do teto.
-- **`PAGO`:** o webhook do banco (Pix) ou do CTN (link) confirma o pagamento. O agente registra a baixa
-  no CTN (D31) e manda a confirmação fixa, com o convite para o cartão quando couber (seção 4). Depois
-  vai para `ENCERRADO`.
-- **`EM_RISCO`:** o tom azedou ou o cliente repete a mesma coisa sem avançar. O agente encurta, para de
-  propor e reconhece o incômodo. Ele tem um turno para recuperar; se o Jev não vir melhora, a conversa
-  sai para o humano.
-- **`ENCERRADO`:** fecha o ciclo e evita que o robô fale com quem já pagou.
-- **De qualquer estado,** um gatilho de saída do Jev 1 leva para `ATENDIMENTO_HUMANO`.
-- **Volta ao robô:** quando o atendente marca a conversa como Pendente, o robô reassume.
-- Todo estado guarda o laudo do Jev que causou a transição (pergunta, probabilidade, confiança), para
-  auditoria.
+- **`AGUARDANDO_PAGAMENTO`:** o turno enviou o Pix ou o link. O Pix vale 24h (G2.4); sem pagamento, o agente não volta a
+  procurar o cliente. Se o cliente escrever de novo, a conversa segue dentro do teto.
+- **`PAGO`:** o webhook do banco (Pix) ou do CTN (link) confirma o pagamento. Uma rotina dá a baixa no CTN (D31) e envia
+  a confirmação fixa, com o convite para o cartão quando couber. Depois, `ENCERRADO`. Pagamento em dobro ou de valor
+  diferente vai ao humano com nota e etiqueta (D39).
+- **Baixa por fora** (boleto, cartão, balcão): a cada 10 minutos, com o CTN real, uma rotina lê as baixas novas, encerra
+  ou abate a cobrança e manda no máximo 1 aviso fixo (D50).
+- **De qualquer estado,** um sinal de saída leva a `ATENDIMENTO_HUMANO`.
+- **Volta ao robô:** quando o atendente marca a conversa como Pendente.
 
-## 4. Jev 2: decisão (a ação é um tipo)
+## 4. As ações
 
-O Jev 2 escolhe **a ação principal** do turno. O Jev só responde perguntas tipadas, então não devolve
-uma lista; o que vai junto na mesma mensagem é anexado pelo código (D37).
+O Luna escolhe uma **ação principal**; o código anexa o que vai junto, por uma tabela fixa (D37). O Luna nunca escolhe
+`HUMAN`: quem manda ao humano são os sinais e a guarda.
 
-| Ação | O que faz | Probabilidade mínima |
+| Ação | O que faz | O código anexa |
 |---|---|---|
-| `INFORM_DEBT` | apresenta o débito total, sem desconto (D29) | ≥ 0,70 |
-| `OFFER_DISCOUNT` | libera o próximo degrau do desconto (D35) | ≥ 0,80 |
-| `SEND_CTN_LINK` | manda o link do CTN: paga e cadastra o cartão (D30) | ≥ 0,85 |
-| `GENERATE_PIX` | gera o Pix do valor integral (D22, D34) | ≥ 0,90 |
-| `OUT_OF_SCOPE` | fora de escopo | ≥ 0,70 |
-| `NONE` | não agir | ≥ 0,70 |
-| `HUMAN` | manda para o humano | — |
+| `INFORM_DEBT` | apresenta o débito total, sem desconto (D29) | o link do CTN se o cliente é propenso ao cartão; o Pix se não é (D36) |
+| `OFFER_DISCOUNT` | libera o próximo degrau (D35); só existe se há degrau seguinte | o link do CTN, já com o desconto (D34) |
+| `SEND_CTN_LINK` | manda o link: paga e cadastra o cartão (D30) | nada |
+| `GENERATE_PIX` | gera o Pix do valor integral (D22, D34) | nada |
+| `OUT_OF_SCOPE` | diz que o assunto não é tratado ali | nada |
+| `NONE` | não agir; com desabafo, uma ou duas frases que acolhem, sem valor | nada |
 
-- Em todas, a confiança precisa ser de pelo menos 0,60. Abaixo do limiar, a conversa vai para o humano
-  com o motivo `BAIXA_CONFIANCA`: o robô não chuta quando não sabe.
-- Os limiares precisam ser calibrados com dado real em português, nunca com o benchmark do fornecedor.
-  O de `SEND_CTN_LINK` é um ponto de partida, entre o desconto e o Pix.
-- **Pré-condições em código:**
-  - `OFFER_DISCOUNT` só se `objecao_valor` for verdadeiro no Jev 1, se a régua tiver desconto e se
-    houver um degrau seguinte. Na régua sem desconto (NR, R1, R2), a objeção recebe `INFORM_DEBT` com a
-    explicação da condição; na 2ª objeção, a conversa vai para o humano;
-  - `GENERATE_PIX` sai pelo botão "Pagar com Pix" da abertura (D26) ou quando o cliente pede o Pix;
-  - `GENERATE_BOLETO` não está implementado e vai para o humano.
-- **O que vai junto, por uma tabela fixa em código (D37):**
+Na régua sem desconto (NR, R1, R2) não há `OFFER_DISCOUNT`. Esgotados os degraus, a última oferta é o valor final.
 
-  | Ação principal | O código anexa |
-  |---|---|
-  | `INFORM_DEBT` | `SEND_CTN_LINK` se o cliente é propenso ao cartão; `GENERATE_PIX` se não é (D36) |
-  | `OFFER_DISCOUNT` | sempre `SEND_CTN_LINK`, com o valor já descontado (D34) |
-  | `SEND_CTN_LINK`, `GENERATE_PIX`, `OUT_OF_SCOPE`, `NONE` | nada |
+## 5. O backend calcula, o Luna redige
 
-  A confirmação de pagamento não passa pelo Jev 2: é a mensagem fixa do estado `PAGO`, que leva o
-  convite para o cartão quando o cliente é propenso e pagou no Pix.
-- Nada de conta para o Jev: ele é fraco em aritmética e data. Pergunte "o cliente pediu desconto?",
-  nunca "esse desconto cabe na política?". O degrau e a propensão ao cartão são calculados no backend.
+- O **backend** executa a ação dentro da política (`turno/executar.py`) e produz os números: a dívida, o valor com o
+  degrau do desconto, o link do CTN, o BR Code do Pix e o vencimento. O Pix paga sempre o integral e o que ainda vale é
+  reaproveitado. Só então os marcadores do texto são trocados.
+- Um número errado não tem por onde entrar: ele é interpolado a partir do backend, e não gerado pelo Luna.
+- O **recebedor do Pix** (D44) também é do backend: com `pix_recebedor` preenchido, a frase fixa `texto_pix_recebedor`
+  entra no fim do texto, depois da validação.
+- A mensagem é gravada como pendente e enviada ao Chatwoot por último. Se a cobrança foi paga no meio do turno, nada
+  sai.
+- O toque em "Pagar com Pix" (D26, D40, D59) gera ou reaproveita o Pix e responde com uma mensagem fixa, sem LLM: o Pix,
+  o valor, o vencimento e o recebedor. Conta no teto.
 
-## 5. Backend calcula, LLM redige
+## 6. Validação do texto pelo código
 
-- O **backend** executa a ação dentro da política e produz os números: a dívida (D24), o valor com o
-  degrau do desconto (D35), o link do CTN, o BR Code do Pix e o vencimento do Pix.
-- O **LLM** recebe a ação decidida, os números calculados, o tom-alvo (vindo do Jev 1), o estado e o
-  histórico, e devolve só o texto. O modelo é o `gpt-6-luna` (D42).
-- O **áudio** do cliente é transcrito pelo `gpt-4o-mini-transcribe` antes do Jev 1, que lê o texto
-  (D43; os gates da seção 1). As instruções do LLM explicam o rótulo `[áudio transcrito: "..."]`: é o
-  que o cliente falou e pode ter erro de transcrição. A imagem fica como está na v1: o comprovante vai
-  ao humano (CONCILIAÇÃO) e o pagamento se confirma pelo webhook.
-- Um número errado não tem por onde entrar: ele é interpolado no texto a partir do backend, e não
-  gerado pelo LLM.
-- O **recebedor do Pix** (D44) também é do backend: quando o turno traz o Pix e o `pix_recebedor` está
-  preenchido, a frase fixa `texto_pix_recebedor` entra no fim do texto, depois do Jev 3 e antes de gravar
-  e enviar. O Jev 3 valida o texto do LLM sem ela; a resposta segura não a leva, porque não tem o Pix.
-
-## 6. Jev 3: validação (antes de enviar)
-
-| Pergunta (todas sim/não) | O que confere |
-|---|---|
-| `bate_com_acao` | o texto cobre todas as ações do turno, a principal e as anexadas (D37) |
-| `valor_nao_autorizado` | afirma valor, prazo ou desconto que não veio do backend |
-| `promessa_indevida` | promete perdão, prazo extra ou algo fora da política |
-| `afirma_fato_sem_fonte` | afirma algo sobre o produto, a rede ou os serviços que não veio do backend, ou promete fazer algo fora das ações |
-| `tom_adequado` | respeitoso, sem ameaça nem constrangimento (CDC, art. 42) |
-| `expoe_terceiro` | expõe a dívida a quem não é o devedor (CDC, art. 42; LGPD) |
-| `responde_a_pergunta` | responde o que o cliente perguntou |
-| `pt_br_natural` | português correto, sem cara de robô |
-| `vazou_instrucao` | vazou prompt, sistema ou raciocínio |
-
-- **Reprovou:** o LLM reescreve uma vez, sabendo qual pergunta reprovou.
-- **Reprovou de novo:** não envia. Usa uma resposta segura de catálogo ou faz o handoff humano, e grava
-  a falha.
-- **Passou:** publica no Chatwoot e grava o turno (histórico, estado, contador, proposta, Pix e os 3
-  laudos do Jev).
+O texto do Luna é conferido contra uma prévia dos números, antes de qualquer link ou Pix de verdade: os marcadores
+obrigatórios da ação estão presentes, nenhum outro, e não há dígito, valor ou link solto. Reprovou: **2 tentativas**, a
+2ª dizendo ao Luna o motivo. Sem texto aprovado: uma **resposta segura** curta, sem número, uma vez por conversa; na vez
+seguinte, o humano assume (`VALIDACAO`). Com a guarda de palavra-chave, a chamada é uma só e serve ao texto do handoff.
 
 ## 7. Custo e latência
 
-- 3 chamadas ao Jev por turno: cerca de US$ 0,27 por 1.000 turnos e de 0,2 a 1,5 s a mais no turno.
-- O webhook do Chatwoot já chega com cerca de 1 minuto de atraso, então esse tempo some no ruído.
-- O tempo da linguagem de programação fica abaixo de 1% do turno (análise do D7).
+Uma chamada ao Luna por turno (D59; preço na D42). O webhook do Chatwoot já chega com cerca de 1 minuto de atraso, e a
+rajada espera 7 s. O tempo da linguagem de programação fica abaixo de 1% do turno (análise do D7).
 
-## 8. Entrada em fases
+## 8. O modo teste (D56, D61)
 
-| Fase | O que entra |
-|---|---|
-| 0 | Banco ligado e histórico persistido. Sem histórico rotulado, os limiares são chute |
-| 1, modo sombra | Os 3 batches do Jev rodam e gravam o laudo, sem agir em nada |
-| 2 | Jev 3 em produção: só valida e bloqueia, nunca decide |
-| 3 | Jev 1 em produção: estados, tom, retenção e handoff |
-| 4 | Jev 2 assume a ação, com os limiares calibrados no dado real |
+Com `[teste]` no `politica.toml`, os telefones do piloto recebem **5 casos inventados** (`cardapio-teste.toml`, matrícula
+`SIM-…`) no lugar da carteira. Um roteador manda as matrículas `SIM-` ao `CTNDeCasos` e o resto ao CTN real. O Pix e o
+link viram `[TESTE] …`; `/paguei` simula a confirmação do banco; `/nota` grava o retorno do testador preso ao turno
+(`agente notas-teste` junta num relatório). O serviço não sobe com cobrança real ativa em telefone do piloto.
 
-A ordem das fases neste projeto ainda é dúvida: ver T7 em [`duvidas.md`](duvidas.md).
+## 9. Falhas e fallback
 
-## 9. Fallback e acesso ao Jev
-
-- **Fallback obrigatório:** com o Jev indisponível ou lento, o turno vai para o humano, nunca para o
-  robô sem avaliação.
-- **Acesso:** pela Vercel AI Gateway (`typesafe-ai/jev`, AI SDK 7 `experimental_evaluate`). A API
-  direta estava em lista de espera em 2026-10-15.
-- **LGPD:** Zero Data Retention e No Training ligados em cada chamada, porque é dado financeiro
-  pessoal. O uso está autorizado (D12).
+- **O Luna, o CTN, o Pix ou o Chatwoot fora do ar:** o turno é desfeito e tentado de novo, com espera que dobra, até
+  `integracao_tentativas` (3); depois, o humano (`INTEGRACAO_INDISPONIVEL`). Sem o Luna o turno não responde
+  por conta própria: esgotadas as tentativas, a conversa vai ao humano.
+- **Erro de código:** 3 tentativas (`erro_interno_tentativas`) e o humano (`ERRO_INTERNO`).
+- **A guarda de palavra-chave** (golpe, jurídico, pedido de humano) leva ao humano na hora, com a frase fixa, mesmo com
+  o Luna fora do ar.
+- **LGPD:** o histórico da conversa vai à OpenAI a cada turno. O serviço só sobe com dado real e a OpenAI juntos se
+  `AGENTE_LLM_DADOS_REAIS_LIBERADOS=true`, depois da conferência da retenção de dados (T6, D42).
 
 ## 10. Integrações: interfaces com implementação falsa
 
-Os sistemas de fora entram como interfaces. Enquanto a dúvida técnica não fecha, a implementação é
-falsa: responde como o sistema real responderia, sem chamar ninguém. Trocar a falsa pela real não muda
-o resto do código.
+Os sistemas de fora entram como interfaces (`src/agente/integracoes/`); enquanto o sistema real não chega, a
+implementação é falsa. Trocar a falsa pela real não muda o resto do código.
 
 | Interface | O que oferece | Real depende de |
 |---|---|---|
-| `CTN` | consulta do cliente, da matrícula e do histórico de pagamentos (forma e data); geração do link de pagamento com o valor; registro da baixa; webhook do pagamento pelo link | T9 |
+| `CTN` | cliente, matrícula, histórico de pagamentos, mensalidades e baixas (**leitura real**, `CTNEficaz`); link de pagamento, link de cadastro do cartão, registro da baixa e webhook (**falsos**) | T9 (escrita) |
 | `PixBanco` | cobrança Pix com txid e vencimento; webhook do Pix recebido | T1 |
-| `Chatwoot` | webhook de mensagem, envio, nota privada, etiqueta, atribuição e status (Agent Bot, D1); download do anexo do cliente (o áudio), só da origem do Chatwoot | T3 |
+| `Chatwoot` | webhook de mensagem, envio, nota privada, etiqueta, atribuição, status; download do anexo do cliente (o áudio) | T3 |
 | `Disparador` | envio da abertura por template, com o botão "Pagar com Pix" (D3, D26) | T4 |
-| `Jev` | os 3 batches (leitura, decisão, validação), com o fallback da seção 9 | T5 |
-| `Redator` | o LLM que redige a partir das ações e dos números (`RedatorOpenAI`, o `gpt-6-luna`, D42) | T6 |
-| `Transcritor` | o áudio do cliente em texto (`TranscritorOpenAI`, o `gpt-4o-mini-transcribe`, D43); a falha é um resultado, nunca uma exceção | T11 |
+| `LLMTurno` | a chamada ao Luna, que devolve o JSON do turno (`LLMTurnoOpenAI`) | T6 |
+| `Transcritor` | o áudio do cliente em texto (`TranscritorOpenAI`); a falha é um resultado, nunca uma exceção | T11 |
+
+## Para onde ir no código
+
+| Quero ver | Onde |
+|---|---|
+| a entrada, o prompt, a saída e a decisão do Luna | `src/agente/turno/uma_chamada.py` |
+| o fluxo do turno, as falhas e o envio | `src/agente/turno/orquestrador.py` |
+| os gates | `src/agente/turno/gates.py` |
+| o handoff e as fixas | `src/agente/turno/handoff.py`, `src/agente/turno/catalogo.py` |
+| quem está no piloto | `src/agente/turno/liberacao.py` |
+| o webhook | `src/agente/api/chatwoot_webhook.py` |
+| a política (valores, janela, textos) | `politica.toml`, `src/agente/politica.py` |
+| a confirmação do pagamento e as baixas | `src/agente/pagamento/` |
+| o modo teste | `src/agente/teste/`, `cardapio-teste.toml` |

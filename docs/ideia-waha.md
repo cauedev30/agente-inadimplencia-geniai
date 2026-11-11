@@ -1,14 +1,15 @@
 # Número WAHA como canal de atendimento humano
 
-> **Status: provável, não implementada (2026-10-29).** O Cauê deve seguir com ela, mas só implementa
-> quando for decidir de vez, para não refazer a etapa 7 à toa. Quando virar decisão, revisa a D32 (o
-> webchat) e o texto da 6ª mensagem (D19). Pergunta aberta na C6 de [`duvidas.md`](duvidas.md).
+> **Status: sem efeito pela D60 (2026-11-11). Histórico.** A decisão foi a alternativa registrada abaixo: o humano
+> segue no próprio número oficial, na mesma conversa do Chatwoot, sem link. O canal por link da D32 saiu da v1 (fica
+> na tag `antes-do-enxugamento`). O número WAHA só volta se o custo das mensagens humanas na Meta pesar depois do
+> piloto. Ver a C6 de [`duvidas.md`](duvidas.md).
 
 ## Por que mudar
 
-A maior objeção ao webchat ([`ideia-webchat.md`](ideia-webchat.md)), levantada por um dev da GeniAI,
-é o próprio link. A conversa é sobre o pagamento de quem está devendo, e um link nessa hora gera
-suspeita. O Cauê acha que o link do webchat não vai converter.
+A maior objeção ao canal por link da D32 (o antigo canal externo), levantada por um dev da GeniAI, é o próprio
+link. A conversa é sobre o pagamento de quem está devendo, e um link nessa hora gera suspeita. O Cauê acha que
+esse link não vai converter.
 
 ## A ideia
 
@@ -24,12 +25,12 @@ Quando o cliente escreve para esse número:
 2. deixa na conversa nova uma **nota privada com o resumo**: o que ele quer tratar, a dívida, as
    propostas feitas, por que procurou o outro número e **por que o agente não resolveu** (o laudo do
    Jev, que a nota de handoff já tem);
-3. amarra as duas conversas, como a etapa 7 já faz com o webchat.
+3. amarra as duas conversas, como a etapa 7 fazia com o canal por link.
 
-## O que muda em relação ao webchat
+## O que muda em relação ao canal por link
 
 - **Sem página e sem link.** O cliente continua no WhatsApp e é notificado quando o atendente
-  responde. Some o ponto mais fraco do webchat, a resposta que não chega.
+  responde. Some o ponto mais fraco do canal por link, a resposta que não chega.
 - **Sem token e sem pedir os 3 dígitos do CPF.** O telefone identifica o cliente.
 - **Continua de graça,** porque o WAHA não passa pela Meta.
 - **O descarte de 2026-10-21 não vale mais.** O "outro número fora da API oficial" foi descartado
@@ -54,7 +55,7 @@ Quando o cliente escreve para esse número:
 
 **O humano no próprio número oficial, para todo mundo**, como a D44 já faz com quem desconfia de golpe.
 É a que deve converter melhor e não tem risco de banimento. O preço é pagar à Meta as mensagens do
-humano, que eram o motivo nº 1 do webchat.
+humano, que eram o motivo nº 1 do canal por link.
 
 ## Para decidir
 

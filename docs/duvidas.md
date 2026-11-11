@@ -5,7 +5,7 @@ responde: **G** para o gestor da franquia, **T** para o time técnico e **C** pa
 
 Contexto rápido: o agente cobra pelo WhatsApp os clientes inadimplentes do **Cartão de Todos João
 Pessoa Sul**. Ele tenta resolver o pagamento em até 5 mensagens; a 6ª é fixa: confirma o pagamento ou
-manda o cliente para o canal externo da franquia (D33). O robô só fala de segunda a sexta, das 8h às 18h, e no sábado, das 8h às 12h. Mais
+passa a conversa a um atendente, na mesma conversa (D33, D60). O robô só fala de segunda a sexta, das 8h às 18h, e no sábado, das 8h às 12h. Mais
 em [`spec.md`](spec.md).
 
 Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes.md) e ganha aqui a marca
@@ -13,6 +13,10 @@ Quando uma dúvida for respondida, ela vira decisão em [`decisoes.md`](decisoes
 
 Enquanto não há resposta, a dúvida entra no código como parâmetro, com o **padrão** marcado aqui
 (a lista completa está na seção 4 de [`spec.md`](spec.md)).
+
+**Sem efeito pela D59, D60 ou D61 (2026-11-11):** a pergunta que ganhou esta marca perdeu o objeto, porque o Jev, o
+webchat ou o modo sombra saíram do código. Nada se apaga: o texto fica como histórico, e o que saiu está na tag
+`antes-do-enxugamento`.
 
 ---
 
@@ -26,8 +30,8 @@ Enquanto não há resposta, a dúvida entra no código como parâmetro, com o **
    multa? **Respondida em 2026-10-21 → D29:** é o **desconto máximo**, liberado aos poucos. Continua
    aberto:
    - **Os degraus:** quanto liberar em cada passo e quando. Por exemplo, na R3: R$ 30, depois R$ 60,
-     depois R$ 90? Quem decide o degrau é o Jev, então a regra tem de ser fixa. **Padrão (D35):** 3
-     degraus iguais até o máximo.
+     depois R$ 90? A regra tem de ser fixa (quem decide a ação já não é o Jev, que saiu pela D59: é o Luna, e o
+     código calcula o degrau). **Padrão (D35):** 3 degraus iguais até o máximo.
    - **A Prévia e a R6:** o manual dava R$ 75 na R6 e R$ 60 na Prévia; a operação disse R$ 60 na R6 e não
      falou da Prévia. **Padrão:** R$ 60 nas duas.
    - **Os números:** como desconto máximo, a R3 (R$ 100,20) pode pagar só R$ 10,20, e a R6 (R$ 200,40)
@@ -90,9 +94,9 @@ sábado das 8h às 12h (D11) continua?
    CPF?
 3. **Com que frequência** ela é atualizada: diária, semanal, a cada campanha?
 4. **A unidade tem uma lista hoje? Respondida em 2026-10-30: não.** O JP Sul não tem lista de
-   inadimplentes. Para a pré-sombra, a carteira é estimada das conversas (`agente estimar-carteira`): o
-   valor que o atendente cobrou, dividido pela mensalidade (D24). Não vale para a sombra ao vivo, que
-   continua pedindo a lista do CTN (T9).
+   inadimplentes. Para a pré-sombra, a carteira era estimada das conversas (`agente estimar-carteira`): o
+   valor que o atendente cobrou, dividido pela mensalidade (D24). **Sem efeito pela D59 e pela D61:** a
+   pré-sombra, a sombra e o comando saíram do código; a carteira vem do retrato do CTN (T9), no piloto real.
 
 ### G6. Mensagem de abertura
 
@@ -105,10 +109,14 @@ são desenhados pelo projeto.
 
 ### G7. Canal externo do João Pessoa Sul
 
+**Sem efeito pela D60 (2026-11-11):** o webchat saiu da v1; o atendente segue na mesma conversa do WhatsApp, e o
+rodízio é a atribuição automática do Chatwoot. As perguntas 1 a 4 abaixo perderam o objeto. Fica só a 5, que a D60
+estende a todo handoff: quem responde a inbox do WhatsApp.
+
 ~~Para onde a 4ª mensagem manda o cliente: qual é o **link do web chat** ou o **número de WhatsApp** da
 franquia?~~ **Respondida em 2026-10-21 → D32:** o atendimento humano vai para o **webchat**
-([`ideia-webchat.md`](ideia-webchat.md)), com rodízio igualitário entre os atendentes. Continuam
-abertas:
+(a ideia do webchat saiu do repositório e está na tag `antes-do-enxugamento`), com rodízio igualitário entre os
+atendentes. Estavam abertas:
 
 1. Tem **atendente de plantão** na janela, para responder o webchat em tempo real?
 2. A **confirmação pelos 3 primeiros dígitos do CPF** antes de mostrar a dívida é aceitável?
@@ -208,9 +216,13 @@ Ela confirma entrega e leitura?
 ### T5. Contas e chaves
 
 Quem cria e paga as contas de cada serviço: **Vercel AI Gateway** (Jev), **Groq** (LLM) e o **PSP**?
-*(Desde a D42, o LLM e a transcrição usam a chave da OpenAI da empresa.)*
+*(Desde a D42, o LLM e a transcrição usam a chave da OpenAI da empresa. **Sem efeito pela D59:** o Jev e o Gateway
+saíram.)*
 
 ### T6. Escolha do LLM
+
+*(Os testes abaixo rodaram com o Jev 3 falso e pelo comando `comparar-redatores`, que saíram pela D59; o resultado
+que sustenta a D42 continua valendo.)*
 
 **Respondida em 2026-10-26 → D42:** o LLM é o `gpt-6-luna`, com a chave da empresa. Continua valendo
 o aviso abaixo, agora para a OpenAI. As duas rodadas de comparação estão reunidas, com os resultados
@@ -280,6 +292,10 @@ turno. *(Desde a D42, a OpenAI.)* Falta confirmar a retenção de dados (LGPD) e
 
 ### T7. Entrada em fases
 
+**Sem efeito pela D59 e pela D61 (2026-11-11):** o Jev e o modo sombra saíram do código. Não há fases: só conversam os
+telefones do piloto, e a liberação para os testadores tem 2 condições, o ensaio no `dev2` e o roteiro do Cauê no
+celular ([`spec.md`](spec.md), seção 6). O texto abaixo fica como histórico.
+
 O desenho prevê banco → modo sombra → Jev 3 → Jev 1 → Jev 2 (ver [`arquitetura.md`](arquitetura.md),
 seção 8). **Vale essa ordem** neste projeto? O modo sombra roda com clientes reais do João Pessoa Sul?
 
@@ -289,6 +305,9 @@ enquanto um atendente responde**: o turno grava os laudos e o que o agente teria
 como tal e não entram na calibração.
 
 ### T8. As 6 ações do Jev 2
+
+**Sem efeito pela D59 (2026-11-11):** o Jev 2 saiu; as ações seguem, escolhidas pelo Luna e conferidas pelo código
+([`arquitetura.md`](arquitetura.md)).
 
 **Respondida em 2026-10-22 → D34 a D37:** sai o `SIMULATE`; entram o `OFFER_DISCOUNT` e o
 `SEND_CTN_LINK`, e o código anexa as ações que vão junto na mesma mensagem. Ver
@@ -357,6 +376,9 @@ ficou sem resposta, para o dev (a leitura é só GET; a escrita segue falsa):
 
 ### T10. Jev a partir do Python
 
+**Sem efeito pela D59 (2026-11-11):** o Jev saiu do código, e a integração e a trava dele ficam na tag
+`antes-do-enxugamento`. O texto abaixo fica como histórico.
+
 **Atualização de 2026-11-03:** o Jev vem da **API direta da TypeSafe** (`POST
 https://api.typesafe.ai/v1/systemone`), com a conta da empresa e recarga; a Vercel AI Gateway (relato de
 2026-10-29) foi trocada. Testada só com texto inventado; o mapeamento para o `ContratoJev` está em
@@ -405,6 +427,10 @@ com atrito com a clínica, e esses casos devem ir logo para o humano.
 
 ### C3. Turno adiado que passa das 24h do WhatsApp
 
+**Mudou em 2026-11-11 (enxugamento, tarefa 1.6):** não há template de retomada. A mensagem que passa das 24h do
+WhatsApp vai ao atendente (motivo `FORA_DAS_24H`), com uma nota e sem mensagem ao cliente, enquanto o disparador for
+o falso. O padrão abaixo ficou como histórico.
+
 A mensagem que chega fora da janela é respondida quando a janela abre (D16). Uma mensagem de sábado
 às 12h30 só seria respondida na segunda às 8h, e aí a janela de 24h do WhatsApp já fechou: só pode
 sair um template. **Padrão até você decidir:** um template de retomada pelo disparador, fora do teto.
@@ -413,6 +439,8 @@ Já existe um caso parecido: a resposta do agente que ficou pronta e não saiu a
 24h é descartada hoje, sem template (2026-10-22). Entra na mesma decisão.
 
 ### C5. O cliente que adia o pagamento
+
+*(Onde o texto diz Jev 1, 2 ou 3, leia: o Luna escolhe a ação e o código confere; D59.)*
 
 Quem diz "recebo dia 10, aí eu pago" não está desenhado na spec. Hoje o Jev 2 decide `NONE`, o agente
 fica calado e a régua segue: a próxima cobrança sai no dia normal, o que soa como ser ignorado e cobrado
@@ -430,15 +458,22 @@ Cauê trouxer para o Plan Mode, no Opus.
 
 ### C6. O humano num número WAHA, no lugar do webchat
 
+**Sem efeito pela D60 (2026-11-11):** o webchat saiu e o humano segue no próprio número oficial, que era a
+alternativa registrada na [`ideia-waha.md`](ideia-waha.md). O número WAHA só volta se o custo das mensagens humanas
+na Meta pesar depois do piloto.
+
 O link do webchat pode não converter: um link na conversa de quem deve gera suspeita. **Direção
 provável (2026-10-29), não implementada:** a 6ª mensagem manda um cartão de contato de um segundo
 número, fora da API oficial, ligado ao Chatwoot pelo WAHA. O backend acha a cobrança pelo telefone e
 deixa a nota com o resumo. Desenho, riscos e a alternativa (o humano no próprio número oficial) em
-[`ideia-waha.md`](ideia-waha.md). Revisa a D32 e a D19 quando virar decisão; até lá vale o webchat.
+[`ideia-waha.md`](ideia-waha.md). Revisaria a D32 e a D19; elas foram revisadas pela D60, com a alternativa.
 
 ### C4. Comportamentos do turno ativo
 
-**Respondida pelo Cauê em 2026-10-22 → D38:** os padrões abaixo ficam valendo.
+**Respondida pelo Cauê em 2026-10-22 → D38:** os padrões abaixo ficam valendo. **Revista pela D47 e pela D59
+(2026-11-11):** o Jev saiu; o Luna decide `NONE` do mesmo modo, não há `EM_RISCO` nem Jev 3 (o texto que o código
+reprova duas vezes recebe a resposta segura, e na vez seguinte o atendente), e o LLM, o CTN, o Pix ou o Chatwoot fora do
+ar seguem os padrões 4 e 5.
 
 A etapa 5 precisou de regras que a spec não fixava. **Padrões até você decidir (2026-10-22):**
 

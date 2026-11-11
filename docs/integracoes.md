@@ -1,7 +1,7 @@
 # Guia de integração: ligar os sistemas reais
 
-A v1 está pronta em código (etapas 1 a 8), mas roda com **implementações falsas** dos sistemas de fora.
-Este guia diz, para cada um, **o que precisamos receber**, **onde entra no código** e **como saber que
+O agente está pronto em código, no corte de 2026-11-11 (D59, D60, D61), mas roda com **implementações falsas** dos
+sistemas de fora, salvo a leitura do CTN. Este guia diz, para cada um, **o que precisamos receber**, **onde entra no código** e **como saber que
 ficou pronto**. As perguntas originais estão em [`duvidas.md`](duvidas.md) (T1 a T11).
 
 ## Como cada integração funciona
@@ -11,7 +11,7 @@ Cada interface tem uma implementação falsa, usada nos testes e no desenvolvime
 contrato** em `tests/integracoes/`. A implementação real:
 
 1. implementa os mesmos métodos da interface;
-2. herda a classe de contrato (`ContratoPix`, `ContratoCTN`, `ContratoJev`) num arquivo de teste e
+2. herda a classe de contrato (`ContratoPix` ou `ContratoCTN`) num arquivo de teste e
    define as fixtures que o contrato pede, contra o sandbox ou o ambiente de teste;
 3. levanta a exceção de "fora do ar" da interface quando o sistema não responde (rede caída, prazo
    estourado ou 5xx). O turno trata essa exceção: tenta de novo e, depois de `integracao_tentativas`
@@ -20,40 +20,38 @@ contrato** em `tests/integracoes/`. A implementação real:
    Sem as variáveis, o serviço continua com a falsa.
 
 Credenciais só por variável de ambiente (`.env`, fora do git). O [`.env.example`](../.env.example)
-traz os nomes, sem os valores. O repositório é público: nenhum dado real de cliente em teste ou log.
+traz os nomes, sem os valores. O repositório é privado, mas nenhum dado real de cliente entra em teste ou log.
 
 ## Resumo
 
 | # | Sistema | Precisamos de | Arquivo novo | Bloqueia |
 |---|---|---|---|---|
-| T2 | Servidor | Dokku, Postgres, domínio | — (deploy pronto) | subir em sombra |
-| T3 | Chatwoot do JP Sul | conta, inbox, Agent Bot, token | — (cliente pronto) | subir em sombra |
+| T2 | Servidor | o `dev2`, o Postgres e um túnel (o domínio fica para o piloto real) | — (deploy pronto) | subir o teste |
+| T3 | Chatwoot do JP Sul | conta, inbox, Agent Bot, token | — (cliente pronto) | subir o teste |
 | T1 | Pix do banco do CDT | API, sandbox, webhook | `integracoes/pix_<banco>.py` | tarefa 6.4 |
 | T9 | CTN | API, ambiente de teste, webhook | `integracoes/ctn_http.py` | tarefa 6.5 |
 | T4 | Disparador | API, templates aprovados | `integracoes/disparador_http.py` | abertura real |
-| T10 | Jev | como chamar do Python | `integracoes/jev_<forma>.py` | modo ativo |
-| T6 | LLM (`gpt-6-luna`, D42) | chave, retenção de dados | — (`RedatorOpenAI` pronto) | redação real |
+| T6 | LLM (`gpt-6-luna`, D42) | chave, retenção de dados | — (`LLMTurnoOpenAI` pronto) | o Luna real |
 | T11 | Transcrição de áudio | chave da OpenAI (D43) | — (`TranscritorOpenAI` pronto) | áudio do cliente |
 
-A ordem que destrava mais: **T2 e T3** (o agente sobe em sombra no JP Sul, só lendo), depois **T10**
-(sem o Jev real o modo ativo é recusado), depois **T1, T9 e T4** (pagamento e abertura reais).
+A ordem que destrava mais: **T2, T3 e T6** (o agente sobe no `dev2` e o testador conversa com o Luna real), depois
+**T1, T9 e T4** (pagamento e abertura reais, que abrem o piloto real).
 
 ---
 
 ## T2 — Servidor
 
-**Precisamos de:** o servidor (Dokku, pela D1), um Postgres e o domínio público do serviço, que o
-Chatwoot e os webhooks vão chamar.
+**Precisamos de:** o servidor (D1), um Postgres e o endereço público do serviço, que o Chatwoot e os webhooks vão
+chamar. Para o teste é o `dev2`, com o serviço, o Postgres e um túnel; o domínio fica para o piloto real.
 
 **Já pronto:** o `Dockerfile` roda `alembic upgrade head` e sobe o uvicorn. Ver a seção "Deploy" do
 [`README`](../README.md).
 
 - `AGENTE_DATABASE_URL=postgresql+psycopg://...`
 - a `liberacao` do `politica.toml` (o piloto): lista vazia, ninguém conversa
-- o health check do Dokku consulta `GET /saude`, que não toca no banco. `GET /saude/pagamentos` e
-  `GET /saude/webchat` contam o que ficou pendente.
+- o health check consulta `GET /saude`, que não toca no banco. `GET /saude/pagamentos` conta o que ficou pendente.
 
-**Pronto quando:** o serviço sobe, as migrações rodam até a `0011` e o `/saude` responde.
+**Pronto quando:** o serviço sobe, as migrações rodam até a última (`alembic upgrade head`) e o `/saude` responde.
 
 **Testar no Postgres** (a suíte roda em SQLite): as travas da confirmação de pagamento e do turno
 (`FOR NO KEY UPDATE`, na ordem conversa → cobrança → pagamento) só foram conferidas pelo SQL emitido.
@@ -66,32 +64,26 @@ ordem de id.
 **Precisamos de:**
 - a URL do Chatwoot, o número da conta e a inbox do WhatsApp que o agente atende;
 - o Agent Bot criado nessa inbox, com o token;
-- o time dos atendentes humanos (o handoff atribui a ele);
-- para o webchat: a inbox **Website**, o token do site e a chave HMAC da validação de identidade.
+- o time dos atendentes humanos (o handoff atribui a ele); o atendente responde na mesma conversa do WhatsApp (D60).
 
 **Variáveis:** `AGENTE_CHATWOOT_URL`, `AGENTE_CHATWOOT_CONTA`, `AGENTE_CHATWOOT_INBOX`,
-`AGENTE_CHATWOOT_TOKEN`, `AGENTE_CHATWOOT_TIME_HUMANO`, `AGENTE_WEBHOOK_SEGREDO`, e as do webchat
-(`AGENTE_WEBCHAT_*`).
+`AGENTE_CHATWOOT_TOKEN`, `AGENTE_CHATWOOT_TIME_HUMANO` e `AGENTE_WEBHOOK_SEGREDO`.
 
 **Configurar no Chatwoot:**
 - o webhook do Agent Bot em `POST /webhooks/chatwoot/{AGENTE_WEBHOOK_SEGREDO}`;
-- na inbox Website, **obrigar** a validação de identidade ("Enforce User Identity Validation"). Sem
-  ela, a identidade do cliente se forja;
-- o rodízio dos atendentes da inbox Website (D32). Detalhes na seção "Configuração do Chatwoot" do
-  [`README`](../README.md).
+- o rodízio dos atendentes: a atribuição automática do Chatwoot (*a confirmar* na conta do JP Sul, D60). Detalhes
+  na seção "Configuração do Chatwoot" do [`README`](../README.md).
 
 **Já pronto:** o `ChatwootHttp` (`integracoes/chatwoot.py`) e o webhook.
 
 **A confirmar com o Chatwoot real:**
 - o formato do toque no botão "Pagar com Pix": hoje o gate lê `content_attributes` com o payload
   `PAGAR_PIX` e também o texto do botão;
-- o formato do evento `conversation_created` da inbox Website e o snippet do widget.
 - o `data_url` do áudio tem a mesma origem (esquema, host e porta) do `AGENTE_CHATWOOT_URL`: o
   `FRONTEND_URL` do Chatwoot manda o endereço público, e com o `AGENTE_CHATWOOT_URL` interno todo áudio
   vira pedido de texto (o log avisa, sem o link).
 
-**Pronto quando:** uma mensagem do cliente no WhatsApp chega ao webhook e o turno em sombra grava os
-laudos.
+**Pronto quando:** uma mensagem do cliente no WhatsApp chega ao webhook e o turno responde (ou passa ao atendente).
 
 ## T1 — Pix do banco do Cartão de Todos (tarefa 6.4)
 
@@ -173,9 +165,6 @@ registra a baixa do pagamento pelo link; `false` quer dizer que o próprio CTN d
 
 **Webhook:** `POST /webhooks/ctn`, igual ao do Pix, com o segredo `AGENTE_CTN_WEBHOOK_SEGREDO`.
 
-**Webchat:** a página confere os primeiros dígitos do CPF pelo `consultar_cliente`. Com o `CTNFalso`,
-que não tem clientes, ela responde 503.
-
 **Pronto quando:** o histórico, o link com desconto e a baixa funcionam numa matrícula de teste.
 
 ## CTN real (EFICAZ, só leitura)
@@ -226,8 +215,9 @@ Com uma **fonte de dado real** (`AGENTE_CTN_API_KEY` ou o Chatwoot real) **e** u
 texto do cliente (`AGENTE_LLM_API_KEY`, o Luna, ou `AGENTE_TRANSCRICAO_*`, a transcrição), o serviço
 **recusa subir** enquanto `AGENTE_LLM_DADOS_REAIS_LIBERADOS` não for `true`. A mensagem do erro diz quais
 variáveis dispararam, nunca os valores. Só se libera depois de a retenção de dados da OpenAI ser conferida
-no painel (T6, D42). É o mesmo desenho da trava do Jev (`AGENTE_JEV_DADOS_REAIS_LIBERADOS`, D12). Ela fecha
-o M2: antes dela, a sombra mandava conversa real ao Luna sem trava.
+no painel (T6, D42). Ela fecha o M2: dado real de cliente não vai à
+OpenAI sem a conferência da retenção. Como o serviço sempre exige o Chatwoot real e a chave do Luna, na prática ele só
+sobe com a liberação em `true`.
 
 ### O `CTNComposto`
 
@@ -263,7 +253,7 @@ um `limite` maior é ignorado (o teto da chave). Chamada recusada também conta.
 ### A carteira do dia
 
 ```
-agente importar-ctn [--data AAAA-MM-DD] [--campanha ctn] [--simular]
+agente importar-ctn [--data AAAA-MM-DD] [--campanha ctn] [--meses-minimos N] [--simular]
 ```
 
 Lê o retrato do dia (padrão: hoje, no fuso da janela) e grava como o `importar` do CSV: o upsert do
@@ -282,6 +272,7 @@ daqui (custaria 1 chamada por cliente): sai na conferência. A saída traz só c
 - **Reativa** a cobrança encerrada por `saiu_do_retrato` que volta ao retrato **em até 3 dias** (no fuso
   da janela), em vez de criar outra. A conversa se mantém. Cobrança encerrada por outro motivo e a PAGA
   nunca voltam.
+- `--meses-minimos N` só deixa entrar quem tem N meses de atraso ou mais (padrão 1; no `dev2`, 3: R3 a R6).
 - `--simular` faz tudo e desfaz: mostra os totais que a execução real teria.
 
 **Códigos de saída:**
@@ -334,8 +325,7 @@ não cobra).
 | `NAO_CONFERIDA` | o CTN caiu | não envia | idem |
 
 Regra de ouro: **só `CONFERIDA` deixa citar valor.** O valor do retrato é estimativa e nunca vai ao
-cliente. Em sombra o turno roda normal e grava `QUITADA_NO_CTN` como ação principal, para mostrar o que o
-ativo faria.
+cliente.
 
 **Alarme do disparo:** se, numa rodada, mais de **30%** das conferências feitas (com o mínimo de **20**)
 forem `QUITADA` ou `SEM_LANCAMENTOS`, a carteira ou o CTN está errado. A rodada **para na hora**, marca
@@ -361,10 +351,10 @@ Quem paga por outro caminho (boleto, cartão, balcão) aparece no `lancamentos_b
   fora, para não estourar a cota (60 chamadas por minuto).
 - **Quitou** (a conferência achou rejeitadas e nenhuma em aberto): a cobrança vira **PAGA** com motivo
   `baixa_externa`, a conversa encerra e sai **1 aviso**, o `texto_baixa_externa` do `politica.toml`, texto
-  fixo, **só dentro da janela de 24h** do WhatsApp e fora do teto de mensagens. Fora da janela, em sombra ou
-  com humano na conversa, não sai aviso (com humano, o atendente recebe uma nota privada, refeita nos ciclos
+  fixo, **só dentro da janela de 24h** do WhatsApp e fora do teto de mensagens. Fora da janela ou com humano na
+  conversa, não sai aviso (com humano, o atendente recebe uma nota privada, refeita nos ciclos
   seguintes por até 24 horas se o Chatwoot falhar). O reenvio de um aviso que ficou pendente repete esses
-  testes: se o serviço voltou à sombra, o telefone saiu do piloto ou um atendente assumiu, o aviso é descartado.
+  testes: se o telefone saiu do piloto ou um atendente assumiu, o aviso é descartado.
 - **Pagou parte:** os meses, a dívida e a régua saem da conferência e o agente segue, sem mensagem própria.
   O Pix e o link pendentes de valor diferente da dívida nova expiram, para o mês pago por fora não entrar
   duas vezes.
@@ -405,11 +395,12 @@ O histórico de pagamento usa a `forma` da baixa:
 
 O `DIRETO NO CARTAO - CORPORATIVO` cai em `CARTAO` (o nome tem "CARTAO").
 
-### O ensaio em sombra com a API real (PARADA 3, 2026-11-10, parcial)
+### O ensaio com a API real (2026-11-10, parcial)
 
-Script `ferramentas/ctn/ensaio_sombra.py`: banco descartável em `pre-sombra/`, Chatwoot falso (nada sai), só
-contagens. Feito: importar, baixas (1 passada) e conferir 35 cobranças. **Falta** medir o atraso das baixas em
-horário comercial (fase `ciclos`), que decide a `MARGEM_DE_RELEITURA`.
+Feito com um script que já saiu do repositório (`ferramentas/ctn/ensaio_sombra.py`, na tag
+`antes-do-enxugamento`): banco descartável, Chatwoot falso (nada sai), só contagens. Feito: importar, baixas (1
+passada) e conferir 35 cobranças. **Falta** medir o atraso das baixas em horário comercial, que decide a
+`MARGEM_DE_RELEITURA` (hoje zero, em `pagamento/baixas_ctn.py`).
 
 - **Cota:** a da chave volta a zero na virada do dia (o campo `uso` mostrou `linhas_hoje=50` às 00:21 de 10/11).
   Importar o retrato custou 58 chamadas e 2.898 linhas; cada conferência, cerca de 3 chamadas e 80 linhas.
@@ -458,100 +449,44 @@ aprovados na Meta (D28).
 commit seguinte falha, ela pode sair em dobro. Se a API tiver consulta pelo id do envio, dá para fechar
 isso.
 
-## T10 — Jev a partir do Python
+## T10 — Jev (sem efeito pela D59)
 
-**Como chamar (2026-11-03):** a empresa tem **conta direta na TypeSafe, com recarga** (antes o plano usava a
-Vercel AI Gateway). O Python chama a API por HTTP, sem serviço em Node:
-
-```bash
-curl https://api.typesafe.ai/v1/systemone -H "Authorization: Bearer $AGENTE_JEV_API_KEY"   -H "Content-Type: application/json"   -d '{"model": "jev-latest", "state": {...},
-       "questions": {"x": {"type": "noul", "instructions": "..."}}}'
-```
-
-- Perguntas: `noul` (só `instructions`; devolve uma probabilidade), `choice` (`criteria` = objeto
-  nome da opção → descrição de quando ela se aplica; devolve `choice`, `probabilities` e `confidence`) e
-  `score` (`criteria` = lista ordenada com a descrição de cada nível, do menor para o maior; a posição é o
-  nível). Na `Pergunta` do agente: `bool` → `noul`, `escolha` → `choice`, `score` → `score`; o campo
-  `criterios` traz as descrições na mesma ordem de `opcoes` (sem ele, a descrição de cada opção é o
-  próprio nome dela).
-- **Prazo total da chamada:** o `timeout` do `httpx` vale por fase (conexão, escrita, leitura, pool), e
-  um servidor que manda um pedaço a cada instante o mantém vivo além dele. Por isso o `JevTypeSafe` impõe
-  um prazo TOTAL (75% do `jev_timeout_ms`, o `timeout` do construtor): confere o status antes de ler o
-  corpo e lê por pedaços, conferindo o relógio a cada um; passou do prazo, levanta `JevIndisponivel`
-  ("a TypeSafe passou do prazo") e fecha a resposta. O `timeout` por fase fica igual ao prazo. Nenhuma
-  mensagem de erro leva o `state`, o corpo da resposta nem a chave.
-- `GET /v1/models` lista `jev-latest` (= `jev-1.14.0`) e `jev-preview`. O padrão é o nome fixo `jev-1.14.0`
-  (`AGENTE_JEV_MODELO`), que a API aceita (testado em 2026-11-03, mesma resposta do `jev-latest`): assim os
-  limiares não mudam com uma troca silenciosa do `latest`. Subir de versão é decisão e pede recalibrar.
-- Testado em 2026-11-03 só com texto inventado: ~300 ms, ~400 tokens de entrada para 3 perguntas, saída
-  grátis. Fonte: <https://docs.typesafe.ai/api>.
-- A chave fica em `secrets/typesafe.local.json` e entra pela `AGENTE_JEV_API_KEY` (passou pelo chat em
-  2026-11-03: **rotacionar** depois da etapa 11).
-- **ZDR e No Training pendentes (D12):** a documentação direta não fala deles. Até a TypeSafe confirmar
-  por escrito, **só texto inventado** vai ao Jev real; a trava é `AGENTE_JEV_DADOS_REAIS_LIBERADOS`
-  (padrão `false`): com a chave e sem a liberação o serviço não sobe e o `agente reproduzir` sai com
-  código 2; o `agente simular` não precisa dela. Dúvida T10 em `duvidas.md`.
-- Desenho completo e o mapeamento do retorno para o `Laudo`: `specs/2026-11-03-etapa-11-jev-typesafe.md`.
-
-**Implementar** `JevTypeSafe` (`integracoes/jev_typesafe.py`, contrato do `Jev`):
-- `origem`: `typesafe:<modelo>`. Ele separa os laudos da falsa na calibração;
-- `avaliar(perguntas, estado) -> list[Laudo]`: um laudo por pergunta, na ordem, com o valor dentro das
-  opções;
-- a falha levanta `JevIndisponivel`.
-
-O prazo (`jev_timeout_ms`) e a conferência dos laudos já são aplicados pelo `JevComPrazo`; o Jev real
-não precisa repetir. A semântica da probabilidade de cada laudo precisa ser conferida com a do
-`ContratoJev`.
-
-O `JevComPrazo` não espera a chamada atrasada: ela segue numa thread daemon, sem segurar o desligamento
-do processo. Por isso o Jev real tem um prazo total próprio, menor que o `jev_timeout_ms` (veja
-"Prazo total da chamada", acima), para a chamada não ficar viva depois do turno. No encerramento do
-serviço, o `JevComPrazo.fechar()` fecha o cliente HTTP do Jev real.
-
-**Teste:** herdar `ContratoJev` (`tests/integracoes/test_jev.py`).
-
-**Ligar:** em `montar_dependencias`, com a chave e a liberação, usar `JevComPrazo(JevTypeSafe(...))`; sem
-a chave, o `JevFalso()`. A recusa do modo ativo fica até a calibração: hoje ele é recusado em produção
-enquanto o Jev for o falso.
-
-**Pronto quando:** o Jev real passa no contrato, e as conversas simuladas (`agente simular
-tests/conversas`) rodam com ele.
+O Jev saiu do código com o pipeline de leitura, decisão e validação (D59). O Luna faz a leitura, a decisão
+e a redação numa chamada só, e o código confere. A integração, o contrato e a trava de dados dele ficam na tag
+`antes-do-enxugamento`. A dúvida T10 de [`duvidas.md`](duvidas.md) fica sem efeito.
 
 ## T6 — LLM (`gpt-6-luna`)
 
-**Decidido (D42):** o LLM é o `gpt-6-luna`, da OpenAI, com a chave da empresa.
+**Decidido (D42, D59):** o LLM é o `gpt-6-luna`, da OpenAI, com a chave da empresa. Ele lê a conversa, escolhe a ação
+e redige o texto numa chamada só; o código confere.
 
-**Precisamos de:** a chave e a confirmação da retenção de dados. O histórico da conversa vai à OpenAI a
-cada turno, então é preciso saber se dá para desligar o uso para treino (LGPD).
+**Precisamos de:** a chave e a confirmação da retenção de dados. O histórico da conversa vai à OpenAI a cada turno,
+então é preciso saber se dá para desligar o uso para treino (LGPD).
 
-**Hoje:** o cliente está pronto: `RedatorOpenAI` (`integracoes/redator.py`), no contrato do `Redator`.
-O LLM só escreve marcadores (`{valor_final}`), e o backend preenche os números. Sem a chave, o serviço
-usa o redator falso.
+**Hoje:** o cliente está pronto, `LLMTurnoOpenAI` (`integracoes/llm_turno.py`), no contrato do `LLMTurno`. O Luna só
+escreve marcadores (`{valor_final}`), e o backend preenche os números. **Sem a chave, o serviço não sobe.**
 
-**Ligar, só com a chave** (variáveis no [`.env.example`](../.env.example)):
+**Ligar** (variáveis no [`.env.example`](../.env.example)):
 
 | Variável | Padrão | Para quê |
 |---|---|---|
-| `AGENTE_LLM_API_KEY` | (vazio: redator falso) | a chave da OpenAI |
+| `AGENTE_LLM_API_KEY` | (obrigatória) | a chave da OpenAI |
 | `AGENTE_LLM_URL` | `https://api.openai.com/v1` | a base da API de chat completions |
 | `AGENTE_LLM_MODELO` | `gpt-6-luna` | o modelo; trocar é só mudar isto |
 | `AGENTE_LLM_CORPO_EXTRA` | `{"reasoning_effort": "none"}` | JSON que entra no corpo de todo pedido |
+| `AGENTE_LLM_DADOS_REAIS_LIBERADOS` | `false` | a trava do M2 (ver "A trava dos dados reais"); sem `true`, o serviço não sobe |
 
-**Atenção ao `reasoning_effort`:** o Luna **recusa a temperatura** (HTTP 400, e toda chamada falha)
-sem o `reasoning_effort: "none"`; foi medido no outro agente da GeniAI. O padrão já o manda. Se mudar o
-modelo ou o provedor, confira o que ele aceita no corpo.
+**Atenção ao `reasoning_effort`:** o Luna **recusa a temperatura** (HTTP 400, e toda chamada falha) sem o
+`reasoning_effort: "none"`; foi medido no outro agente da GeniAI. O padrão já o manda. Se mudar o modelo ou o
+provedor, confira o que ele aceita no corpo.
 
-**A confirmar com a chave:** se o Luna aceita a `temperatura = 0.3` que o redator manda (no outro
-agente ele aceitou 0). Se recusar, muda o `temperatura` do `RedatorOpenAI` (hoje 0.3, parâmetro do
-construtor). Confirmar também a retenção de dados (LGPD) antes de ligar.
-
-**Comparar candidatos:** `agente comparar-redatores tests/conversas --modelo gpt-6-luna:0.10:0.50`
-(o `:entrada:saida` é o preço em US$ por milhão de tokens).
+**A confirmar:** a retenção de dados (LGPD) antes de liberar dado real. A comparação que sustentou a escolha do
+modelo está em [`comparacao-llm.md`](comparacao-llm.md) (histórico).
 
 ## T11 — Transcrição de áudio
 
 **Decidido (D43):** o `gpt-4o-mini-transcribe` transcreve os áudios de até 2 minutos, e o texto segue o
-turno normal; o Jev lê a transcrição. É a mesma chave da OpenAI da T6.
+turno normal; o Luna lê a transcrição. É a mesma OpenAI da T6.
 
 **Precisamos de:** a chave da OpenAI para a transcrição e, na T3, o que o Chatwoot manda de verdade
 para o áudio do WhatsApp (o outro agente espera `audio/ogg`; o webhook traz o endereço em `data_url`).
@@ -574,14 +509,13 @@ faltam.
 **O que o dev precisa saber do turno:**
 
 - o áudio entra no histórico como `[áudio transcrito: "<texto>"]` (o falho, como `[áudio — não foi
-  possível ouvir]`, e o longo demais, como `[áudio longo demais — não ouvido]`). O **prompt do Jev real
-  (T10) deve explicar esses rótulos**: é o que o cliente falou e pode ter erro de transcrição;
+  possível ouvir]`, e o longo demais, como `[áudio longo demais — não ouvido]`). O prompt do Luna explica esses
+  rótulos: é o que o cliente falou e pode ter erro de transcrição;
 - o texto transcrito é dado de cliente e **nunca vai ao log**; o endereço do áudio também não (o `configurar_logging` deixa os loggers `httpx` e `httpcore` em WARNING, porque eles logam cada pedido com o endereço inteiro);
 - os limites estão no `politica.toml`: `audio_max_segundos` (120), `audio_max_bytes` (5 MB),
   `audio_prazo_segundos` (15), `audio_sem_duracao_max_bytes` (2 MB, o teto do formato cuja duração não
   se lê, fora do Ogg Opus), `transcricao_prazo_segundos` (15) e `transcricao_max_caracteres` (3000);
-- cada transcrição vira uma nota privada na conversa (`nota_transcricao_em_sombra = true` a mantém
-  também em sombra);
+- cada transcrição vira uma nota privada na conversa;
 - o áudio sem leitura leva o pedido de texto (`pedir_texto_audio_longo` e `pedir_texto_audio_falhou`),
   fora do teto, e na 2ª vez o humano assume, com o motivo `AUDIO`.
 
@@ -592,13 +526,12 @@ Chatwoot.
 
 ## Checklist de entrega
 
-- [ ] T2: o servidor no ar, com o Postgres e o domínio
-- [ ] T3: o Chatwoot configurado e o webhook recebendo; validação de identidade obrigatória no webchat;
-  o `data_url` do áudio com a mesma origem do `AGENTE_CHATWOOT_URL`
-- [ ] Sombra no JP Sul rodando (tarefa 3.7)
-- [ ] T10: o Jev real passa no `ContratoJev`
+- [ ] T2: o servidor no ar (o `dev2` para o teste), com o Postgres e o túnel
+- [ ] T3: o Chatwoot configurado e o webhook recebendo; o `data_url` do áudio com a mesma origem do
+  `AGENTE_CHATWOOT_URL`
 - [ ] T1: o Pix real passa no `ContratoPix`; o webhook com o formato real (tarefa 6.4)
-- [ ] T9: o CTN real passa no `ContratoCTN`; o webhook com o formato real (tarefa 6.5)
+- [ ] T9: a escrita do CTN real passa no `ContratoCTN`; o webhook com o formato real (tarefa 6.5)
 - [ ] T4: o disparador real e os templates aprovados
-- [ ] T6: a chave da OpenAI em `AGENTE_LLM_API_KEY`, a temperatura aceita pelo Luna e a retenção de dados confirmada
+- [ ] T6: a chave da OpenAI em `AGENTE_LLM_API_KEY`, o Luna aceitando o corpo do pedido e a retenção de dados
+  confirmada
 - [ ] T11: a chave da transcrição em `AGENTE_TRANSCRICAO_*`, o content-type real do áudio (T3) e o teste no piloto (D43)

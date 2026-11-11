@@ -4,6 +4,10 @@ Por que o redator do agente é o `gpt-6-luna` (D42), e o que foi testado antes d
 Quem perguntar "por que esse modelo e não outro" encontra a resposta aqui; os resultados brutos estão
 em [`comparacao-llm/`](comparacao-llm/).
 
+> **Histórico (2026-11-11).** Os testes foram feitos quando o Jev decidia a ação e o LLM só redigia, com o comando
+> `comparar-redatores`. Os dois saíram do código (D59): hoje o Luna lê, decide e redige numa chamada só, e o código
+> confere. A escolha do modelo (D42) continua valendo, e o comando fica na tag `antes-do-enxugamento`.
+
 ## Decisão
 
 O LLM de redação é o **`gpt-6-luna`** (OpenAI), com a chave da empresa, o mesmo de outro agente da
