@@ -2,7 +2,6 @@
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -85,7 +84,6 @@ class ConfigCTN(ConfigPolitica):
 
 class Config(ConfigRedator, ConfigCTN):
     database_url: str
-    modo: Literal["sombra", "ativo"] = "sombra"
     log_level: str = "INFO"
 
     # Chatwoot (T3). Vazios até a conta, a inbox e o token do Agent Bot existirem.

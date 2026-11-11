@@ -59,8 +59,9 @@ def mensagens_no_teto(sessao: Session, conversa_id: int) -> int:
     return sessao.scalar(consulta) or 0
 
 
-def abrir_turno(sessao: Session, conversa_id: int, mensagens_ids: list[int], modo: Modo) -> Turno:
-    turno = Turno(conversa_id=conversa_id, mensagens_ids=list(mensagens_ids), modo=modo)
+def abrir_turno(sessao: Session, conversa_id: int, mensagens_ids: list[int]) -> Turno:
+    # O modo é sempre ATIVO: a sombra saiu (D61). A coluna fica, para as linhas antigas.
+    turno = Turno(conversa_id=conversa_id, mensagens_ids=list(mensagens_ids), modo=Modo.ATIVO)
     sessao.add(turno)
     sessao.flush()
     return turno

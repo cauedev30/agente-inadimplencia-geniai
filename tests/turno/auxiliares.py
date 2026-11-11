@@ -13,11 +13,13 @@ from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.integracoes.pix import PixFalso
-from agente.tipos import Modo, OrigemMensagem
-from agente.turno.liberacao import liberar_tudo
+from agente.tipos import OrigemMensagem
 from agente.turno.orquestrador import Dependencias, processar_turno
 from agente.turno.uma_chamada import SINAIS
 
+from ..conftest import piloto_com
+
+TELEFONE = "+5583900000001"  # o do cliente da fixture `conversa`
 JP = ZoneInfo("America/Fortaleza")
 SEGUNDA_10H = datetime(2026, 10, 26, 10, tzinfo=JP)
 
@@ -36,14 +38,13 @@ def _bruto(**mudancas) -> dict:
     return bruto | mudancas
 
 
-def _deps(politica, respostas=(), *, llm=None, modo=Modo.ATIVO, ctn=None, **mudancas):
+def _deps(politica, respostas=(), *, llm=None, ctn=None, **mudancas):
     """As dependências do turno ativo com as falsas; o Luna dá as `respostas`, uma por chamada."""
     return Dependencias(
-        politica=liberar_tudo(politica),
+        politica=piloto_com(politica, TELEFONE),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
-        modo=modo,
         llm_turno=llm or LLMTurnoFalso(respostas=list(respostas), registrar=True),
         ctn=ctn or CTNFalso([ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", None)]),
         pix=PixFalso(agora=lambda: SEGUNDA_10H),

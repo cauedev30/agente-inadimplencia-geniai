@@ -17,16 +17,15 @@ from agente.politica import Regua
 from agente.tipos import (
     EstadoConversa,
     FormaPagamento,
-    Modo,
     OrigemMensagem,
     StatusPagamento,
 )
 from agente.turno.acoes import Acao
 from agente.turno.executar import executar, proximo_estado
-from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
-from .auxiliares import REPLY_LINK, SEGUNDA_10H, _bruto
+from ..conftest import piloto_com
+from .auxiliares import REPLY_LINK, SEGUNDA_10H, TELEFONE, _bruto
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 
@@ -35,13 +34,12 @@ def _ctn():
     return CTNFalso([ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", None)])
 
 
-def _deps(politica, modo=Modo.ATIVO, respostas=()):
+def _deps(politica, respostas=()):
     return Dependencias(
-        politica=liberar_tudo(politica),
+        politica=piloto_com(politica, TELEFONE),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
-        modo=modo,
         llm_turno=LLMTurnoFalso(respostas=list(respostas)),
         ctn=_ctn(),
         pix=PixFalso(agora=lambda: AGORA),
@@ -164,8 +162,7 @@ def test_os_numeros_viram_json_para_o_turno(conversa, politica):
     assert "link_ctn" not in dados
 
 
-# No turno ativo, o executar roda; em sombra, não. O turno completo está em
-# test_orquestrador_uma_chamada.
+# O turno completo está em test_orquestrador_uma_chamada.
 
 
 @pytest.fixture
@@ -198,17 +195,6 @@ def test_no_ativo_o_turno_grava_os_numeros_do_executar(sessao, ligada, politica)
     transicao = sessao.scalars(select(Transicao)).one()
     assert transicao.para is EstadoConversa.AGUARDANDO_PAGAMENTO
     assert transicao.laudo_id is not None
-
-
-def test_em_sombra_o_executar_nao_roda(sessao, ligada, politica):
-    deps = _deps(politica, Modo.SOMBRA, respostas=OFERTA)
-    _cliente(sessao, ligada, "tá caro", "cw-1")
-
-    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    assert deps.ctn.links == {} and deps.pix.cobrancas == {}
-    assert (ligada.degrau_atual, ligada.estado) == (0, EstadoConversa.INICIADO)
-    assert sessao.scalars(select(Pagamento)).all() == []
 
 
 @pytest.mark.parametrize(

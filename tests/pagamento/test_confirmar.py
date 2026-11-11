@@ -33,7 +33,6 @@ from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
     FormaHistorico,
-    Modo,
     MotivoHumano,
     OrigemMensagem,
     Pendencia,
@@ -44,8 +43,9 @@ from agente.tipos import (
 from agente.turno.acoes import Acao
 from agente.turno.catalogo import DadosFixa, mensagem_fixa
 from agente.turno.executar import executar
-from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias
+
+from ..conftest import piloto_com
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 PAGO_EM = AGORA - timedelta(minutes=2)
@@ -88,11 +88,10 @@ class ChatwootInstavel(ChatwootFalso):
 
 def _deps(politica, **mudancas):
     return Dependencias(
-        politica=liberar_tudo(politica).model_copy(update=mudancas),
+        politica=piloto_com(politica, "+5583900000001").model_copy(update=mudancas),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
-        modo=Modo.ATIVO,
         llm_turno=LLMTurnoFalso(),
         ctn=CTNFalso([ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", None)]),
         pix=PixFalso(agora=lambda: AGORA),

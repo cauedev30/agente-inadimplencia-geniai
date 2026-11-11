@@ -1,7 +1,6 @@
 """O backend executa as ações do turno e produz os números (arquitetura, seção 5).
 
-Todo número que vai ao cliente sai daqui: a dívida, o degrau, o link do CTN e o Pix. Só roda no modo
-ativo; em sombra, o turno grava a prévia de `numeros_previstos`, sem gerar link nem Pix.
+Todo número que vai ao cliente sai daqui: a dívida, o degrau, o link do CTN e o Pix.
 """
 
 from dataclasses import asdict, dataclass

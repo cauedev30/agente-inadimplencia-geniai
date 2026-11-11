@@ -10,6 +10,6 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
 RUN uv sync --frozen --no-dev
 
-ENV PATH="/app/.venv/bin:$PATH" AGENTE_MODO=sombra
+ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && uvicorn agente.api.principal:montar_app --factory --host 0.0.0.0 --port ${PORT:-8000}"]

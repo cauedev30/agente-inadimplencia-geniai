@@ -17,7 +17,6 @@ from agente.integracoes.transcritor import TranscritorFalso
 from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
-    Modo,
     MotivoHumano,
     OrigemMensagem,
     ResultadoTurno,
@@ -285,31 +284,6 @@ class TestOsGatesVemAntes:
         assert deps.chatwoot.enviadas(555) == []
 
 
-class TestEmSombra:
-    def test_a_1a_vez_so_grava_o_que_teria_feito(self, sessao, ligada, politica):
-        deps = _deps(politica, transcritor=None, modo=Modo.SOMBRA)
-        _cliente(sessao, ligada, anexos=[_audio()])
-
-        assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.SOMBRA
-
-        assert deps.chatwoot.chamadas == []
-        assert _rotulos(sessao) == ["FIXA:PEDIR_TEXTO"]
-        assert _do_agente(sessao) == []
-
-    def test_a_2a_vez_preve_o_humano_sem_fazer_o_handoff(self, sessao, ligada, politica):
-        deps = _deps(politica, transcritor=None, modo=Modo.SOMBRA)
-        _cliente(sessao, ligada, anexos=[_audio()])
-        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-        agora = SEGUNDA_10H + timedelta(minutes=2)
-        _cliente(sessao, ligada, anexos=[_audio()], momento=agora, mid="cw-2")
-
-        processar_turno(sessao, ligada.id, agora, deps)
-
-        assert _rotulos(sessao) == ["FIXA:PEDIR_TEXTO", "HUMAN:AUDIO"]
-        assert deps.chatwoot.chamadas == []
-        assert ligada.estado is EstadoConversa.INICIADO
-
-
 class TestOPagamentoNoMeioDoTurno:
     """O webhook do Pix confirma o pagamento depois dos gates e antes de o pedido ser gravado."""
 
@@ -364,27 +338,6 @@ class TestOPagamentoNoMeioDoTurno:
         assert deps.chatwoot.chamadas[antes:] == []  # nem nota, nem etiqueta, nem canal externo
         assert _estado_no_banco(sessao, ligada) == (EstadoConversa.ENCERRADO, StatusCobranca.PAGA)
         assert sessao.get_one(type(ligada), ligada.id).motivo_humano is None
-
-
-class TestOPedidoDaSombraNaoContaNoAtivo:
-    def test_o_pedido_gravado_em_sombra_nao_e_a_1a_vez_do_ativo(self, sessao, ligada, politica):
-        sombra = _deps(politica, transcritor=None, modo=Modo.SOMBRA)
-        _cliente(sessao, ligada, anexos=[_audio()])
-        processar_turno(sessao, ligada.id, SEGUNDA_10H, sombra)
-        assert _rotulos(sessao) == ["FIXA:PEDIR_TEXTO"]
-
-        # A liberação gradual leva a conversa ao modo ativo: o cliente nunca viu o pedido.
-        ativo = _deps(politica, transcritor=None)
-        agora = SEGUNDA_10H + timedelta(minutes=2)
-        _cliente(sessao, ligada, anexos=[_audio()], momento=agora, mid="cw-2")
-
-        resultado = processar_turno(sessao, ligada.id, agora, ativo)
-
-        assert resultado is ResultadoTurno.FIXA
-        assert ativo.chatwoot.enviadas(555) == [FALHOU]
-        assert (
-            ligada.estado is not EstadoConversa.ATENDIMENTO_HUMANO and ligada.motivo_humano is None
-        )
 
 
 class TestAvaliarEnvioDoPedidoPendente:

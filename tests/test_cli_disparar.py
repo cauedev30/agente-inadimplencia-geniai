@@ -6,10 +6,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from alembic import command
-from sqlalchemy import select
 
 from agente.cli import main
-from agente.db.modelos import Cliente, Cobranca, Conversa
+from agente.db.modelos import Cliente, Cobranca
 from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso, MensalidadeAberta
 from agente.integracoes.disparador import FalhaNoEnvio
@@ -30,7 +29,7 @@ def banco(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTE_DATABASE_URL", url)
     monkeypatch.setenv("AGENTE_CTN_API_KEY", "chave-ficticia")
     monkeypatch.setattr("agente.cli._agora", lambda: SEGUNDA_10H)
-    ligar_o_disparo(tmp_path, monkeypatch)
+    ligar_o_disparo(tmp_path, monkeypatch, TELEFONE)
     with criar_sessao(url)() as sessao:
         cliente = Cliente(matricula_ctn=MATRICULA, nome=NOME, telefone=TELEFONE)
         sessao.add(
@@ -178,26 +177,13 @@ def test_a_sessao_do_disparo_oculta_os_parametros_do_sql(banco, monkeypatch):
     assert visto.get("ocultar_parametros") is True
 
 
-def test_disparar_em_sombra_nao_dispara_e_diz_por_que(banco, monkeypatch, capsys):
-    monkeypatch.setenv("AGENTE_MODO", "sombra")
-    _usar_ctn(monkeypatch, _ctn_devendo())
-
-    codigo = main(["disparar", "--campanha", "nov"])
-
-    saida = capsys.readouterr().out
-    assert codigo == 2
-    assert "AGENTE_MODO" in saida and "sombra" in saida
-    assert "enviadas" not in saida
-    with criar_sessao(banco)() as sessao:
-        assert sessao.scalars(select(Conversa)).all() == []
-
-
 def test_disparar_conta_quem_esta_fora_da_liberacao(banco, tmp_path, monkeypatch, capsys):
     texto = (tmp_path / "politica-liberada.toml").read_text(encoding="utf-8")
     sem_ninguem = texto.replace(
-        'liberacao = { modo = "percentual", percentual = 100 }',
+        f'liberacao = {{ modo = "piloto", telefones = ["{TELEFONE}"] }}',
         'liberacao = { modo = "piloto", telefones = ["+5583900000000"] }',
     )
+    assert sem_ninguem != texto
     (tmp_path / "politica-liberada.toml").write_text(sem_ninguem, encoding="utf-8")
     _usar_ctn(monkeypatch, _ctn_devendo())
 

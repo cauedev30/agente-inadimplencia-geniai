@@ -8,9 +8,6 @@ levam ao humano, a leitura em laudos e o rótulo que o turno grava como ação p
 from dataclasses import dataclass
 from typing import Literal
 
-from agente.db.modelos import Cobranca, Conversa
-from agente.dominio.desconto import proxima_oferta, valor_com_desconto
-from agente.politica import Politica
 from agente.tipos import Laudo, MotivoHumano
 from agente.turno.acoes import Acao
 
@@ -220,33 +217,3 @@ class Avaliacao:
     def rotulo_nao_executado(self) -> str:
         """A ação decidida cujo texto não saiu: o backend desfez o que ela tinha feito."""
         return f"{NAO_EXECUTADA}{self.rotulo}"
-
-
-def numeros_previstos(
-    avaliacao: Avaliacao, conversa: Conversa, cobranca: Cobranca, politica: Politica
-) -> dict:
-    """A prévia da sombra: os números que a ação teria levado, sem gerar link nem Pix.
-
-    No modo ativo, quem gera os números de verdade é o `executar`.
-    """
-    if avaliacao.acao is None:
-        return {}
-    acoes = [avaliacao.acao, *avaliacao.anexos]
-    numeros: dict = {"divida_centavos": cobranca.divida_centavos}
-    degrau = conversa.degrau_atual
-    if Acao.OFFER_DISCOUNT in acoes:
-        oferta = proxima_oferta(cobranca.regua, cobranca.divida_centavos, degrau, politica)
-        numeros |= {
-            "degrau": oferta.degrau,
-            "desconto_centavos": oferta.desconto_centavos,
-            "valor_final_centavos": oferta.valor_final_centavos,
-        }
-        degrau = oferta.degrau
-    if Acao.SEND_CTN_LINK in acoes:
-        numeros["valor_link_centavos"] = valor_com_desconto(
-            cobranca.regua, cobranca.divida_centavos, degrau, politica
-        )
-    if Acao.GENERATE_PIX in acoes:
-        # O Pix paga sempre o integral (D34).
-        numeros["valor_pix_centavos"] = cobranca.divida_centavos
-    return numeros

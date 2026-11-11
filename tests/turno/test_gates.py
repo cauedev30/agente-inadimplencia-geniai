@@ -59,15 +59,6 @@ def test_humano_na_conversa_e_ignorado(sessao, conversa, politica, como):
     assert resultado == Ignorar("humano_na_conversa")
 
 
-def test_em_sombra_o_humano_na_conversa_nao_barra(sessao, conversa, politica):
-    conversa.human_owned = True
-    mensagens = [_cliente(sessao, conversa)]
-    resultado = avaliar_gates(
-        conversa, mensagens, SEGUNDA_10H, politica, sessao, barrar_humano=False
-    )
-    assert resultado == Seguir()
-
-
 def test_reinicio_so_para_telefone_da_equipe(sessao, conversa, politica):
     mensagem = _cliente(sessao, conversa, texto=politica.comando_reinicio)
     assert _avaliar(sessao, conversa, [mensagem], politica) == Seguir()
@@ -185,13 +176,6 @@ def test_quitada_no_ctn_com_humano_na_conversa_nao_faz_nada(sessao, conversa, po
     conversa.human_owned = True
     resultado = _quitada(sessao, conversa, [_cliente(sessao, conversa)], politica)
     assert resultado == Ignorar("humano_na_conversa")
-
-
-def test_quitada_no_ctn_em_sombra_com_humano_segue_para_a_marcacao(sessao, conversa, politica):
-    conversa.human_owned = True
-    mensagens = [_cliente(sessao, conversa)]
-    resultado = _quitada(sessao, conversa, mensagens, politica, barrar_humano=False)
-    assert resultado == Quitada()
 
 
 def test_quitada_no_ctn_fora_da_janela_de_atendimento_adia(sessao, conversa, politica):

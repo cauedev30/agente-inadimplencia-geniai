@@ -226,6 +226,10 @@ def test_o_servico_de_producao_liga_os_webhooks_com_as_dependencias(monkeypatch,
         politica_path=RAIZ / "politica.toml",
         pix_webhook_segredo=SEGREDOS["pix"],
         llm_api_key="chave-ficticia",
+        llm_dados_reais_liberados=True,
+        chatwoot_url="https://chatwoot.invalid",
+        chatwoot_conta=7,
+        chatwoot_token="token-ficticio",
     )
     chamadas = []
 

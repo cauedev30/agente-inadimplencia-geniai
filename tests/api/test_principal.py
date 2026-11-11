@@ -7,7 +7,7 @@ from agente.api.principal import montar_app, montar_dependencias
 from agente.config import Config
 from agente.db.modelos import Base, Cliente, Cobranca
 from agente.db.sessao import criar_sessao
-from agente.integracoes.chatwoot import ChatwootFalso, ChatwootHttp
+from agente.integracoes.chatwoot import ChatwootHttp
 from agente.integracoes.ctn import ClienteNaoEncontrado, CTNComposto, CTNFalso
 from agente.integracoes.ctn_eficaz import CTNEficaz
 from agente.integracoes.ctn_teste import CTNDeCasos, CTNEscritaDeTeste, RoteadorCTN
@@ -15,7 +15,6 @@ from agente.integracoes.llm_turno import LLMTurnoOpenAI
 from agente.integracoes.pix import PixDeTeste
 from agente.integracoes.transcritor import TranscritorOpenAI
 from agente.politica import Regua
-from agente.tipos import Modo
 from agente.webchat.link import ConfigWebchat
 
 from ..conftest import RAIZ, TESTADOR_1, escrever_politica_de_teste
@@ -28,48 +27,57 @@ WEBCHAT_COMPLETO = {
     "chatwoot_url": "https://chat.invalid",
 }
 CHAVE_LUNA = "chave-do-luna"
+CHATWOOT_REAL = {
+    "chatwoot_url": "https://chatwoot.invalid",
+    "chatwoot_conta": 7,
+    "chatwoot_token": "token-do-chatwoot",
+}
 
 
 def _config(**campos):
-    # O serviço só sobe com a chave do Luna (D59): o padrão dos testes a traz.
+    # O serviço só sobe com o Chatwoot real e com a chave do Luna (D59, D61): o padrão dos testes os
+    # traz, com a liberação da OpenAI (M2), que o Chatwoot real com o Luna sempre pede.
     padrao = {
         "database_url": "sqlite://",
         "politica_path": RAIZ / "politica.toml",
         "webhook_segredo": "s3gredo",
         "llm_api_key": CHAVE_LUNA,
+        "llm_dados_reais_liberados": True,
+        **CHATWOOT_REAL,
     }
     return Config(**{**padrao, **campos})
 
 
-def _fecha_o_luna(deps):
+def _fecha(deps):
+    if isinstance(deps.chatwoot, ChatwootHttp):
+        deps.chatwoot.fechar()
+    if hasattr(deps.ctn, "fechar"):
+        deps.ctn.fechar()
     deps.llm_turno.fechar()
 
 
-def test_sem_chatwoot_configurado_usa_a_falsa_em_sombra():
+@pytest.mark.parametrize(
+    "campos",
+    [
+        {"chatwoot_url": None, "chatwoot_conta": None, "chatwoot_token": None},
+        {"chatwoot_token": None},  # pela metade também não vale
+        {"chatwoot_url": None},
+    ],
+)
+def test_sem_o_chatwoot_real_o_servico_nao_sobe(campos):
+    with pytest.raises(ValueError, match="Chatwoot"):
+        montar_dependencias(_config(**campos))
+
+
+def test_com_chatwoot_configurado_usa_a_real_e_o_ctn_falso_aceita_a_matricula():
     deps = montar_dependencias(_config())
     try:
-        assert isinstance(deps.chatwoot, ChatwootFalso)
-        assert deps.modo is Modo.SOMBRA
+        assert isinstance(deps.chatwoot, ChatwootHttp)
+        assert isinstance(deps.llm_turno, LLMTurnoOpenAI)
+        # Até a T9 o CTN é o falso; ele aceita a matrícula da carteira.
+        assert deps.ctn.consultar_cliente("DEMO-0001").matricula == "DEMO-0001"
     finally:
-        _fecha_o_luna(deps)
-
-
-def test_com_chatwoot_configurado_usa_a_real():
-    config = _config(
-        chatwoot_url="https://chatwoot.invalid",
-        chatwoot_conta=7,
-        chatwoot_token="t",
-        llm_dados_reais_liberados=True,
-    )
-    deps = montar_dependencias(config)
-    assert isinstance(deps.chatwoot, ChatwootHttp)
-    deps.chatwoot.fechar()
-    _fecha_o_luna(deps)
-
-
-def test_modo_ativo_sem_chatwoot_real_e_recusado():
-    with pytest.raises(ValueError, match="Chatwoot"):
-        montar_dependencias(_config(modo="ativo"))
+        _fecha(deps)
 
 
 def test_sem_a_chave_do_llm_o_servico_nao_sobe():
@@ -77,17 +85,18 @@ def test_sem_a_chave_do_llm_o_servico_nao_sobe():
         montar_dependencias(_config(llm_api_key=None))
 
 
-def test_o_chatwoot_real_e_fechado_se_a_chave_do_llm_faltar(monkeypatch):
+@pytest.mark.parametrize(
+    ("campos", "trecho"),
+    [
+        ({"llm_api_key": None}, "AGENTE_LLM_API_KEY"),
+        ({"llm_dados_reais_liberados": False}, "AGENTE_LLM_DADOS_REAIS_LIBERADOS"),
+    ],
+)
+def test_o_chatwoot_real_e_fechado_se_a_subida_for_recusada(monkeypatch, campos, trecho):
     fechados = []
     monkeypatch.setattr(ChatwootHttp, "fechar", lambda self: fechados.append(self))
-    config = _config(
-        chatwoot_url="https://chatwoot.invalid",
-        chatwoot_conta=7,
-        chatwoot_token="t",
-        llm_api_key=None,
-    )
-    with pytest.raises(ValueError, match="AGENTE_LLM_API_KEY"):
-        montar_dependencias(config)
+    with pytest.raises(ValueError, match=trecho):
+        montar_dependencias(_config(**campos))
     assert len(fechados) == 1
 
 
@@ -99,7 +108,7 @@ def test_com_a_chave_do_llm_o_turno_e_o_luna_real(caplog):
         assert deps.llm_turno.modelo == "m-teste"
         assert CHAVE_LUNA not in caplog.text
     finally:
-        _fecha_o_luna(deps)
+        _fecha(deps)
 
 
 def test_o_luna_sai_com_o_gpt_6_luna_e_o_reasoning_effort_por_padrao():
@@ -108,7 +117,7 @@ def test_o_luna_sai_com_o_gpt_6_luna_e_o_reasoning_effort_por_padrao():
         assert deps.llm_turno.modelo == "gpt-6-luna"
         assert deps.llm_turno.corpo_extra == {"reasoning_effort": "none"}
     finally:
-        _fecha_o_luna(deps)
+        _fecha(deps)
 
 
 def test_a_troca_de_modelo_e_so_configuracao():
@@ -123,14 +132,14 @@ def test_a_troca_de_modelo_e_so_configuracao():
         assert deps.llm_turno.corpo_extra == {}
         assert str(deps.llm_turno._cliente.base_url) == "https://llm.invalid/v1/"
     finally:
-        _fecha_o_luna(deps)
+        _fecha(deps)
 
 
 def test_sem_a_transcricao_configurada_o_audio_nao_e_transcrito(caplog):
     deps = montar_dependencias(_config())
     assert deps.transcritor is None
     assert "transcrição" in caplog.text.lower()
-    _fecha_o_luna(deps)
+    _fecha(deps)
 
 
 def test_com_a_transcricao_configurada_o_transcritor_e_o_real():
@@ -142,87 +151,7 @@ def test_com_a_transcricao_configurada_o_transcritor_e_o_real():
     assert deps.transcritor.modelo == "gpt-4o-mini-transcribe"
     assert deps.transcritor.max_caracteres == deps.politica.transcricao_max_caracteres
     deps.transcritor.fechar()
-    _fecha_o_luna(deps)
-
-
-def _politica_com_liberacao(tmp_path, liberacao: str):
-    """Cópia do politica.toml da raiz, trocando só a linha `liberacao = ...`."""
-    linhas = (RAIZ / "politica.toml").read_text(encoding="utf-8").splitlines()
-    assert sum(linha.startswith("liberacao = ") for linha in linhas) == 1
-    texto = "\n".join(
-        f"liberacao = {liberacao}" if linha.startswith("liberacao = ") else linha
-        for linha in linhas
-    )
-    caminho = tmp_path / "politica.toml"
-    caminho.write_text(texto, encoding="utf-8")
-    return caminho
-
-
-PILOTO = '{ modo = "piloto", telefones = ["+5583900000001"] }'
-PERCENTUAL = '{ modo = "percentual", percentual = 10 }'
-
-
-def _config_ativo(tmp_path, liberacao: str, **campos):
-    # O Chatwoot real com o Luna real pede a liberação da OpenAI (M2).
-    return _config(
-        modo="ativo",
-        chatwoot_url="https://chatwoot.invalid",
-        chatwoot_conta=7,
-        chatwoot_token="t",
-        politica_path=_politica_com_liberacao(tmp_path, liberacao),
-        **{"llm_dados_reais_liberados": True, **campos},
-    )
-
-
-def test_modo_ativo_com_o_luna_e_o_piloto_sobe(tmp_path):
-    deps = montar_dependencias(_config_ativo(tmp_path, PILOTO))
-    try:
-        assert deps.modo is Modo.ATIVO
-        assert isinstance(deps.chatwoot, ChatwootHttp)
-        assert isinstance(deps.llm_turno, LLMTurnoOpenAI)
-        # Até a T9 o CTN é o falso; no ativo (piloto) ele aceita a matrícula da carteira.
-        assert deps.ctn.consultar_cliente("DEMO-0001").matricula == "DEMO-0001"
-    finally:
-        deps.chatwoot.fechar()
-        _fecha_o_luna(deps)
-
-
-def test_modo_sombra_segue_com_o_ctn_falso_sem_clientes():
-    deps = montar_dependencias(_config())
-    with pytest.raises(ClienteNaoEncontrado):
-        deps.ctn.consultar_cliente("DEMO-0001")
-    _fecha_o_luna(deps)
-
-
-@pytest.mark.parametrize("liberacao", [PERCENTUAL, '"sombra"'])
-def test_modo_ativo_so_roda_com_a_liberacao_em_piloto_enquanto_pix_e_ctn_forem_falsos(
-    tmp_path, liberacao
-):
-    with pytest.raises(ValueError, match="piloto"):
-        montar_dependencias(_config_ativo(tmp_path, liberacao))
-
-
-def test_modo_ativo_sem_a_chave_do_luna_e_recusado(tmp_path):
-    with pytest.raises(ValueError, match="AGENTE_LLM_API_KEY"):
-        montar_dependencias(_config_ativo(tmp_path, PILOTO, llm_api_key=None))
-
-
-@pytest.mark.parametrize(
-    ("liberacao", "campos", "trecho"),
-    [
-        (PILOTO, {"llm_api_key": None}, "AGENTE_LLM_API_KEY"),
-        (PERCENTUAL, {}, "piloto"),
-        (PILOTO, {"llm_dados_reais_liberados": False}, "AGENTE_LLM_DADOS_REAIS_LIBERADOS"),
-    ],
-)
-def test_os_erros_do_modo_ativo_fecham_o_chatwoot_real(
-    monkeypatch, tmp_path, liberacao, campos, trecho
-):
-    fechados = []
-    monkeypatch.setattr(ChatwootHttp, "fechar", lambda self: fechados.append(self))
-    with pytest.raises(ValueError, match=trecho):
-        montar_dependencias(_config_ativo(tmp_path, liberacao, **campos))
-    assert len(fechados) == 1
+    _fecha(deps)
 
 
 def test_app_de_producao_responde_a_saude():
@@ -245,7 +174,6 @@ def test_com_dominio_e_segredo_o_handoff_leva_o_link_do_webchat():
         "webchat_segredo",
         "webchat_identidade_hmac",
         "webchat_website_token",
-        "chatwoot_url",
     ],
 )
 def test_com_a_pagina_desligada_o_link_continua_provisorio(faltando, caplog):
@@ -269,7 +197,7 @@ CHAVE_CTN = "eg_SEGREDO_INVENTADO_123"
 def test_sem_a_chave_do_ctn_o_falso_de_hoje_serve():
     deps = montar_dependencias(_config())
     assert isinstance(deps.ctn, CTNFalso)
-    _fecha_o_luna(deps)
+    _fecha(deps)
 
 
 def test_com_a_chave_do_ctn_o_ctn_e_o_composto_com_a_eficaz_na_leitura_e_o_falso_na_escrita():
@@ -284,11 +212,6 @@ def test_com_a_chave_do_ctn_o_ctn_e_o_composto_com_a_eficaz_na_leitura_e_o_falso
         deps.ctn.fechar()
 
 
-CHATWOOT_REAL = {
-    "chatwoot_url": "https://chatwoot.invalid",
-    "chatwoot_conta": 7,
-    "chatwoot_token": "token-do-chatwoot",
-}
 TRANSCRICAO = {
     "transcricao_url": "https://transcricao.invalid/v1",
     "transcricao_api_key": "chave-da-transcricao",
@@ -296,28 +219,17 @@ TRANSCRICAO = {
 CTN_REAL = {"ctn_api_key": CHAVE_CTN}
 
 
-def _fecha(deps):
-    if isinstance(deps.chatwoot, ChatwootHttp):
-        deps.chatwoot.fechar()
-    if hasattr(deps.ctn, "fechar"):
-        deps.ctn.fechar()
-    _fecha_o_luna(deps)
-
-
-# (fonte real, destino externo a mais, o que a mensagem de recusa tem de nomear). O Luna é sempre
-# um destino: o serviço não sobe sem a chave dele (D59).
+# (fonte real a mais, destino externo a mais, o que a mensagem de recusa tem de nomear). O Chatwoot
+# real e o Luna estão sempre ligados: o serviço não sobe sem eles (D59, D61).
+BASE = ["AGENTE_CHATWOOT_*", "AGENTE_LLM_API_KEY"]
 RECUSADAS = {
-    "ctn": (CTN_REAL, {}, ["AGENTE_CTN_API_KEY", "AGENTE_LLM_API_KEY"]),
-    "chatwoot": (CHATWOOT_REAL, {}, ["AGENTE_CHATWOOT_*", "AGENTE_LLM_API_KEY"]),
+    "base": ({}, {}, BASE),
+    "ctn": (CTN_REAL, {}, [*BASE, "AGENTE_CTN_API_KEY"]),
+    "transcricao": ({}, TRANSCRICAO, [*BASE, "AGENTE_TRANSCRICAO_*"]),
     "ctn+transcricao": (
         CTN_REAL,
         TRANSCRICAO,
-        ["AGENTE_CTN_API_KEY", "AGENTE_LLM_API_KEY", "AGENTE_TRANSCRICAO_*"],
-    ),
-    "chatwoot+transcricao": (
-        CHATWOOT_REAL,
-        TRANSCRICAO,
-        ["AGENTE_CHATWOOT_*", "AGENTE_LLM_API_KEY", "AGENTE_TRANSCRICAO_*"],
+        [*BASE, "AGENTE_CTN_API_KEY", "AGENTE_TRANSCRICAO_*"],
     ),
 }
 
@@ -326,9 +238,12 @@ RECUSADAS = {
 def test_fonte_real_com_destino_externo_sem_a_liberacao_o_servico_nao_sobe(combinacao):
     fonte, destino, nomes = RECUSADAS[combinacao]
     with pytest.raises(ValueError, match="AGENTE_LLM_DADOS_REAIS_LIBERADOS") as erro:
-        montar_dependencias(_config(**fonte, **destino))
+        montar_dependencias(_config(**fonte, **destino, llm_dados_reais_liberados=False))
     mensagem = str(erro.value)
     assert all(nome in mensagem for nome in nomes)
+    # Só nomeia o que disparou.
+    assert ("AGENTE_CTN_API_KEY" in nomes) == ("AGENTE_CTN_API_KEY" in mensagem)
+    assert ("AGENTE_TRANSCRICAO_*" in nomes) == ("AGENTE_TRANSCRICAO_*" in mensagem)
     for segredo in (
         CHAVE_CTN,
         CHAVE_LUNA,
@@ -340,48 +255,15 @@ def test_fonte_real_com_destino_externo_sem_a_liberacao_o_servico_nao_sobe(combi
         assert segredo not in mensagem
 
 
-def test_a_mensagem_da_recusa_so_nomeia_a_combinacao_que_disparou():
-    with pytest.raises(ValueError) as erro:
-        montar_dependencias(_config(**CTN_REAL, **TRANSCRICAO))
-    assert "AGENTE_CHATWOOT" not in str(erro.value)
-
-
-def test_a_mensagem_nomeia_todas_as_fontes_e_todos_os_destinos_que_dispararam():
-    with pytest.raises(ValueError) as erro:
-        montar_dependencias(_config(**CTN_REAL, **CHATWOOT_REAL, **TRANSCRICAO))
-    for nome in ("AGENTE_CTN_API_KEY", "AGENTE_CHATWOOT_*", "AGENTE_LLM_API_KEY"):
-        assert nome in str(erro.value)
-    assert "AGENTE_TRANSCRICAO_*" in str(erro.value)
-
-
 @pytest.mark.parametrize("combinacao", RECUSADAS)
 def test_fonte_real_com_destino_externo_e_a_liberacao_o_servico_sobe(combinacao):
     fonte, destino, _ = RECUSADAS[combinacao]
-    deps = montar_dependencias(_config(**fonte, **destino, llm_dados_reais_liberados=True))
+    deps = montar_dependencias(_config(**fonte, **destino))
     _fecha(deps)
-
-
-@pytest.mark.parametrize(
-    "campos",
-    [
-        pytest.param({}, id="so-luna"),
-        pytest.param(TRANSCRICAO, id="so-destinos"),
-    ],
-)
-def test_sem_fonte_real_sobe_sem_a_liberacao(campos):
-    deps = montar_dependencias(_config(**campos))
-    _fecha(deps)
-
-
-def test_chatwoot_pela_metade_nao_e_fonte_real():
-    # O serviço só usa o Chatwoot real com a URL, a conta e o token (montar_dependencias).
-    deps = montar_dependencias(_config(chatwoot_url="https://chatwoot.invalid"))
-    assert isinstance(deps.chatwoot, ChatwootFalso)
-    _fecha_o_luna(deps)
 
 
 def test_ctn_real_com_o_luna_real_sem_a_liberacao_o_servico_nao_sobe():
-    config = _config(ctn_api_key=CHAVE_CTN)
+    config = _config(ctn_api_key=CHAVE_CTN, llm_dados_reais_liberados=False)
     with pytest.raises(ValueError, match="AGENTE_LLM_DADOS_REAIS_LIBERADOS") as erro:
         montar_dependencias(config)
     assert CHAVE_CTN not in str(erro.value) and CHAVE_LUNA not in str(erro.value)
@@ -395,25 +277,14 @@ def test_ctn_real_com_o_luna_real_e_a_liberacao_o_servico_sobe():
         assert isinstance(deps.llm_turno, LLMTurnoOpenAI)
     finally:
         deps.ctn.fechar()
-        _fecha_o_luna(deps)
-
-
-def test_luna_real_sem_o_ctn_real_sobe_sem_a_liberacao():
-    deps = montar_dependencias(_config())
-    assert isinstance(deps.llm_turno, LLMTurnoOpenAI)
-    _fecha_o_luna(deps)
+        _fecha(deps)
 
 
 def test_a_recusa_do_luna_fecha_o_chatwoot_e_o_ctn_real(monkeypatch):
     fechados = []
     monkeypatch.setattr(ChatwootHttp, "fechar", lambda self: fechados.append("chatwoot"))
     monkeypatch.setattr(CTNEficaz, "fechar", lambda self: fechados.append("ctn"))
-    config = _config(
-        chatwoot_url="https://chatwoot.invalid",
-        chatwoot_conta=7,
-        chatwoot_token="t",
-        ctn_api_key=CHAVE_CTN,
-    )
+    config = _config(ctn_api_key=CHAVE_CTN, llm_api_key=None)
     with pytest.raises(ValueError, match="AGENTE_LLM"):
         montar_dependencias(config)
     assert sorted(fechados) == ["chatwoot"]
@@ -442,7 +313,7 @@ def test_sem_o_bloco_teste_nao_ha_casos_e_o_ctn_segue_igual():
     assert deps.casos is None
     assert isinstance(deps.ctn, CTNFalso)
     assert not isinstance(deps.pix, PixDeTeste)
-    _fecha_o_luna(deps)
+    _fecha(deps)
 
 
 def test_o_modo_teste_sem_a_chave_do_ctn_usa_o_roteador_com_o_real_falso_e_vazio(tmp_path):
@@ -490,7 +361,7 @@ def test_o_casos_usa_a_mensalidade_da_politica_e_o_dia_do_fuso_da_janela(tmp_pat
 def test_a_recusa_do_luna_no_modo_teste_fecha_o_ctn_real(tmp_path, monkeypatch):
     fechados = []
     monkeypatch.setattr(CTNEficaz, "fechar", lambda self: fechados.append(self))
-    config = _config_de_teste(tmp_path, ctn_api_key=CHAVE_CTN)
+    config = _config_de_teste(tmp_path, ctn_api_key=CHAVE_CTN, llm_api_key=None)
     with pytest.raises(ValueError, match="AGENTE_LLM"):
         montar_dependencias(config)
     assert fechados == []  # o CTN só é montado depois das travas, como sempre

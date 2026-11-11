@@ -35,9 +35,8 @@ def _ambiente(tmp_path, **trocas):
     return subir.montar_ambiente(**{**campos, **trocas})
 
 
-def test_o_ambiente_leva_o_modo_ativo_e_a_liberacao_do_luna_so_para_a_demo(tmp_path):
+def test_o_ambiente_leva_a_liberacao_do_luna_so_para_a_demo(tmp_path):
     ambiente = _ambiente(tmp_path)
-    assert ambiente["AGENTE_MODO"] == "ativo"
     assert ambiente["AGENTE_LLM_DADOS_REAIS_LIBERADOS"] == "true"
     assert ambiente["AGENTE_LLM_API_KEY"] == OPENAI["api_key"]
     assert ambiente["AGENTE_WEBHOOK_SEGREDO"] == SEGREDO
@@ -68,8 +67,8 @@ def test_o_ambiente_tira_as_agente_herdadas_e_guarda_o_resto(tmp_path):
 
 
 def test_a_herdada_nao_sobrepoe_a_da_demo(tmp_path):
-    ambiente = _ambiente(tmp_path, ambiente_base={"AGENTE_MODO": "sombra"})
-    assert ambiente["AGENTE_MODO"] == "ativo"
+    ambiente = _ambiente(tmp_path, ambiente_base={"AGENTE_WEBHOOK_SEGREDO": "herdado"})
+    assert ambiente["AGENTE_WEBHOOK_SEGREDO"] == SEGREDO
 
 
 def test_sem_o_token_do_bot_falha_cedo_e_manda_rodar_a_d4(tmp_path):

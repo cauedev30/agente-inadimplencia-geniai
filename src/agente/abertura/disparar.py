@@ -3,9 +3,9 @@
 A abertura é template e não conta no teto (D33). Cada cobrança recebe uma só: a que já tem conversa
 é pulada, e a que falhou fica sem conversa para a próxima rodada.
 
-Só as cobranças liberadas (`modo_da_conversa` ATIVO: o piloto, a parte ou a carteira toda da
-`liberacao` do politica.toml) recebem a abertura; as demais são puladas ANTES da conferência, sem
-chamar o CTN, e contam em `fora_da_liberacao`. Em sombra, nada é disparado.
+Só as cobranças do piloto (`no_piloto`: a `liberacao` do politica.toml) recebem a abertura; as
+demais são puladas ANTES da conferência, sem chamar o CTN, e contam em `fora_da_liberacao`. Com o
+piloto vazio, nada é disparado.
 
 Com o CTN (`ctn`), a cobrança é conferida antes da abertura, uma vez por dia (spec do CTN real,
 seção 4): o valor do template é o conferido, e só ele. A que o CTN mostra quitada, a que não tem
@@ -14,7 +14,7 @@ lançamentos, a de dado suspeito e a que não foi conferida (CTN fora do ar) NÃ
 antes de qualquer escrita da cobrança, e o commit da conferência solta a trava curta dela antes do
 envio.
 
-Parada de segurança: se, numa rodada, mais de `ALARME_CONFERENCIA_PERCENTUAL`% das conferências (com
+Parada de segurança: se, numa rodada, mais de `ALARME_CONFERENCIA_PCT`% das conferências (com
 pelo menos `ALARME_CONFERENCIA_MINIMO`) forem quitada ou sem lançamentos, o CTN ou a carteira está
 errado: a rodada para na hora e marca `alarme_conferencia` no relatório.
 
@@ -45,17 +45,17 @@ from agente.dominio.telefone import variantes_telefone
 from agente.integracoes.ctn import CTN
 from agente.integracoes.disparador import Disparador
 from agente.politica import Politica
-from agente.tipos import Botao, Modo, OrigemMensagem, StatusCobranca
-from agente.turno.liberacao import modo_da_conversa
+from agente.tipos import Botao, OrigemMensagem, StatusCobranca
+from agente.turno.liberacao import no_piloto
 
 log = logging.getLogger(__name__)
 
 BOTAO_PAGAR_PIX = Botao("resposta", "Pagar com Pix", "PAGAR_PIX")
 
 # A parada de segurança da rodada: com pelo menos este nº de conferências feitas, mais deste
-# percentual de "quitada" ou "sem lançamentos" para a campanha (o CTN ou a carteira está errado).
+# porcentagem de "quitada" ou "sem lançamentos" para a campanha (o CTN ou a carteira está errado).
 ALARME_CONFERENCIA_MINIMO = 20
-ALARME_CONFERENCIA_PERCENTUAL = 30
+ALARME_CONFERENCIA_PCT = 30
 
 # O resultado que conta como conferência feita (o CTN respondeu); só o que falhou fica de fora.
 _CONFERENCIAS_FEITAS = (
@@ -82,8 +82,7 @@ class RelatorioDisparo:
     nao_conferidas: int = 0
     # O telefone é de mais de uma cobrança ativa: vai à revisão humana.
     telefone_compartilhado: int = 0
-    # A cobrança não está liberada para o modo ativo (fora do piloto ou da parte liberada): não
-    # recebe a abertura, e o CTN nem é consultado.
+    # A cobrança é de um telefone fora do piloto: não recebe a abertura, e o CTN nem é consultado.
     fora_da_liberacao: int = 0
     # A rodada parou porque quitadas + sem lançamentos passaram do limite das conferências.
     alarme_conferencia: bool = False
@@ -112,7 +111,7 @@ def _com_telefone_compartilhado(sessao: Session) -> set[int]:
 def _passou_do_limite(quitadas_ou_sem: int, conferencias: int) -> bool:
     return (
         conferencias >= ALARME_CONFERENCIA_MINIMO
-        and quitadas_ou_sem * 100 > ALARME_CONFERENCIA_PERCENTUAL * conferencias
+        and quitadas_ou_sem * 100 > ALARME_CONFERENCIA_PCT * conferencias
     )
 
 
@@ -144,7 +143,7 @@ def disparar_aberturas(
         if cobranca.conversas:
             relatorio.puladas += 1
             continue
-        if modo_da_conversa(cobranca, politica) is not Modo.ATIVO:
+        if not no_piloto(cobranca.cliente.telefone, politica):
             relatorio.fora_da_liberacao += 1
             continue
         if cobranca.id in compartilhadas:

@@ -14,17 +14,16 @@ from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import BaixaCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.llm_turno import LLMTurnoFalso
-from agente.politica import LiberacaoPiloto, Regua
+from agente.politica import Regua
 from agente.tipos import (
     EstadoConversa,
     FormaHistorico,
-    Modo,
     OrigemMensagem,
     StatusCobranca,
 )
 from agente.turno.orquestrador import Dependencias
 
-from ..conftest import RAIZ
+from ..conftest import RAIZ, piloto_com
 
 AGORA = datetime(2026, 11, 9, 15, tzinfo=UTC)
 
@@ -51,7 +50,7 @@ def _baixa():
     )
 
 
-def _app(politica, ctn, *, modo=Modo.SOMBRA, chatwoot=None, **config):
+def _app(politica, ctn, *, chatwoot=None, **config):
     fabrica = criar_sessao("sqlite://")
     Base.metadata.create_all(fabrica.kw["bind"])
     relogio = [AGORA]
@@ -60,7 +59,6 @@ def _app(politica, ctn, *, modo=Modo.SOMBRA, chatwoot=None, **config):
         chatwoot=chatwoot or ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
-        modo=modo,
         llm_turno=LLMTurnoFalso(),
         ctn=ctn,
     )
@@ -115,7 +113,7 @@ def test_a_rotina_das_baixas_usa_o_ctn_que_o_app_recebe(politica, ligado):
     assert ctn.leituras == (1 if ligado else 0)
 
 
-# ---- o modo ativo e o piloto: o aviso da baixa externa sai dentro da janela e não fora ----
+# ---- o piloto: o aviso da baixa externa sai dentro da janela e não fora ----
 
 NO_PILOTO = "+5583999990001"
 FORA_DO_PILOTO = "+5583999990002"
@@ -155,15 +153,12 @@ def _ctn_que_quitou():
     )
 
 
-def _rodar_ativo(politica, telefone_do_cliente, mensagem_ha):
-    piloto = politica.model_copy(
-        update={"liberacao": LiberacaoPiloto(modo="piloto", telefones=frozenset({NO_PILOTO}))}
-    )
+def _rodar(politica, telefone_do_cliente, mensagem_ha):
+    piloto = piloto_com(politica, NO_PILOTO)
     chatwoot = ChatwootFalso()
     trabalhador, fabrica, _relogio = _app(
         piloto,
         _ctn_que_quitou(),
-        modo=Modo.ATIVO,
         chatwoot=chatwoot,
         ctn_api_key="chave-inventada",
     )
@@ -179,7 +174,7 @@ def _rodar_ativo(politica, telefone_do_cliente, mensagem_ha):
 
 
 def test_no_piloto_e_dentro_das_24h_o_aviso_da_baixa_externa_sai(politica):
-    piloto, chatwoot, efeito, status = _rodar_ativo(politica, NO_PILOTO, timedelta(hours=1))
+    piloto, chatwoot, efeito, status = _rodar(politica, NO_PILOTO, timedelta(hours=1))
 
     assert status is StatusCobranca.PAGA
     assert efeito == "quitou"
@@ -187,7 +182,7 @@ def test_no_piloto_e_dentro_das_24h_o_aviso_da_baixa_externa_sai(politica):
 
 
 def test_no_piloto_mas_fora_das_24h_o_aviso_da_baixa_externa_nao_sai(politica):
-    _piloto, chatwoot, efeito, status = _rodar_ativo(politica, NO_PILOTO, timedelta(hours=30))
+    _piloto, chatwoot, efeito, status = _rodar(politica, NO_PILOTO, timedelta(hours=30))
 
     assert status is StatusCobranca.PAGA
     assert efeito == "quitou_fora_da_janela"
@@ -195,8 +190,8 @@ def test_no_piloto_mas_fora_das_24h_o_aviso_da_baixa_externa_nao_sai(politica):
 
 
 def test_fora_do_piloto_o_aviso_da_baixa_externa_nao_sai_mesmo_dentro_da_janela(politica):
-    _piloto, chatwoot, efeito, status = _rodar_ativo(politica, FORA_DO_PILOTO, timedelta(hours=1))
+    _piloto, chatwoot, efeito, status = _rodar(politica, FORA_DO_PILOTO, timedelta(hours=1))
 
     assert status is StatusCobranca.PAGA
-    assert efeito == "quitou_sombra"
+    assert efeito == "quitou_fora_do_piloto"
     assert chatwoot.enviadas(555) == []

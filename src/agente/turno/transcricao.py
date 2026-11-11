@@ -152,13 +152,11 @@ def transcrever_audios(
     chatwoot: Chatwoot,
     transcritor: Transcritor,
     politica: Politica,
-    *,
-    com_nota: bool = True,
 ) -> list[str]:
     """Transcreve os áudios que nenhum turno tentou e grava o resultado de cada um na hora.
 
     O commit vem logo depois: se o turno falhar e voltar para a fila, o áudio não é transcrito de
-    novo. Depois dele, cada transcrição vira uma nota privada na conversa (`com_nota`), para o
+    novo. Depois dele, cada transcrição vira uma nota privada na conversa, para o
     atendente ler o que o cliente falou sem ouvir o áudio; a nota sai antes da resposta do agente.
     Devolve os textos transcritos agora, na ordem.
     """
@@ -173,7 +171,7 @@ def transcrever_audios(
         if novo["resultado"] == TRANSCRITO:
             transcritos.append(novo["transcricao"])
     sessao.commit()
-    if com_nota and conversa.chatwoot_conversa_id is not None:
+    if conversa.chatwoot_conversa_id is not None:
         for texto in transcritos:
             _postar_nota(chatwoot, conversa, texto)
     return transcritos

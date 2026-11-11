@@ -221,7 +221,7 @@ texto_abertura = "Oi, {nome}! Há {mensalidades} mensalidades em aberto, {valor}
 
 def _politica_de_teste(tmp_path, *, liberacao=PILOTO, teste=TESTE, cardapio=None):
     texto = ARQUIVO_PADRAO.read_text(encoding="utf-8")
-    texto = texto.replace('liberacao = "sombra"', liberacao, 1) + teste
+    texto = texto.replace('liberacao = { modo = "piloto", telefones = [] }', liberacao, 1) + teste
     caminho = tmp_path / "politica.toml"
     caminho.write_text(texto, encoding="utf-8")
     (tmp_path / "cardapio-teste.toml").write_text(
@@ -265,20 +265,6 @@ def test_o_exemplo_comentado_do_politica_toml_vale(tmp_path):
     )
     caminho = _politica_de_teste(tmp_path, teste="\n" + bloco + "\n")
     assert len(carregar_politica(caminho).teste.casos) == 5
-
-
-def test_o_teste_com_liberacao_em_sombra_e_recusado(tmp_path):
-    caminho = _politica_de_teste(tmp_path, liberacao='liberacao = "sombra"')
-    with pytest.raises(PoliticaInvalida, match="piloto"):
-        carregar_politica(caminho)
-
-
-def test_o_teste_com_liberacao_percentual_e_recusado(tmp_path):
-    caminho = _politica_de_teste(
-        tmp_path, liberacao='liberacao = { modo = "percentual", percentual = 10 }'
-    )
-    with pytest.raises(PoliticaInvalida, match="piloto"):
-        carregar_politica(caminho)
 
 
 def test_o_numero_do_caso_repetido_e_recusado(tmp_path):

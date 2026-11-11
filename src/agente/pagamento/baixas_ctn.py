@@ -28,7 +28,7 @@ Cada cobrança é commitada sozinha, e o commit vem antes de qualquer envio ou n
 Chatwoot lento não segura trava de linha, e o que já saiu não se perde se a seguinte quebrar. A
 conferência (que chama o CTN) também nunca segura uma trava durante a chamada; depois dela, a
 gravação trava as conversas e a cobrança na ordem de `db/travas.py`, a mesma do webhook do Pix. O
-reenvio do aviso repete os testes do 1º envio (modo, piloto, atendente, 24h). Nenhum log leva
+reenvio do aviso repete os testes do 1º envio (piloto, atendente, 24h). Nenhum log leva
 matrícula, nome nem telefone, nem o texto do erro do SQL (que traz os parâmetros): só o tipo do
 erro e ids do banco.
 """
@@ -54,13 +54,12 @@ from agente.politica import Politica
 from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
-    Modo,
     OrigemMensagem,
     StatusCobranca,
 )
 from agente.turno.entrega import confirmar_envio, entregue
 from agente.turno.gates import humano_na_conversa
-from agente.turno.liberacao import modo_da_conversa
+from agente.turno.liberacao import no_piloto
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +84,7 @@ QUITOU = "quitou"  # a cobrança virou PAGA e o aviso saiu
 QUITOU_AVISO_PENDENTE = "quitou_aviso_pendente"  # PAGA; o aviso está gravado e o Chatwoot falhou
 QUITOU_FORA_DA_JANELA = "quitou_fora_da_janela"  # PAGA; passadas as 24h, o aviso não sai
 QUITOU_SEM_CONVERSA = "quitou_sem_conversa"  # PAGA; o cliente nunca foi contatado
-QUITOU_SOMBRA = "quitou_sombra"  # PAGA; em sombra (ou fora da liberação) nada é enviado
+QUITOU_FORA_DO_PILOTO = "quitou_fora_do_piloto"  # PAGA; fora do piloto (D61) nada é enviado
 QUITOU_COM_HUMANO = "quitou_com_humano"  # PAGA; o atendente soube pela nota, o cliente não recebe
 # PAGA; a nota ao atendente está por enviar (o Chatwoot falhou, ou ele assumiu depois do aviso)
 QUITOU_COM_HUMANO_NOTA_PENDENTE = "quitou_com_humano_nota_pendente"
@@ -107,12 +106,11 @@ _COM_ENVIO_POR_FAZER = (QUITOU_AVISO_PENDENTE, QUITOU_COM_HUMANO_NOTA_PENDENTE)
 
 @dataclass(frozen=True)
 class DependenciasDasBaixas:
-    """O que a rotina usa: a política, o Chatwoot, o CTN e o modo do serviço."""
+    """O que a rotina usa: a política, o Chatwoot e o CTN."""
 
     politica: Politica
     chatwoot: Chatwoot
     time_humano: int | None
-    modo: Modo
     ctn: CTN
 
 
@@ -358,11 +356,9 @@ def _encerrar_conversa(sessao: Session, conversa: Conversa, agora: datetime) -> 
         transicionar(sessao, conversa, EstadoConversa.ENCERRADO, None, None, momento=agora)
 
 
-def _em_sombra(deps: DependenciasDasBaixas, cobranca: Cobranca) -> bool:
-    """O serviço está em sombra, ou o telefone não está no piloto: nada é enviado ao cliente."""
-    return (
-        deps.modo is not Modo.ATIVO or modo_da_conversa(cobranca, deps.politica) is not Modo.ATIVO
-    )
+def _fora_do_piloto(deps: DependenciasDasBaixas, cobranca: Cobranca) -> bool:
+    """O telefone não está no piloto (D61): nada é enviado ao cliente nem muda na conversa dele."""
+    return not no_piloto(cobranca.cliente.telefone, deps.politica)
 
 
 def _quitar(
@@ -377,9 +373,9 @@ def _quitar(
     conversa = _conversa_mais_recente(cobranca)
     if conversa is None:
         return QUITOU_SEM_CONVERSA, None, None
-    if _em_sombra(deps, cobranca):
-        # A sombra não envia nem muda o estado da conversa (arquitetura, seção 8).
-        return QUITOU_SOMBRA, None, None
+    if _fora_do_piloto(deps, cobranca):
+        # Quem está fora do piloto não recebe aviso nem muda o estado da conversa.
+        return QUITOU_FORA_DO_PILOTO, None, None
     com_humano = humano_na_conversa(conversa)
     _encerrar_conversa(sessao, conversa, agora)
     if com_humano:
@@ -620,10 +616,10 @@ def _reenviar_aviso(
     )
     if mensagem is None:
         baixa.efeito = QUITOU_FORA_DA_JANELA
-    elif _em_sombra(deps, cobranca):
-        # O serviço voltou à sombra ou o telefone saiu do piloto desde que o aviso foi gravado.
+    elif _fora_do_piloto(deps, cobranca):
+        # O telefone saiu do piloto desde que o aviso foi gravado.
         mensagem.envio = EstadoEnvio.DESCARTADA
-        baixa.efeito = QUITOU_SOMBRA
+        baixa.efeito = QUITOU_FORA_DO_PILOTO
     elif humano_na_conversa(conversa):
         # Um atendente assumiu: o cliente não recebe, e o atendente ganha a nota.
         mensagem.envio = EstadoEnvio.DESCARTADA
@@ -673,7 +669,7 @@ def _reenviar_um(
 
 
 def _reenviar_avisos(sessao: Session, deps: DependenciasDasBaixas, agora: datetime) -> None:
-    """O aviso gravado PENDENTE que o Chatwoot não recebeu sai agora, se o modo, o piloto e o
+    """O aviso gravado PENDENTE que o Chatwoot não recebeu sai agora, se o piloto e o
     atendente ainda deixam e se as 24h não passaram; senão é descartado. A nota que ficou por enviar
     ao atendente é refeita até o prazo. Uma exceção num item não impede os outros."""
     ids = sessao.scalars(

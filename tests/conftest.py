@@ -6,7 +6,7 @@ from alembic.config import Config as AlembicConfig
 
 from agente.db.modelos import Base, Cliente, Cobranca, Conversa
 from agente.db.sessao import criar_sessao
-from agente.politica import Regua, carregar_politica
+from agente.politica import LiberacaoPiloto, Regua, carregar_politica
 
 RAIZ = Path(__file__).resolve().parents[1]
 
@@ -38,6 +38,17 @@ def alembic_config(url: str) -> AlembicConfig:
 @pytest.fixture
 def politica():
     return carregar_politica(RAIZ / "politica.toml")
+
+
+# Os telefones das cobranças que os testes de disparo criam (`+558399999<n>`, de 1 a 199).
+TELEFONES_DAS_COBRANCAS = tuple(f"+558399999{n:04d}" for n in range(1, 200))
+
+
+def piloto_com(politica, *telefones):
+    """A mesma política com estes telefones no piloto (D61): só eles conversam com o agente."""
+    return politica.model_copy(
+        update={"liberacao": LiberacaoPiloto(telefones=frozenset(telefones))}
+    )
 
 
 @pytest.fixture
@@ -76,7 +87,7 @@ def escrever_politica_de_teste(pasta: Path) -> Path:
     """Uma cópia do politica.toml com o piloto dos 2 testadores e o `[teste]`, na `pasta`."""
     texto = (RAIZ / "politica.toml").read_text(encoding="utf-8")
     piloto = f'liberacao = {{ modo = "piloto", telefones = ["{TESTADOR_1}", "{TESTADOR_2}"] }}'
-    texto = texto.replace('liberacao = "sombra"', piloto, 1)
+    texto = texto.replace('liberacao = { modo = "piloto", telefones = [] }', piloto, 1)
     texto += (
         '\n[teste]\ncardapio = "cardapio-teste.toml"\n'
         'texto_abertura = "Oi, {nome}! Há {mensalidades} mensalidades em aberto, {valor}."\n'
@@ -89,16 +100,18 @@ def escrever_politica_de_teste(pasta: Path) -> Path:
     return caminho
 
 
-def ligar_o_disparo(pasta: Path, monkeypatch) -> Path:
-    """O ambiente do `agente disparar`: AGENTE_MODO=ativo e uma política com a carteira toda
-    liberada (o disparo só abre as cobranças liberadas), numa cópia na `pasta`."""
+def ligar_o_disparo(pasta: Path, monkeypatch, *telefones: str) -> Path:
+    """O ambiente do `agente disparar`: uma política com `telefones` no piloto (o disparo só abre as
+    cobranças do piloto), numa cópia na `pasta`."""
     texto = (RAIZ / "politica.toml").read_text(encoding="utf-8")
+    lista = ", ".join(f'"{t}"' for t in telefones)
     texto = texto.replace(
-        'liberacao = "sombra"', 'liberacao = { modo = "percentual", percentual = 100 }', 1
+        'liberacao = { modo = "piloto", telefones = [] }',
+        f'liberacao = {{ modo = "piloto", telefones = [{lista}] }}',
+        1,
     )
     caminho = pasta / "politica-liberada.toml"
     caminho.write_text(texto, encoding="utf-8")
-    monkeypatch.setenv("AGENTE_MODO", "ativo")
     monkeypatch.setenv("AGENTE_POLITICA_PATH", str(caminho))
     return caminho
 

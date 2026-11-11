@@ -10,7 +10,7 @@ from agente.integracoes.ctn_teste import CTNEscritaDeTeste, RoteadorCTN
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.integracoes.pix import PixDeTeste
-from agente.tipos import Modo, OrigemMensagem
+from agente.tipos import OrigemMensagem
 from agente.turno.orquestrador import Dependencias, processar_turno
 from tests.turno.auxiliares import SEGUNDA_10H, _bruto
 
@@ -24,7 +24,6 @@ def montar_deps(politica, casos, chatwoot=None, *, com_casos=True):
         chatwoot=chatwoot or ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
-        modo=Modo.ATIVO,
         llm_turno=LLMTurnoFalso(respostas=[_bruto()] * 20, registrar=True),
         ctn=ctn,
         pix=PixDeTeste(agora=lambda: SEGUNDA_10H),

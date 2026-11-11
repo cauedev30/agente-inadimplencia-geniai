@@ -10,13 +10,13 @@ from agente.db.modelos import Conversa, Mensagem, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.llm_turno import LLMTurnoFalso
-from agente.tipos import EstadoConversa, Modo, MotivoHumano, OrigemMensagem, ResultadoTurno
+from agente.tipos import EstadoConversa, MotivoHumano, OrigemMensagem, ResultadoTurno
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.fila import mensagens_pendentes
-from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
-from .auxiliares import JP, SEGUNDA_10H, _bruto
+from ..conftest import piloto_com
+from .auxiliares import JP, SEGUNDA_10H, TELEFONE, _bruto
 
 DOMINGO = datetime(2026, 11, 1, 10, tzinfo=JP)
 
@@ -24,11 +24,10 @@ DOMINGO = datetime(2026, 11, 1, 10, tzinfo=JP)
 @pytest.fixture
 def deps(politica):
     return Dependencias(
-        politica=liberar_tudo(politica),
+        politica=piloto_com(politica, TELEFONE),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
-        modo=Modo.ATIVO,
         llm_turno=LLMTurnoFalso(respostas=[_bruto()]),
     )
 
@@ -82,20 +81,6 @@ def test_depois_da_6a_o_cliente_fica_sem_resposta(sessao, ligada, deps):
 
     assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.IGNORADO
     assert len(deps.chatwoot.enviadas(555)) == 1
-
-
-def test_em_sombra_nada_e_enviado(sessao, ligada, deps):
-    deps.modo = Modo.SOMBRA
-    _agente(sessao, ligada, deps.politica.teto_resolucao)
-    _cliente(sessao, ligada)
-
-    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    assert resultado is ResultadoTurno.SOMBRA
-    assert deps.chatwoot.chamadas == []
-    assert ligada.estado is EstadoConversa.INICIADO
-    turno = sessao.scalars(select(Turno)).one()
-    assert (turno.modo, turno.acao_principal) == (Modo.SOMBRA, "FIXA:CANAL_EXTERNO")
 
 
 def test_caminho_livre_grava_o_turno_e_consome_a_rajada(sessao, ligada, deps):

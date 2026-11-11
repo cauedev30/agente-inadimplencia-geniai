@@ -15,7 +15,6 @@ from agente.tipos import (
     BatchJev,
     EstadoConversa,
     FormaPagamento,
-    Modo,
     MotivoHumano,
     OrigemMensagem,
     ResultadoTurno,
@@ -591,36 +590,6 @@ def test_o_pagamento_durante_a_geracao_do_link_desfaz_a_acao_e_nada_sai(
     # O degrau e a forma do savepoint voltaram junto com o Pagamento.
     assert (ligada.degrau_atual, ligada.forma_enviada) == (0, None)
     assert ligada.estado is EstadoConversa.INICIADO
-
-
-# A sombra
-
-
-def test_em_sombra_grava_os_laudos_e_a_previa_sem_gerar_link_nem_pix(
-    sessao, ligada, cliente, politica
-):
-    deps = _deps(politica, [_bruto()], modo=Modo.SOMBRA)
-
-    assert cliente("quanto eu devo?", deps) is ResultadoTurno.SOMBRA
-
-    assert deps.chatwoot.chamadas == []
-    assert deps.pix.cobrancas == {} and deps.ctn.links == {}
-    assert sessao.scalars(select(Pagamento)).all() == [] and _do_agente(sessao) == []
-    assert len(_laudos(sessao, BatchJev.JEV1)) == 11 and len(_laudos(sessao, BatchJev.JEV2)) == 1
-    turno = _turno(sessao)
-    assert turno.acao_principal == "INFORM_DEBT" and turno.texto_enviado is None
-    assert turno.numeros == {"divida_centavos": 10020, "valor_pix_centavos": 10020}
-    assert turno.redacao["saida"] == "SOMBRA" and turno.redacao["caminho"] == "uma_chamada"
-    assert ligada.estado is EstadoConversa.INICIADO and ligada.degrau_atual == 0
-
-
-def test_em_sombra_o_humano_so_grava_o_rotulo(sessao, ligada, cliente, politica):
-    deps = _deps(politica, [_bruto(contesta_divida=True)], modo=Modo.SOMBRA)
-
-    assert cliente("eu não devo", deps) is ResultadoTurno.SOMBRA
-
-    assert deps.chatwoot.chamadas == []
-    assert _turno(sessao).acao_principal == "HUMAN:CONTESTACAO"
 
 
 # O teto e o recebedor

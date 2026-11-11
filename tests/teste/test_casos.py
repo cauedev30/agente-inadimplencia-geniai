@@ -11,11 +11,11 @@ from agente.politica import Regua
 from agente.teste.casos import (
     ativar_caso,
     conversa_viva_do_testador,
-    do_piloto,
     exigir_piloto_fora_da_carteira,
     garantir_caso,
 )
 from agente.tipos import StatusCobranca
+from agente.turno.liberacao import no_piloto
 from tests.conftest import TESTADOR_1, TESTADOR_2
 
 HOJE = date(2026, 11, 10)
@@ -38,21 +38,21 @@ def _cobranca(sessao, telefone, campanha, *, matricula, status=StatusCobranca.AT
     sessao.commit()
 
 
-def test_do_piloto_vale_com_e_sem_o_9(politica_de_teste):
-    assert do_piloto(TESTADOR_1, politica_de_teste)
-    assert do_piloto("+558388887777", politica_de_teste)
-    assert do_piloto("83 98888-7777", politica_de_teste)
-    assert do_piloto(TESTADOR_2, politica_de_teste)
+def test_no_piloto_vale_com_e_sem_o_9(politica_de_teste):
+    assert no_piloto(TESTADOR_1, politica_de_teste)
+    assert no_piloto("+558388887777", politica_de_teste)
+    assert no_piloto("83 98888-7777", politica_de_teste)
+    assert no_piloto(TESTADOR_2, politica_de_teste)
 
 
-def test_do_piloto_recusa_quem_esta_fora_da_lista_e_o_que_nao_e_telefone(politica_de_teste):
-    assert not do_piloto("+5583977776666", politica_de_teste)
-    assert not do_piloto("abc", politica_de_teste)
-    assert not do_piloto("", politica_de_teste)
+def test_no_piloto_recusa_quem_esta_fora_da_lista_e_o_que_nao_e_telefone(politica_de_teste):
+    assert not no_piloto("+5583977776666", politica_de_teste)
+    assert not no_piloto("abc", politica_de_teste)
+    assert not no_piloto("", politica_de_teste)
 
 
-def test_do_piloto_sem_o_piloto_na_politica_e_falso(politica):
-    assert not do_piloto(TESTADOR_1, politica)
+def test_no_piloto_sem_o_piloto_na_politica_e_falso(politica):
+    assert not no_piloto(TESTADOR_1, politica)
 
 
 def test_a_subida_aceita_o_piloto_sem_cobranca_ou_so_com_a_do_teste(sessao, politica_de_teste):
@@ -76,7 +76,7 @@ def test_a_subida_pega_o_telefone_do_piloto_escrito_sem_o_9(sessao, politica_de_
         exigir_piloto_fora_da_carteira(sessao, politica_de_teste)
 
 
-def test_a_subida_conta_as_cobrancas_reais_ativas_do_piloto(sessao, politica_de_teste):
+def test_a_subida_conta_as_cobrancas_reais_ativas_no_piloto(sessao, politica_de_teste):
     _cobranca(sessao, TESTADOR_1, "ctn", matricula="REAL-1")
     _cobranca(sessao, TESTADOR_2, "ctn", matricula="REAL-2")
     with pytest.raises(ValueError, match="2 cobran"):
@@ -201,7 +201,7 @@ def test_garantir_caso_cria_o_caso_padrao_para_o_piloto_sem_cobranca(
     assert cobranca.status is StatusCobranca.ATIVA
 
 
-def test_garantir_caso_nao_faz_nada_com_cobranca_ativa_ou_fora_do_piloto(
+def test_garantir_caso_nao_faz_nada_com_cobranca_ativa_ou_fora_no_piloto(
     sessao, casos, politica_de_teste
 ):
     assert garantir_caso(sessao, casos, politica_de_teste, "+5583977776666", AGORA) is None

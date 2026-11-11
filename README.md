@@ -90,11 +90,9 @@ mostra contagens. É uma estimativa, não vem do sistema do CDT: use o `--cartei
 
 ## Deploy
 
-O serviço roda em modo sombra até o Chatwoot (T3), o Jev real (T10) e o servidor (T2) estarem
-definidos: lê, grava os laudos do Jev e o que o turno teria feito, sem enviar nada. O modo ativo
-exige o Jev real e, enquanto o Pix e o CTN forem os falsos, a liberação em piloto. Com o
-`AGENTE_MODO=ativo`, a `liberacao` do `politica.toml` decide quais conversas
-saem da sombra: o piloto com os telefones da equipe, uma parte da carteira ou a carteira toda.
+O serviço exige o Chatwoot real (T3) e a chave do Luna: sem eles não sobe. Só conversa quem está na
+`liberacao` do `politica.toml` (o piloto, com os telefones da lista, D61); quem está fora é ignorado,
+sem Luna e sem mensagem, e a lista vazia (o padrão) não conversa com ninguém.
 
 ```bash
 docker build -t agente-inadimplencia .

@@ -15,11 +15,11 @@ from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.politica import Regua
-from agente.tipos import EstadoConversa, Modo, OrigemMensagem
+from agente.tipos import EstadoConversa, OrigemMensagem
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
-from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, criar_processador
 
+from .conftest import piloto_com
 from .turno.auxiliares import _bruto
 
 SABADO_13H = datetime(2026, 10, 31, 16, tzinfo=UTC)  # 13h em João Pessoa: janela fechada
@@ -57,11 +57,10 @@ def ambiente(politica):
         sessao.commit()
     chatwoot = ChatwootFalso()
     deps = Dependencias(
-        liberar_tudo(politica),
+        piloto_com(politica, TELEFONE),
         chatwoot,
         DisparadorFalso(),
         time_humano=4,
-        modo=Modo.ATIVO,
         llm_turno=LLMTurnoFalso(respostas=[_bruto()]),
     )
     relogio = Relogio(SEGUNDA_10H)

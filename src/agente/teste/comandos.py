@@ -26,7 +26,7 @@ from agente.integracoes.ctn_teste import CasoInexistente, numero_do_caso
 from agente.pagamento.baixas_ctn import DependenciasDasBaixas, aplicar_baixas_simuladas
 from agente.pagamento.confirmar import ResultadoConfirmacao, confirmar_pagamento
 from agente.politica import CasoTeste, Politica
-from agente.teste.casos import ativar_caso, conversa_viva_do_testador, do_piloto
+from agente.teste.casos import ativar_caso, conversa_viva_do_testador
 from agente.teste.notas import gravar_nota
 from agente.tipos import (
     FormaPagamento,
@@ -37,6 +37,7 @@ from agente.tipos import (
 )
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import humano_na_conversa
+from agente.turno.liberacao import no_piloto
 
 if TYPE_CHECKING:
     from agente.turno.orquestrador import Dependencias
@@ -286,7 +287,6 @@ def _pagar_por_fora(rajada: _Rajada, cobranca_id: int, n: int, chave: str) -> No
         politica=deps.politica,
         chatwoot=deps.chatwoot,
         time_humano=deps.time_humano,
-        modo=deps.modo,
         ctn=deps.ctn,
     )
     aplicar_baixas_simuladas(sessao, deps_baixas, baixas, rajada.agora)
@@ -431,7 +431,7 @@ def _tratar_comandos(
     sessao: Session, conversa: Conversa, agora: datetime, deps: "Dependencias"
 ) -> ResultadoTurno:
     mensagens = tomar_turno(sessao, conversa.id)
-    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
+    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens])
     turno.humano_na_conversa = humano_na_conversa(conversa)
     rajada = _Rajada(sessao, conversa, turno, deps, agora)
     try:
@@ -451,7 +451,7 @@ def _tratar_encerrado(
 ) -> ResultadoTurno:
     """A mensagem comum de um caso que terminou (paga ou trocada): só a orientação, sem o LLM."""
     mensagens = tomar_turno(sessao, conversa.id)
-    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
+    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens])
     turno.humano_na_conversa = humano_na_conversa(conversa)
     _responder(_Rajada(sessao, conversa, turno, deps, agora), TEXTO_ENCERRADO)
     return _fechar_e_confirmar(sessao, conversa, turno, ROTULO_ENCERRADO, agora)
@@ -527,7 +527,7 @@ def _abrir_no_primeiro_contato(
     if conferencia is not ResultadoConferencia.CONFERIDA:
         return None
     mensagens = tomar_turno(sessao, conversa.id)
-    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens], deps.modo)
+    turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens])
     turno.humano_na_conversa = False
     rajada = _Rajada(sessao, conversa, turno, deps, agora)
     numero = _caso_atual(conversa, politica)
@@ -555,7 +555,7 @@ def antes_do_turno(
     if deps.casos is None or teste is None:
         return None
     cobranca = conversa.cobranca
-    if cobranca.campanha != teste.campanha or not do_piloto(
+    if cobranca.campanha != teste.campanha or not no_piloto(
         cobranca.cliente.telefone, deps.politica
     ):
         return None

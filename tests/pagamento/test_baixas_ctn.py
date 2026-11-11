@@ -41,18 +41,20 @@ from agente.tipos import (
     EstadoEnvio,
     FormaHistorico,
     FormaPagamento,
-    Modo,
     OrigemMensagem,
     StatusCobranca,
     StatusPagamento,
 )
-from agente.turno.liberacao import liberar_tudo
+
+from ..conftest import piloto_com
 
 # 12h em Fortaleza, segunda-feira; o mês corrente é 2026/11.
 AGORA = datetime(2026, 11, 9, 15, tzinfo=UTC)
 MATRICULA = "M-0001"
 NOME = "Cliente Fictício"
 TELEFONE = "+5583900000001"
+# No piloto: o da conversa e os que `_nova_cobranca` cria.
+NO_PILOTO = (TELEFONE, *(f"+558390{n:07d}" for n in range(100)))
 
 
 class ChatwootQueCai(ChatwootFalso):
@@ -119,12 +121,11 @@ def _ctn(baixas, abertas=(), rejeitadas=3, matricula=MATRICULA):
     )
 
 
-def _deps(politica, ctn, *, chatwoot=None, modo=Modo.ATIVO, liberar=True):
+def _deps(politica, ctn, *, chatwoot=None, liberar=True):
     return DependenciasDasBaixas(
-        politica=liberar_tudo(politica) if liberar else politica,
+        politica=piloto_com(politica, *NO_PILOTO) if liberar else politica,
         chatwoot=chatwoot or ChatwootFalso(),
         time_humano=4,
-        modo=modo,
         ctn=ctn,
     )
 
@@ -539,7 +540,7 @@ def test_ctn_fora_nao_anda_o_cursor_nem_levanta(sessao, ligada, politica, caplog
     assert resumo.lidas == 1  # a b-2 não se perdeu
 
 
-# ---- a janela de 24h, a sombra e o humano ----
+# ---- a janela de 24h, o piloto e o humano ----
 
 
 def test_fora_da_janela_de_24h_nao_envia_e_o_efeito_diz(sessao, ligada, politica):
@@ -582,25 +583,16 @@ def test_quitou_sem_conversa_so_encerra_a_cobranca(sessao, politica):
     assert _registro(sessao).efeito == "quitou_sem_conversa"
 
 
-def test_em_sombra_a_cobranca_quita_mas_nada_sai_e_a_conversa_nao_muda(sessao, ligada, politica):
-    deps = _deps(politica, _ctn([_baixa()]), modo=Modo.SOMBRA)
+def test_cliente_fora_do_piloto_nao_recebe_o_aviso(sessao, ligada, politica):
+    deps = _deps(politica, _ctn([_baixa()]), liberar=False)  # o piloto padrão é vazio
 
     ler_baixas(sessao, deps, AGORA)
 
     assert ligada.cobranca.status is StatusCobranca.PAGA
+    # Fora do piloto nada sai e a conversa não muda.
     assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
     assert deps.chatwoot.chamadas == []
-    assert _registro(sessao).efeito == "quitou_sombra"
-
-
-def test_cliente_fora_do_piloto_nao_recebe_o_aviso(sessao, ligada, politica):
-    deps = _deps(politica, _ctn([_baixa()]), liberar=False)  # a política padrão é toda em sombra
-
-    ler_baixas(sessao, deps, AGORA)
-
-    assert ligada.cobranca.status is StatusCobranca.PAGA
-    assert deps.chatwoot.chamadas == []
-    assert _registro(sessao).efeito == "quitou_sombra"
+    assert _registro(sessao).efeito == "quitou_fora_do_piloto"
 
 
 def test_com_atendente_na_conversa_o_cliente_nao_recebe_o_aviso_e_o_atendente_ganha_a_nota(
@@ -1031,7 +1023,7 @@ def test_cobranca_fechada_durante_a_conferencia_nao_e_ctn_fora(sessao, politica)
     assert segunda.status is StatusCobranca.PAGA
 
 
-# ---- o reenvio do aviso confere de novo o modo, o piloto e o atendente ----
+# ---- o reenvio do aviso confere de novo o piloto e o atendente ----
 
 
 def _com_aviso_pendente(sessao, politica):
@@ -1044,27 +1036,16 @@ def _com_aviso_pendente(sessao, politica):
     return deps, chatwoot
 
 
-def test_reenvio_com_o_servico_de_volta_a_sombra_descarta_o_aviso(sessao, ligada, politica):
-    deps, chatwoot = _com_aviso_pendente(sessao, politica)
-
-    ler_baixas(sessao, replace(deps, modo=Modo.SOMBRA), AGORA + timedelta(minutes=10))
-
-    assert chatwoot.enviadas(555) == []
-    [aviso] = _fixas(sessao)
-    assert aviso.envio is EstadoEnvio.DESCARTADA
-    assert _registro(sessao).efeito == "quitou_sombra"
-
-
 def test_reenvio_com_o_telefone_fora_do_piloto_descarta_o_aviso(sessao, ligada, politica):
     deps, chatwoot = _com_aviso_pendente(sessao, politica)
-    fora_do_piloto = replace(deps, politica=politica)  # a política padrão é toda em sombra
+    fora_do_piloto = replace(deps, politica=politica)  # o piloto padrão é vazio
 
     ler_baixas(sessao, fora_do_piloto, AGORA + timedelta(minutes=10))
 
     assert chatwoot.enviadas(555) == []
     [aviso] = _fixas(sessao)
     assert aviso.envio is EstadoEnvio.DESCARTADA
-    assert _registro(sessao).efeito == "quitou_sombra"
+    assert _registro(sessao).efeito == "quitou_fora_do_piloto"
 
 
 def test_reenvio_com_atendente_que_assumiu_descarta_o_aviso_e_o_atendente_ganha_a_nota(

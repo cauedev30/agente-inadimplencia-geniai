@@ -315,7 +315,7 @@ def test_comando_de_telefone_fora_do_piloto_vira_texto_comum(
 
     testador.roda(deps)
 
-    # Sem a liberação em piloto o turno é o da sombra: nada sai e o comando segue como texto.
+    # Fora do piloto a conversa é ignorada: nada sai e o comando fica como texto.
     assert deps.chatwoot.enviadas(777) == []
     assert _mensagens(sessao, conversa)[0].origem is OrigemMensagem.CLIENTE
     assert cobranca.status is StatusCobranca.ATIVA

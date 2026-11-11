@@ -190,7 +190,7 @@ class Turno(Base):
     # As tentativas do LLM, o que o Jev 3 reprovou e o que saiu (tarefa 5.3).
     redacao: Mapped[dict[str, Any]] = mapped_column(default=dict)
     resultado: Mapped[ResultadoTurno | None] = mapped_column(_enum(ResultadoTurno))
-    # Um humano já atendia: em sombra, o turno roda assim mesmo e fica marcado (T7).
+    # Um humano já atendia quando o turno abriu (T7).
     humano_na_conversa: Mapped[bool] = mapped_column(default=False)
     aberto_em: Mapped[datetime] = mapped_column(default=_agora)
     fechado_em: Mapped[datetime | None]

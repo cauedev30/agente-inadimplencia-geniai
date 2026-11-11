@@ -2,7 +2,7 @@
 
 Diferente da falha de integração, o erro interno é um bug: o turno é desfeito e volta para a fila
 com a espera que dobra; na última tentativa a conversa vai ao humano com `ERRO_INTERNO`, e o stack
-trace fica no log. Em sombra, o turno é registrado com o erro e sai da fila, sem handoff.
+trace fica no log.
 """
 
 import logging
@@ -26,7 +26,6 @@ from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.orquestrador import processar_turno
 
 from .auxiliares import SEGUNDA_10H, _bruto, _deps
-from .test_orquestrador_sombra import _deps as _deps_sombra
 
 RESPOSTAS = [_bruto()] * 5
 
@@ -308,40 +307,3 @@ def test_o_erro_interno_nao_aciona_o_humano_que_ja_esta_na_conversa(sessao, liga
 
     assert resultado is ResultadoTurno.HANDOFF
     assert _handoffs(deps) == [] and ligada.erros_turno == 0
-
-
-def test_em_sombra_depois_das_tentativas_o_turno_e_registrado_e_sai_da_fila(
-    sessao, ligada, politica, bug
-):
-    defeito = bug()
-    deps = _deps_sombra(politica)
-    _pergunta(sessao, ligada)
-    n = politica.erro_interno_tentativas
-
-    resultados = _rodar_ate_o_fim(sessao, ligada, deps, n + 2)
-
-    assert resultados == [ResultadoTurno.ERRO] * n
-    assert defeito.chamadas == n
-    assert (ligada.turno_em, ligada.erros_turno) == (None, 0)
-    assert ligada.estado is EstadoConversa.INICIADO and ligada.motivo_humano is None
-    assert deps.chatwoot.chamadas == [] and deps.chatwoot.enviadas(555) == []
-    turnos = sessao.scalars(select(Turno).order_by(Turno.id)).all()
-    assert [t.resultado for t in turnos] == [ResultadoTurno.ERRO] * n
-    assert all(t.modo is Modo.SOMBRA for t in turnos)
-    assert [t.redacao.get("erro") for t in turnos[:-1]] == ["RuntimeError"] * (n - 1)
-    # A última linha diz que o turno foi encerrado, e a mensagem do cliente foi consumida.
-    assert turnos[-1].redacao["erro"] == MotivoHumano.ERRO_INTERNO.value
-    assert ligada.ultima_tomada_id == turnos[-1].mensagens_ids[-1]
-
-
-def test_em_sombra_antes_do_teto_o_turno_volta_para_a_fila_sem_consumir(
-    sessao, ligada, politica, bug
-):
-    bug()
-    deps = _deps_sombra(politica)
-    _pergunta(sessao, ligada)
-
-    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ERRO
-
-    assert ligada.erros_turno == 1 and ligada.ultima_tomada_id is None
-    assert ligada.turno_em == SEGUNDA_10H + timedelta(seconds=politica.integracao_espera_segundos)

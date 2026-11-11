@@ -28,7 +28,7 @@ from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso
 from agente.integracoes.ctn_eficaz import CTNEficaz
 from agente.integracoes.disparador import DisparadorFalso
-from agente.politica import LiberacaoPiloto, carregar_politica
+from agente.politica import carregar_politica
 from agente.teste.notas import relatorio_das_notas
 
 Comando = Callable[[argparse.Namespace], int]
@@ -79,12 +79,6 @@ def _mascarar(matricula: str) -> str:
 def _disparar(argumentos: argparse.Namespace) -> int:
     config = carregar_config()
     politica = carregar_politica(config.politica_path)
-    if config.modo != "ativo":
-        print(
-            f"AGENTE_MODO é '{config.modo}': em sombra nada é disparado. Defina AGENTE_MODO=ativo "
-            "(e a liberacao do politica.toml) para disparar as aberturas."
-        )
-        return 2
     if politica.teste is not None and argumentos.campanha == politica.teste.campanha:
         # A matrícula `SIM-` iria à API real: o disparo abre a CTNEficaz direto, sem o roteador.
         print(
@@ -153,11 +147,7 @@ def _importar_ctn(argumentos: argparse.Namespace) -> int:
         return 2
     # No modo teste, os testadores do piloto trocam a carteira pelos casos inventados: a pessoa
     # real que usa o mesmo telefone não entra. Sem `[teste]`, o piloto é de gente real e entra.
-    excluidos = (
-        politica.liberacao.telefones
-        if politica.teste is not None and isinstance(politica.liberacao, LiberacaoPiloto)
-        else frozenset()
-    )
+    excluidos = politica.liberacao.telefones if politica.teste is not None else frozenset()
     print(
         f"Retrato de {data_ref.isoformat()}"
         + (" (simulação: nada é gravado)" if argumentos.simular else "")

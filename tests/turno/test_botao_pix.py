@@ -20,7 +20,6 @@ from agente.pagamento.expirar import expirar_pix
 from agente.tipos import (
     EstadoConversa,
     FormaPagamento,
-    Modo,
     OrigemMensagem,
     ResultadoTurno,
     StatusPagamento,
@@ -30,22 +29,22 @@ from agente.turno import orquestrador
 from agente.turno.catalogo import TEXTO_DO_PIX
 from agente.turno.fila import mensagens_pendentes
 from agente.turno.gates import Adiar, Fixa, Ignorar, PagarPix, Seguir, avaliar_gates
-from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
+from ..conftest import piloto_com
+from .auxiliares import TELEFONE
 from .test_orquestrador_gates import DOMINGO, SEGUNDA_10H
 from .test_orquestrador_pagamento_concorrente import _pagar_por_fora
 
 TOQUE = BOTAO_PAGAR_PIX.texto
 
 
-def _deps(politica, modo=Modo.ATIVO):
+def _deps(politica):
     return Dependencias(
-        politica=liberar_tudo(politica),
+        politica=piloto_com(politica, TELEFONE),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
-        modo=modo,
         llm_turno=LLMTurnoFalso(registrar=True),
         pix=PixFalso(agora=lambda: SEGUNDA_10H),
     )
@@ -284,20 +283,6 @@ def test_o_pix_expirado_pelo_laco_da_lugar_a_um_novo(sessao, ligada, cliente, po
     assert len(deps.pix.cobrancas) == 2
     estados = [p.status for p in sessao.scalars(select(Pagamento).order_by(Pagamento.id))]
     assert estados == [StatusPagamento.EXPIRADO, StatusPagamento.PENDENTE]
-
-
-def test_em_sombra_o_toque_nao_gera_pix_nem_envia(sessao, ligada, cliente, politica):
-    deps = _deps(politica, Modo.SOMBRA)
-
-    assert cliente(TOQUE, deps) is ResultadoTurno.SOMBRA
-
-    assert deps.pix.cobrancas == {}
-    assert deps.chatwoot.enviadas(555) == []
-    turno = sessao.scalars(select(Turno)).one()
-    assert turno.acao_principal == "GENERATE_PIX"
-    assert turno.numeros["valor_pix_centavos"] == ligada.cobranca.divida_centavos
-    do_agente = select(Mensagem).where(Mensagem.origem == OrigemMensagem.AGENTE)
-    assert sessao.scalars(do_agente).all() == []
 
 
 # --- fora da janela de atendimento (D40) ---

@@ -11,12 +11,10 @@ from agente.logs import MascaraDadosPessoais
 
 def test_config_le_do_ambiente(monkeypatch):
     monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
-    monkeypatch.setenv("AGENTE_MODO", "ativo")
 
     config = carregar_config()
 
     assert config.database_url == "sqlite:///teste.db"
-    assert config.modo == "ativo"
 
 
 def test_config_diz_qual_variavel_falta(monkeypatch):
@@ -36,14 +34,6 @@ def test_segredo_vazio_vira_desligado(monkeypatch, variavel):
     config = carregar_config(_env_file=None)
 
     assert getattr(config, variavel.lower()) is None
-
-
-def test_modo_invalido_e_recusado(monkeypatch):
-    monkeypatch.setenv("AGENTE_DATABASE_URL", "sqlite:///teste.db")
-    monkeypatch.setenv("AGENTE_MODO", "talvez")
-
-    with pytest.raises(ValidationError, match="modo"):
-        carregar_config(_env_file=None)
 
 
 def _formatar(mensagem: str) -> str:

@@ -49,7 +49,7 @@ Chatwoot e os webhooks vão chamar.
 [`README`](../README.md).
 
 - `AGENTE_DATABASE_URL=postgresql+psycopg://...`
-- `AGENTE_MODO=sombra` (o ativo é recusado até a T10)
+- a `liberacao` do `politica.toml` (o piloto): lista vazia, ninguém conversa
 - o health check do Dokku consulta `GET /saude`, que não toca no banco. `GET /saude/pagamentos` e
   `GET /saude/webchat` contam o que ficou pendente.
 

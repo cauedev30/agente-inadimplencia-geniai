@@ -1,38 +1,13 @@
-"""Liberação gradual do modo ativo (tarefa 5.5, T7): sombra, piloto, uma parte e a carteira toda.
+"""Quem conversa com o agente (D61): só os telefones do piloto.
 
-Mudar a liberação é só mudar o `liberacao` do politica.toml. O percentual sorteia pela cobrança, com
-um hash do id, nunca ao acaso: a mesma cobrança cai sempre do mesmo lado, e subir o percentual não
-devolve ninguém para a sombra.
+Mudar o piloto é só mudar o `liberacao` do politica.toml. Quem está fora é ignorado: sem Luna, sem
+CTN e sem mensagem. O piloto vazio (o padrão) não conversa com ninguém.
 """
 
-import hashlib
-
-from agente.db.modelos import Cobranca
 from agente.dominio.telefone import variantes_telefone
-from agente.politica import LiberacaoPercentual, LiberacaoPiloto, Politica
-from agente.tipos import Modo
-
-CARTEIRA_TODA = LiberacaoPercentual(modo="percentual", percentual=100)
+from agente.politica import Politica
 
 
-def _faixa(cobranca_id: int) -> int:
-    """De 0 a 99, fixa para cada cobrança."""
-    resumo = hashlib.sha256(f"cobranca:{cobranca_id}".encode()).digest()
-    return int.from_bytes(resumo[:8], "big") % 100
-
-
-def modo_da_conversa(cobranca: Cobranca, politica: Politica) -> Modo:
-    liberacao = politica.liberacao
-    if isinstance(liberacao, LiberacaoPiloto):
-        # Com ou sem o 9 do celular (A1).
-        ativo = not variantes_telefone(cobranca.cliente.telefone).isdisjoint(liberacao.telefones)
-    elif isinstance(liberacao, LiberacaoPercentual):
-        ativo = _faixa(cobranca.id) < liberacao.percentual
-    else:
-        ativo = False
-    return Modo.ATIVO if ativo else Modo.SOMBRA
-
-
-def liberar_tudo(politica: Politica) -> Politica:
-    """A mesma política com a carteira toda no modo ativo (simulação e testes)."""
-    return politica.model_copy(update={"liberacao": CARTEIRA_TODA})
+def no_piloto(telefone: str, politica: Politica) -> bool:
+    """O telefone está no piloto, com ou sem o 9 do celular (A1)."""
+    return not variantes_telefone(telefone).isdisjoint(politica.liberacao.telefones)

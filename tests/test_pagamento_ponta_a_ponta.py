@@ -31,16 +31,15 @@ from agente.politica import Regua
 from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
-    Modo,
     OrigemMensagem,
     StatusCobranca,
     StatusPagamento,
 )
 from agente.turno.acoes import Acao
 from agente.turno.executar import executar
-from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, criar_processador
 
+from .conftest import piloto_com
 from .turno.auxiliares import _bruto
 
 SEGUNDA_10H = datetime(2026, 10, 26, 13, tzinfo=UTC)  # 10h em João Pessoa: janela aberta
@@ -104,11 +103,10 @@ class Ambiente:
         self.ctn = CTNFalso([ClienteCTN("F-1", "Cliente Fictício", TELEFONE, None)])
         self.disparador = DisparadorFalso()
         self.deps = Dependencias(
-            liberar_tudo(politica),
+            piloto_com(politica, TELEFONE),
             self.chatwoot,
             self.disparador,
             time_humano=4,
-            modo=Modo.ATIVO,
             llm_turno=LLMTurnoFalso(respostas=[_bruto()]),
             ctn=self.ctn,
             pix=self.pix,

@@ -25,7 +25,6 @@ from agente.pagamento.concluir import (
 )
 from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
-from agente.tipos import Modo
 from agente.turno.fila import Processar, Rotina, Trabalhador, a_cada, processar_sem_acao
 from agente.webchat.amarrar import (
     contar_amarracoes_sem_concluir,
@@ -78,8 +77,6 @@ def _rotinas(
                 politica=politica,
                 chatwoot=dependencias.chatwoot,
                 time_humano=dependencias.time_humano,
-                # Sem o modo (dependências de teste), o seguro é a sombra: nada é enviado.
-                modo=getattr(dependencias, "modo", Modo.SOMBRA),
                 ctn=ctn,
             )
 

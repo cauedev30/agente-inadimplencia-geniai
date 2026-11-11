@@ -99,10 +99,9 @@ def avaliar_gates(
     politica: Politica,
     sessao: Session,
     *,
-    barrar_humano: bool = True,
     quitada_no_ctn: bool = False,
 ) -> Gate:
-    """Em sombra, o humano na conversa não barra: a sombra lê enquanto os humanos atendem (T7).
+    """Os gates do turno, na ordem do módulo; o humano na conversa sempre barra.
 
     `quitada_no_ctn` (a conferência de hoje achou a cobrança quitada) troca o `Seguir` e o
     `PagarPix` por `Quitada`. Ela é o último gate: humano, reinício, janela de atendimento, janela
@@ -119,7 +118,7 @@ def avaliar_gates(
     )
     if da_equipe and any(e_comando_de_reinicio(mensagem, politica) for mensagem in mensagens):
         return Reiniciar()
-    if barrar_humano and humano_na_conversa(conversa):
+    if humano_na_conversa(conversa):
         return Ignorar("humano_na_conversa")
     if _so_anexo_nao_aceito(mensagens, politica):
         return Ignorar("anexo_nao_aceito")

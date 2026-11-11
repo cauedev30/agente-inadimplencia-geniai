@@ -1,4 +1,4 @@
-"""Sobe a demo do agente no WhatsApp: o serviço em modo ativo, local, atrás de um túnel Cloudflare.
+"""Sobe a demo do agente no WhatsApp: o serviço local, atrás de um túnel Cloudflare.
 
 Uso, de dentro de repo/:
     python -m uv run python ferramentas/demo-whatsapp/subir.py --kit <pasta do kit>
@@ -96,7 +96,6 @@ def montar_ambiente(
     ambiente.update(
         {
             "PYTHONUTF8": "1",
-            "AGENTE_MODO": "ativo",
             "AGENTE_POLITICA_PATH": str(kit / "politica-demo.toml"),
             "AGENTE_DATABASE_URL": f"sqlite:///{(kit / 'demo.db').resolve().as_posix()}",
             "AGENTE_WEBHOOK_SEGREDO": segredo_webhook,

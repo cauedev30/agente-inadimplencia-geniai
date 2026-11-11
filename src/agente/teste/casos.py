@@ -11,17 +11,11 @@ from agente.db.modelos import Cliente, Cobranca, Conversa
 from agente.dominio.divida import calcular_divida, classificar_regua
 from agente.dominio.telefone import normalizar_telefone, variantes_telefone
 from agente.integracoes.ctn_teste import CasoInexistente, CTNDeCasos, matricula_simulada
-from agente.politica import LiberacaoPiloto, Politica
+from agente.politica import Politica
 from agente.tipos import StatusCobranca
+from agente.turno.liberacao import no_piloto
 
 MOTIVO_TROCA_DE_CASO = "troca_de_caso"
-
-
-def do_piloto(telefone: str, politica: Politica) -> bool:
-    """O telefone é de um testador da lista do piloto, com ou sem o 9 (A1)."""
-    if not isinstance(politica.liberacao, LiberacaoPiloto):
-        return False
-    return bool(variantes_telefone(telefone) & politica.liberacao.telefones)
 
 
 def exigir_piloto_fora_da_carteira(sessao: Session, politica: Politica) -> None:
@@ -32,7 +26,7 @@ def exigir_piloto_fora_da_carteira(sessao: Session, politica: Politica) -> None:
     ele o serviço sobe como sempre. A mensagem não leva telefone nem nome, só a contagem.
     """
     teste = politica.teste
-    if teste is None or not isinstance(politica.liberacao, LiberacaoPiloto):
+    if teste is None:
         return
     telefones: set[str] = set()
     for telefone in politica.liberacao.telefones:
@@ -159,7 +153,7 @@ def garantir_caso(
     """O 1º contato do testador: o telefone do piloto sem cobrança ATIVA recebe o caso padrão.
 
     Devolve a cobrança criada, ou None se o telefone não é do piloto ou já tem cobrança ATIVA."""
-    if politica.teste is None or not do_piloto(telefone, politica):
+    if politica.teste is None or not no_piloto(telefone, politica):
         return None
     if _ativas_do_telefone(sessao, telefone, None):
         return None

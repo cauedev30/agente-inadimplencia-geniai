@@ -4,7 +4,7 @@ import tomllib
 from datetime import date, time, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -101,29 +101,13 @@ class Carteira(_Imutavel):
     colunas: ColunasCarteira = ColunasCarteira()
 
 
-class LiberacaoSombra(_Imutavel):
-    modo: Literal["sombra"] = "sombra"
-
-
 class LiberacaoPiloto(_Imutavel):
-    """Só os telefones da lista ficam no modo ativo: o piloto com a equipe (T7)."""
+    """Só os telefones da lista conversam com o agente: o piloto (D61). Lista vazia: ninguém."""
 
-    modo: Literal["piloto"]
-    telefones: frozenset[str] = Field(min_length=1)
+    modo: Literal["piloto"] = "piloto"
+    telefones: frozenset[str] = frozenset()
 
     _normalizar = field_validator("telefones")(_em_e164)
-
-
-class LiberacaoPercentual(_Imutavel):
-    """Uma parte da carteira no modo ativo; 100 é a carteira toda (T7)."""
-
-    modo: Literal["percentual"]
-    percentual: int = Field(ge=0, le=100)
-
-
-Liberacao = Annotated[
-    LiberacaoSombra | LiberacaoPiloto | LiberacaoPercentual, Field(discriminator="modo")
-]
 
 
 def _cpf_valido(cpf: str) -> bool:
@@ -231,9 +215,6 @@ class Politica(_Imutavel):
     # A chamada de transcrição: o prazo e o tamanho do texto guardado (o resto é cortado).
     transcricao_prazo_segundos: int = Field(ge=1)
     transcricao_max_caracteres: int = Field(ge=2)
-    # A nota privada com o texto do áudio sai também em sombra: o atendente responde nessa fase e a
-    # nota o poupa de ouvir o áudio. No modo ativo, sempre sai.
-    nota_transcricao_em_sombra: bool
     # Os pedidos de texto, quando a rajada fica sem nada legível (só áudio que não foi lido; D43).
     pedir_texto_audio_longo: str = Field(min_length=1)
     pedir_texto_audio_falhou: str = Field(min_length=1)
@@ -274,15 +255,10 @@ class Politica(_Imutavel):
     janela: Janela
     propensao: Propensao
     carteira: Carteira = Carteira()
-    liberacao: Liberacao = LiberacaoSombra()
+    # Quem conversa com o agente (D61): só os telefones do piloto; o resto é ignorado.
+    liberacao: LiberacaoPiloto = LiberacaoPiloto()
     # Ligado, os testadores do piloto recebem os casos do cardápio e não a carteira (D56).
     teste: ModoTeste | None = None
-
-    @field_validator("liberacao", mode="before")
-    @classmethod
-    def _liberacao_em_texto(cls, valor):
-        # `liberacao = "sombra"` é o atalho de `liberacao = { modo = "sombra" }`.
-        return {"modo": valor} if isinstance(valor, str) else valor
 
     _normalizar_equipe = field_validator("telefones_equipe")(_em_e164)
 
@@ -310,8 +286,6 @@ class Politica(_Imutavel):
     def _teste_so_no_piloto(self):
         if self.teste is None:
             return self
-        if not isinstance(self.liberacao, LiberacaoPiloto):
-            raise ValueError("teste: o modo teste exige liberacao em piloto")
         # A matrícula simulada leva os 4 últimos dígitos do telefone (`SIM-<n>-<dddd>`).
         finais = [telefone[-4:] for telefone in self.liberacao.telefones]
         if len(set(finais)) != len(finais):

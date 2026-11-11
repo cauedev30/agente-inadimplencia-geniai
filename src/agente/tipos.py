@@ -147,6 +147,7 @@ class StatusPagamento(StrEnum):
 
 
 class Modo(StrEnum):
+    # SOMBRA ficou só para as linhas antigas do banco (D61, sem migração); nada mais a grava.
     SOMBRA = "SOMBRA"
     ATIVO = "ATIVO"
 
@@ -164,6 +165,7 @@ class ResultadoTurno(StrEnum):
     HANDOFF = "HANDOFF"
     ADIADO = "ADIADO"
     IGNORADO = "IGNORADO"
+    # Só das linhas antigas do banco (D61, sem migração); nada mais a grava.
     SOMBRA = "SOMBRA"
     # O Jev 2 decidiu não agir (NONE): o turno roda e nada sai.
     SEM_ENVIO = "SEM_ENVIO"

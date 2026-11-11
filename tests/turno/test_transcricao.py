@@ -21,19 +21,17 @@ from agente.integracoes.llm_turno import LLMTurnoFalso, LLMTurnoIndisponivel
 from agente.integracoes.transcritor import Transcricao, TranscritorFalso
 from agente.politica import Regua
 from agente.tipos import (
-    EstadoConversa,
-    Modo,
     MotivoHumano,
     OrigemMensagem,
     ResultadoTurno,
     StatusCobranca,
 )
-from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 from agente.turno.transcricao import rotulo_do_audio, texto_da_mensagem
 from tests.ogg_opus import ogg_opus
 
-from .auxiliares import JP, REPLY_LINK, SEGUNDA_10H, _bruto
+from ..conftest import piloto_com
+from .auxiliares import JP, REPLY_LINK, SEGUNDA_10H, TELEFONE, _bruto
 
 SEGUNDA_19H = datetime(2026, 10, 26, 19, tzinfo=JP)  # depois das 18h: a janela abre na terça
 URL_AUDIO = "https://chatwoot.invalid/rails/active_storage/blobs/xyz/audio.ogg"
@@ -59,13 +57,12 @@ class LLMPorTexto(LLMTurnoFalso):
         return super().completar_json(sistema, usuario)
 
 
-def _deps(politica, *, transcritor, modo=Modo.ATIVO, llm=None):
+def _deps(politica, *, transcritor, llm=None):
     return Dependencias(
-        politica=liberar_tudo(politica),
+        politica=piloto_com(politica, TELEFONE),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
-        modo=modo,
         llm_turno=llm or LLMTurnoFalso(respostas=[_bruto()] * 10, registrar=True),
         transcritor=transcritor,
     )
@@ -333,30 +330,6 @@ class TestOsGatesRodamAntes:
         assert transcritor.chamadas == []
 
 
-def test_em_sombra_tambem_transcreve_e_nada_e_enviado(sessao, ligada, politica):
-    transcritor = TranscritorFalso("quanto eu devo?")
-    deps = _deps(politica, transcritor=transcritor, modo=Modo.SOMBRA)
-    _cliente(sessao, ligada, anexos=[_audio()])
-
-    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.SOMBRA
-
-    assert len(transcritor.chamadas) == 1
-    assert _entrada(deps)["novas"] == ['[áudio transcrito: "quanto eu devo?"]']
-    assert deps.chatwoot.enviadas(555) == []
-    assert ligada.estado is EstadoConversa.INICIADO
-
-
-def test_em_sombra_com_humano_na_conversa_transcreve_para_o_luna_ler(sessao, ligada, politica):
-    transcritor = TranscritorFalso("quanto eu devo?")
-    deps = _deps(politica, transcritor=transcritor, modo=Modo.SOMBRA)
-    ligada.human_owned = True
-    _cliente(sessao, ligada, anexos=[_audio()])
-
-    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    assert len(transcritor.chamadas) == 1
-
-
 class TestSemTranscricao:
     def test_desligada_o_audio_nao_e_baixado_e_fica_como_nao_ouvido(self, sessao, ligada, politica):
         deps = _deps(politica, transcritor=None)
@@ -614,43 +587,3 @@ class TestNotaPrivadaComATranscricao:
         processar_turno(sessao, ligada.id, agora, deps)
 
         assert len(transcritor.chamadas) == 1
-
-    def test_sem_conversa_no_chatwoot_nao_ha_nota_e_o_turno_segue(self, sessao, conversa, politica):
-        deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"), modo=Modo.SOMBRA)
-        _cliente(sessao, conversa, anexos=[_audio()])
-
-        assert processar_turno(sessao, conversa.id, SEGUNDA_10H, deps) is ResultadoTurno.SOMBRA
-
-        assert deps.chatwoot.chamadas == []
-
-    def test_em_sombra_a_nota_sai_por_padrao(self, sessao, ligada, politica):
-        deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"), modo=Modo.SOMBRA)
-        _cliente(sessao, ligada, anexos=[_audio()])
-
-        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-        assert _notas(deps) == [f"{NOTA}quanto eu devo?"]
-        assert deps.chatwoot.enviadas(555) == []
-
-    def test_em_sombra_a_nota_pode_ser_desligada(self, sessao, ligada, politica):
-        deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"), modo=Modo.SOMBRA)
-        deps.politica = deps.politica.model_copy(update={"nota_transcricao_em_sombra": False})
-        _cliente(sessao, ligada, anexos=[_audio()])
-
-        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-        assert _notas(deps) == []
-
-    def test_no_modo_ativo_a_nota_sai_mesmo_com_o_parametro_da_sombra_desligado(
-        self, sessao, ligada, politica
-    ):
-        deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"))
-        deps.politica = deps.politica.model_copy(update={"nota_transcricao_em_sombra": False})
-        _cliente(sessao, ligada, anexos=[_audio()])
-
-        processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-        assert _notas(deps) == [f"{NOTA}quanto eu devo?"]
-
-    def test_a_nota_e_um_parametro_da_politica_ligado_por_padrao(self, politica):
-        assert politica.nota_transcricao_em_sombra is True

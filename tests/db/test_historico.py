@@ -57,7 +57,8 @@ def test_teto_conta_so_as_mensagens_de_resolucao(sessao, conversa):
 
 def test_turno_grava_laudos_e_resultado(sessao, conversa):
     mensagem = _registrar(sessao, conversa, OrigemMensagem.CLIENTE, "cw-1")
-    turno = abrir_turno(sessao, conversa.id, [mensagem.id], Modo.SOMBRA)
+    turno = abrir_turno(sessao, conversa.id, [mensagem.id])
+    assert turno.modo is Modo.ATIVO  # a sombra saiu (D61): o turno é sempre ATIVO
     ids = gravar_laudos(
         sessao,
         turno.id,
@@ -72,7 +73,7 @@ def test_turno_grava_laudos_e_resultado(sessao, conversa):
     fechar_turno(
         sessao,
         turno.id,
-        ResultadoTurno.SOMBRA,
+        ResultadoTurno.ENVIADO,
         acao_principal="INFORM_DEBT",
         acoes_anexadas=["GENERATE_PIX"],
         numeros={"divida_centavos": 10020},
@@ -83,7 +84,7 @@ def test_turno_grava_laudos_e_resultado(sessao, conversa):
 
     salvo = sessao.get(Turno, turno.id)
     assert salvo.mensagens_ids == [mensagem.id]
-    assert salvo.resultado is ResultadoTurno.SOMBRA
+    assert salvo.resultado is ResultadoTurno.ENVIADO
     assert salvo.acoes_anexadas == ["GENERATE_PIX"]
     assert salvo.numeros == {"divida_centavos": 10020}
     assert salvo.fechado_em == MOMENTO
@@ -95,7 +96,7 @@ def test_turno_grava_laudos_e_resultado(sessao, conversa):
 
 
 def test_transicao_grava_o_laudo_que_a_causou(sessao, conversa):
-    turno = abrir_turno(sessao, conversa.id, [], Modo.ATIVO)
+    turno = abrir_turno(sessao, conversa.id, [])
     [laudo_id] = gravar_laudos(
         sessao, turno.id, BatchJev.JEV1, [Laudo("risco_juridico", True, 0.91, 0.80)], "falso"
     )

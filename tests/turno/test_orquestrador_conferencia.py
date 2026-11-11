@@ -16,7 +16,6 @@ from agente.integracoes.pix import PixFalso
 from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
-    Modo,
     MotivoHumano,
     OrigemMensagem,
     ResultadoTurno,
@@ -24,10 +23,10 @@ from agente.tipos import (
 )
 from agente.turno.fila import mensagens_pendentes
 from agente.turno.handoff import NOTA_CONCILIACAO_REPETIDA, devolver_ao_robo
-from agente.turno.liberacao import liberar_tudo
-from agente.turno.orquestrador import ROTULO_QUITADA, Dependencias, processar_turno
+from agente.turno.orquestrador import Dependencias, processar_turno
 
-from .auxiliares import SEGUNDA_10H, _bruto
+from ..conftest import piloto_com
+from .auxiliares import SEGUNDA_10H, TELEFONE, _bruto
 from .test_orquestrador_gates import DOMINGO
 
 ESCRITA = ("INSERT", "UPDATE", "DELETE")
@@ -87,13 +86,12 @@ def _ctn(escritas=None, abertas=((("2026/09", 3340), ("2026/10", 3340))), rejeit
     return ctn
 
 
-def _deps(politica, ctn, modo=Modo.ATIVO, conferir=True):
+def _deps(politica, ctn, conferir=True):
     return Dependencias(
-        politica=liberar_tudo(politica),
+        politica=piloto_com(politica, TELEFONE),
         chatwoot=ChatwootFalso(),
         disparador=DisparadorFalso(),
         time_humano=4,
-        modo=modo,
         llm_turno=LLMTurnoFalso(respostas=[_bruto()] * 10, registrar=True),
         ctn=ctn,
         pix=PixFalso(agora=lambda: SEGUNDA_10H),
@@ -249,28 +247,6 @@ def test_ctn_fora_no_toque_do_botao_tambem_nao_gera_pix(sessao, ligada, politica
 
     assert resultado is ResultadoTurno.ERRO
     _sem_valor_ao_cliente(deps)
-
-
-def test_ctn_fora_em_sombra_segue_com_o_retrato(sessao, ligada, politica):
-    ctn = _ctn()
-    ctn.fora_do_ar = True
-    deps = _deps(politica, ctn, modo=Modo.SOMBRA)
-    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
-
-    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    # Em sombra nada é enviado; o turno roda normal e só registra.
-    assert resultado is ResultadoTurno.SOMBRA
-    assert ligada.cobranca.conferida_em is None
-    assert ligada.cobranca.divida_centavos == 10020
-    assert deps.chatwoot.chamadas == []
-
-
-def test_sem_lancamentos_em_sombra_segue_normal(sessao, ligada, politica):
-    deps = _deps(politica, _ctn(abertas=()), modo=Modo.SOMBRA)
-    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
-
-    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.SOMBRA
 
 
 def test_durante_a_chamada_ao_ctn_nao_ha_escrita_pendente_nem_trava(sessao, ligada, politica):
@@ -488,30 +464,3 @@ def test_reset_da_equipe_funciona_numa_cobranca_quitada(sessao, ligada, politica
     _cliente_diz(sessao, nova, "oi de novo", depois, 3)
     assert processar_turno(sessao, nova.id, depois, deps) is ResultadoTurno.HANDOFF
     assert _saidas_para_o_humano(sessao) == [MotivoHumano.CONCILIACAO, MotivoHumano.CONCILIACAO]
-
-
-def test_quitada_no_ctn_em_sombra_e_marcada_no_turno_e_nao_envia_nada(sessao, ligada, politica):
-    ctn = _quitada()
-    deps = _deps(politica, ctn, modo=Modo.SOMBRA)
-    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
-
-    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    assert resultado is ResultadoTurno.SOMBRA
-    assert deps.chatwoot.chamadas == []
-    turno = sessao.scalars(select(Turno)).one()
-    assert turno.resultado is ResultadoTurno.SOMBRA
-    assert turno.acao_principal == ROTULO_QUITADA
-    assert turno.redacao["motivo"] == "quitada_no_ctn"
-    assert ligada.cobranca.meses_em_aberto == []
-
-
-def test_quitada_no_ctn_em_sombra_com_humano_na_conversa_tambem_e_marcada(sessao, ligada, politica):
-    ligada.human_owned = True
-    deps = _deps(politica, _quitada(), modo=Modo.SOMBRA)
-    _cliente_diz(sessao, ligada, "quanto eu devo?", SEGUNDA_10H, 1)
-
-    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
-
-    assert sessao.scalars(select(Turno)).one().acao_principal == ROTULO_QUITADA
-    assert deps.chatwoot.chamadas == []

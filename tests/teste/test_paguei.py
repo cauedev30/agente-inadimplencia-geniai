@@ -354,7 +354,6 @@ def test_aplicar_baixas_simuladas_e_idempotente_pelo_id_externo(
         politica=politica_de_teste,
         chatwoot=deps.chatwoot,
         time_humano=deps.time_humano,
-        modo=deps.modo,
         ctn=deps.ctn,
     )
     agora = conversa_aberta.agora()
