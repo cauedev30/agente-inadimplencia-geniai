@@ -109,3 +109,7 @@ com a correção quando a hora chegar (texto completo na fonte).
   (`_PASSOS` perdeu a chave); o erro é capturado e logado. Só afeta banco com dado antigo; o serviço ainda não está hospedado.
 - Efeito da 1.5 a lembrar: a fixa do golpe (`HUMANO_NO_WHATSAPP`) só sai no motivo `DESCONFIANCA`; com outro motivo e
   `desconfia_golpe` sim, a 6ª é a `CANAL_EXTERNO` comum (como o plano manda).
+- Achados da tarefa 1.7/1.8: `ensaiar.py` ainda tem resquícios do Jev (`jev2_acao`, `jev2_p`, `reprovadas`, leitura de
+  laudos); `roteiros/demo.yaml` e `v1-operacao.yaml` são da era do Jev e os `texto_tem` de Pix e CTN podem não bater mais; a
+  docstring do `ensaiar.py` ainda cita `demo.yaml`; `MotivoHumano.REDATOR_INDISPONIVEL` sem uso (enum mantido).
+- Escolha da 1.7: a rajada só com foto/arquivo vai ao humano; com áudio junto, o turno segue para transcrever.
