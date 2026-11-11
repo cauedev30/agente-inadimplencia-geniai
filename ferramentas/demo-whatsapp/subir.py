@@ -230,16 +230,17 @@ def _encerrar(processos: list[subprocess.Popen]) -> None:
             processo.kill()
 
 
-def preparar_banco(kit: Path, ambiente: Mapping[str, str], carteira: Path) -> None:
+def preparar_banco(kit: Path, ambiente: Mapping[str, str], carteira: Path | None) -> None:
     """Migra o `demo.db` do kit e, se ele ainda não existia, importa a carteira.
 
     Com o banco já criado, a carteira não é reimportada: as conversas do ensaio anterior ficam.
+    Sem carteira (`None`, o modo teste: o caso nasce no 1º contato), só migra.
     """
     banco_existia = (kit / "demo.db").exists()
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"], cwd=REPO, env=ambiente, check=True
     )
-    if not banco_existia:
+    if not banco_existia and carteira is not None:
         subprocess.run(
             [sys.executable, "-m", "agente.cli", "importar", str(carteira), "--campanha", "demo"],
             cwd=REPO,

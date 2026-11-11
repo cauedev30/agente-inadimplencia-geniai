@@ -1,0 +1,258 @@
+# Roteiros do ensaio do MODO TESTE (D56, D61): os 5 casos do cardapio-teste.toml, o Luna real e o
+# Chatwoot falso. Rodar com `ensaiar.py --teste ferramentas/demo-whatsapp/politica-teste-ensaio.toml
+# --roteiros ferramentas/demo-whatsapp/roteiros/teste.yaml`. Só dado inventado.
+#
+# Cada roteiro é um testador do piloto, com telefone inventado próprio, que nasce no caso 1 (o
+# `caso_padrao`); os roteiros dos casos 2 a 5 começam com `/caso <n>`. O 1º "Oi" recebe a abertura
+# com o valor do caso (as mensalidades x R$ 33,40: R$ 100,20, R$ 133,60, R$ 167,00 e R$ 200,40).
+# "Pagar com Pix" é o toque no botão: o Pix fixo, sem o Luna, com o código `[TESTE]`. `/paguei`
+# confirma o Pix; a confirmação do agente sai de uma rotina, depois do turno (`mensagem_tem` espera).
+#
+# `espera.acao` compara com `turno.acao_principal`; `texto_tem` olha o texto do agente no turno e
+# `mensagem_tem` qualquer mensagem enviada ao Chatwoot na janela do passo (as do modo teste e as
+# fixas não ficam no `texto_enviado`). A pergunta ao Luna ("Quanto eu estou devendo?") é a que o
+# roteiro `demo.yaml` já usa.
+
+- nome: caso-1
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+        mensagem_tem: ["Você é o caso 1", "100,20", "[TESTE]"]
+    - cliente: "Quanto eu estou devendo?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+        texto_tem: ["100,20"]
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+        texto_tem: ["100,20", "[TESTE]"]
+    - cliente: "/paguei"
+      espera:
+        acao: "TESTE:PAGUEI"
+        mensagem_tem: ["Simulando a confirmação do banco: Pix de R$ 100,20", "Recebemos o seu pagamento"]
+  fim:
+    cobranca: PAGA
+
+- nome: caso-2
+  passos:
+    - cliente: "/caso 2"
+      espera:
+        acao: "TESTE:CASO"
+        mensagem_tem: ["Agora você é o caso 2"]
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+        mensagem_tem: ["100,20"]
+    - cliente: "Quanto eu estou devendo?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+        texto_tem: ["100,20"]
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+        texto_tem: ["100,20", "[TESTE]"]
+    - cliente: "/paguei"
+      espera:
+        acao: "TESTE:PAGUEI"
+        mensagem_tem: ["Simulando a confirmação do banco: Pix de R$ 100,20", "Recebemos o seu pagamento"]
+  fim:
+    cobranca: PAGA
+
+- nome: caso-3
+  passos:
+    - cliente: "/caso 3"
+      espera:
+        acao: "TESTE:CASO"
+        mensagem_tem: ["Agora você é o caso 3"]
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+        mensagem_tem: ["133,60"]
+    - cliente: "Quanto eu estou devendo?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+        texto_tem: ["133,60"]
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+        texto_tem: ["133,60", "[TESTE]"]
+    - cliente: "/paguei"
+      espera:
+        acao: "TESTE:PAGUEI"
+        mensagem_tem: ["Simulando a confirmação do banco: Pix de R$ 133,60", "Recebemos o seu pagamento"]
+  fim:
+    cobranca: PAGA
+
+- nome: caso-4
+  passos:
+    - cliente: "/caso 4"
+      espera:
+        acao: "TESTE:CASO"
+        mensagem_tem: ["Agora você é o caso 4"]
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+        mensagem_tem: ["167,00"]
+    - cliente: "Quanto eu estou devendo?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+        texto_tem: ["167,00"]
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+        texto_tem: ["167,00", "[TESTE]"]
+    - cliente: "/paguei"
+      espera:
+        acao: "TESTE:PAGUEI"
+        mensagem_tem: ["Simulando a confirmação do banco: Pix de R$ 167,00", "Recebemos o seu pagamento"]
+  fim:
+    cobranca: PAGA
+
+- nome: caso-5
+  passos:
+    - cliente: "/caso 5"
+      espera:
+        acao: "TESTE:CASO"
+        mensagem_tem: ["Agora você é o caso 5"]
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+        mensagem_tem: ["200,40"]
+    - cliente: "Quanto eu estou devendo?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+        texto_tem: ["200,40"]
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+        texto_tem: ["200,40", "[TESTE]"]
+    - cliente: "/paguei"
+      espera:
+        acao: "TESTE:PAGUEI"
+        mensagem_tem: ["Simulando a confirmação do banco: Pix de R$ 200,40", "Recebemos o seu pagamento"]
+  fim:
+    cobranca: PAGA
+
+# Dois dos 4 meses em aberto do caso 3 pagos por fora (boleto): a cobrança segue ativa com 2.
+- nome: paguei-2-no-caso-3
+  passos:
+    - cliente: "/caso 3"
+      espera:
+        acao: "TESTE:CASO"
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "/paguei 2"
+      espera:
+        acao: "TESTE:PAGUEI"
+        mensagem_tem: ["Simulando 2 mês(es) pago(s) por fora"]
+  fim:
+    cobranca: ATIVA
+    mensalidades: 2
+
+# Os comandos do testador: a lista de casos, a nota presa ao último turno, o comando desconhecido e o
+# /reset, que recomeça o caso atual (a abertura volta no "Oi" seguinte).
+- nome: comandos
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Quanto eu estou devendo?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+    - cliente: "/nota o texto ficou claro"
+      espera:
+        acao: "TESTE:NOTA"
+        mensagem_tem: ["Nota anotada"]
+    - cliente: "/caso"
+      espera:
+        acao: "TESTE:CASO"
+        mensagem_tem: ["Casos:", "Mande /caso <n>"]
+    - cliente: "/qualquercoisa"
+      espera:
+        acao: "TESTE:DESCONHECIDO"
+        mensagem_tem: ["Comando não reconhecido"]
+    - cliente: "/reset"
+      espera:
+        acao: "TESTE:RESET"
+        mensagem_tem: ["Agora você é o caso 1"]
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+        mensagem_tem: ["100,20"]
+
+# "Já paguei" vai ao humano conferir (CONCILIACAO), sem Pix nem desconto.
+- nome: ja-paguei
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Já paguei isso semana passada"
+      espera:
+        acao: "HUMAN:CONCILIACAO"
+        resultado: HANDOFF
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: CONCILIACAO
+
+# AUD-07: uma foto sem texto (o comprovante) vai ao humano, sem o Luna.
+- nome: foto-sem-texto
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - anexo: image
+      espera:
+        acao: "HUMAN:CONCILIACAO"
+        resultado: HANDOFF
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: CONCILIACAO
+
+# O teto (D33): 5 mensagens do agente (o toque no botão não passa pelo Luna e cada uma conta) e a 6ª é a
+# fixa, que passa a conversa ao atendente.
+- nome: teto
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+    - cliente: "Pagar com Pix"
+      espera:
+        acao: "FIXA:CANAL_EXTERNO"
+        resultado: FIXA
+        mensagem_tem: ["um atendente da unidade vai continuar com você"]
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: TETO

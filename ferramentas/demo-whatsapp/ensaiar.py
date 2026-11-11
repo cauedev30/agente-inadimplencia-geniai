@@ -3,10 +3,18 @@
 Uso, de dentro de repo/ (com a demo parada: a máquina tem pouca memória):
     python -m uv run python ferramentas/demo-whatsapp/ensaiar.py --kit ../pre-sombra/demo-whatsapp
 
+O modo teste (D56, o cardápio de 5 casos e os comandos `/caso`, `/paguei`, `/nota`) tem política e
+roteiros próprios, só com dado inventado:
+    python -m uv run python ferramentas/demo-whatsapp/ensaiar.py --kit <kit>
+        --teste ferramentas/demo-whatsapp/politica-teste-ensaio.toml
+        --roteiros ferramentas/demo-whatsapp/roteiros/teste.yaml
+Com `--teste` não há carteira: o caso nasce no 1º contato.
+
 O serviço sobe igual ao da demo (`agente.api.principal:montar_app`, o ambiente de
 `subir.montar_ambiente`, o Luna real), mas com um Chatwoot falso local no lugar do real: a
 URL do Chatwoot é sempre a do falso, e o ensaio nem lê o `chatwoot-teste.local.json`. Só a chave
-da OpenAI é lida. Só texto inventado vai ao Luna.
+do Luna é lida (a variável `AGENTE_LLM_API_KEY` ou o `openai.local.json`). Só texto inventado vai
+ao Luna.
 
 Cada roteiro (`roteiros/demo.yaml`) tem um devedor inventado, com telefone próprio. Cada mensagem do
 cliente chega em dobro ao webhook, como no Chatwoot real (o bot e o webhook mandam o mesmo evento).
@@ -34,14 +42,21 @@ from datetime import datetime
 from enum import StrEnum
 from itertools import count
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_args
 
 import httpx
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from agente.politica import Regua
-from agente.tipos import EstadoConversa, MotivoHumano, ResultadoTurno, TipoFixa
+from agente.teste.comandos import ROTULO_ENCERRADO, NomeDoComando
+from agente.tipos import (
+    EstadoConversa,
+    MotivoHumano,
+    ResultadoTurno,
+    StatusCobranca,
+    TipoFixa,
+)
 from agente.turno.acoes import Acao
 from agente.turno.sinais import NAO_EXECUTADA, rotulo_humano
 
@@ -92,6 +107,14 @@ class _Imutavel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+# O que o modo teste grava em `acao_principal` (`teste/comandos.py`): `TESTE:<COMANDO>`, a abertura
+# do 1º contato e o caso encerrado.
+_ROTULOS_DO_TESTE = {f"TESTE:{nome.upper()}" for nome in get_args(NomeDoComando)} | {
+    "TESTE:ABERTURA",
+    ROTULO_ENCERRADO,
+}
+
+
 def _acao_conhecida(valor: str) -> bool:
     """Os rótulos que o turno grava em `acao_principal`."""
     if valor in {rotulo_humano(motivo) for motivo in MotivoHumano}:
@@ -101,7 +124,7 @@ def _acao_conhecida(valor: str) -> bool:
         return _acao_conhecida(resto)
     if prefixo == "FIXA":
         return resto in {tipo.value for tipo in TipoFixa}
-    if valor == "REINICIO":
+    if valor == "REINICIO" or valor in _ROTULOS_DO_TESTE:
         return True
     return valor in {acao.value for acao in Acao if acao is not Acao.HUMAN}
 
@@ -127,24 +150,41 @@ class Espera(_Imutavel):
 
 
 class Passo(_Imutavel):
-    cliente: str = Field(min_length=1)
+    # O texto do cliente. Pode ficar vazio só quando o passo manda um `anexo` (a foto sem texto).
+    cliente: str = ""
+    # O tipo do anexo que acompanha a mensagem (`image` ou `file`): o Luna não os lê (AUD-07).
+    anexo: Literal["image", "file"] | None = None
     # Manda esta mensagem N s depois da anterior, sem esperar o turno dela (o caso do /reset).
     intervalo: float | None = Field(default=None, ge=0)
     espera: Espera | None = None
     # O "certo" é decisão do Cauê: o relatório mostra o que veio, sem veredito.
     a_decidir: bool = False
 
+    @model_validator(mode="after")
+    def _texto_ou_anexo(self):
+        if not self.cliente.strip() and self.anexo is None:
+            raise ValueError("informe o texto do cliente ou um anexo")
+        return self
+
 
 class Fim(_Imutavel):
-    """O estado da conversa do devedor no fim do roteiro."""
+    """O estado da conversa do devedor e, no modo teste, da cobrança dela no fim do roteiro."""
 
     estado: EstadoConversa | None = None
     motivo: MotivoHumano | None = None
+    # O status (ATIVA, PAGA, ENCERRADA) e as mensalidades em aberto da cobrança da conversa viva.
+    cobranca: StatusCobranca | None = None
+    mensalidades: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _algo_a_conferir(self):
-        if self.estado is None and self.motivo is None:
-            raise ValueError("informe o estado ou o motivo")
+        if (
+            self.estado is None
+            and self.motivo is None
+            and self.cobranca is None
+            and self.mensalidades is None
+        ):
+            raise ValueError("informe o estado, o motivo, a cobranca ou as mensalidades")
         return self
 
 
@@ -229,16 +269,53 @@ def carteira_do_ensaio(roteiros: list[Roteiro]) -> str:
     return "\n".join(linhas) + "\n"
 
 
-def montar_kit(kit_demo: Path, saida: Path, roteiros: list[Roteiro]) -> dict[str, str]:
-    """Grava a política e a carteira do ensaio em `saida`; devolve o telefone de cada roteiro."""
-    origem = kit_demo / "politica-demo.toml"
+_CARDAPIO = re.compile(r'^cardapio\s*=\s*"([^"]+)"[^\n]*$', re.MULTILINE)
+
+
+def _cardapio_do_ensaio(texto_da_politica: str, politica: Path) -> tuple[str, Path]:
+    """A política de teste com o `cardapio` trocado para o arquivo que o ensaio copia para `saida`
+    (o caminho original é relativo à pasta da política, que não é a da saída)."""
+    achados = _CARDAPIO.findall(texto_da_politica)
+    if len(achados) != 1:
+        raise ErroDaDemo(f"{politica}: precisa de exatamente uma linha `cardapio = '...'`")
+    origem = politica.parent / achados[0]
     if not origem.is_file():
-        raise ErroDaDemo(f"falta politica-demo.toml no kit ({kit_demo})")
+        raise ErroDaDemo(f"{politica}: o cardápio {origem} não existe")
+    nova = _CARDAPIO.sub(
+        lambda _achado: f'cardapio = "{origem.name}"  # ENSAIO: copiado para a pasta do ensaio',
+        texto_da_politica,
+    )
+    return nova, origem
+
+
+def montar_kit(
+    kit_demo: Path, saida: Path, roteiros: list[Roteiro], teste: Path | None = None
+) -> dict[str, str]:
+    """Grava a política do ensaio (e a carteira, ou o cardápio) em `saida`; devolve o telefone de
+    cada roteiro.
+
+    Sem `teste`, a política é a `politica-demo.toml` do kit e há um devedor por roteiro na carteira.
+    Com `teste`, a política é a de teste (com o `[teste]`), o cardápio vai junto e não há carteira:
+    o caso nasce no 1º contato.
+    """
     telefones = {roteiro.nome: telefone_do_roteiro(n) for n, roteiro in enumerate(roteiros, 1)}
-    politica = politica_do_ensaio(origem.read_text(encoding="utf-8"), list(telefones.values()))
+    cardapio = None
+    if teste is None:
+        origem = kit_demo / "politica-demo.toml"
+        if not origem.is_file():
+            raise ErroDaDemo(f"falta politica-demo.toml no kit ({kit_demo})")
+        texto = origem.read_text(encoding="utf-8")
+    else:
+        if not teste.is_file():
+            raise ErroDaDemo(f"falta a política de teste {teste}")
+        texto, cardapio = _cardapio_do_ensaio(teste.read_text(encoding="utf-8"), teste)
+    politica = politica_do_ensaio(texto, list(telefones.values()))
     saida.mkdir(parents=True, exist_ok=True)
     (saida / "politica-demo.toml").write_text(politica, encoding="utf-8")
-    (saida / "carteira-ensaio.csv").write_text(carteira_do_ensaio(roteiros), encoding="utf-8")
+    if cardapio is None:
+        (saida / "carteira-ensaio.csv").write_text(carteira_do_ensaio(roteiros), encoding="utf-8")
+    else:
+        (saida / cardapio.name).write_text(cardapio.read_text(encoding="utf-8"), encoding="utf-8")
     return telefones
 
 
@@ -275,10 +352,17 @@ class Obtido:
 
 
 def evento_do_cliente(
-    mensagem_id: int, conversa_id: int, telefone: str, texto: str, conta: int, inbox: int
+    mensagem_id: int,
+    conversa_id: int,
+    telefone: str,
+    texto: str,
+    conta: int,
+    inbox: int,
+    anexo: str | None = None,
 ) -> dict:
-    """O `message_created` de uma mensagem do cliente, no formato que `ler_evento` lê."""
-    return {
+    """O `message_created` de uma mensagem do cliente, no formato que `ler_evento` lê. Com `anexo`
+    (`image` ou `file`), a mensagem leva esse anexo, sem endereço (o agente não o baixa)."""
+    evento = {
         "event": "message_created",
         "id": mensagem_id,
         "message_type": "incoming",
@@ -293,6 +377,9 @@ def evento_do_cliente(
             "meta": {"sender": {"phone_number": telefone}},
         },
     }
+    if anexo is not None:
+        evento["attachments"] = [{"file_type": anexo}]
+    return evento
 
 
 def postar(url_webhook: str, evento: dict, em_dobro: bool = True) -> list[int]:
@@ -410,6 +497,22 @@ def ler_conversa(banco: Path, chatwoot_conversa_id: int) -> tuple[str, str | Non
     return (linha["estado"], linha["motivo_humano"]) if linha else None
 
 
+def ler_cobranca(banco: Path, chatwoot_conversa_id: int) -> tuple[str, int] | None:
+    """O status e as mensalidades em aberto da cobrança da conversa ligada à conversa do Chatwoot;
+    None se não houver."""
+    try:
+        with closing(_abrir_leitura(banco)) as con:
+            linha = con.execute(
+                "SELECT cobranca.status AS status, cobranca.mensalidades_abertas AS abertas "
+                "FROM conversa JOIN cobranca ON cobranca.id = conversa.cobranca_id "
+                "WHERE conversa.chatwoot_conversa_id = ?",
+                (chatwoot_conversa_id,),
+            ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return (linha["status"], linha["abertas"]) if linha else None
+
+
 def divergencias(espera: Espera | None, obtido: Obtido) -> list[str]:
     """O que o passo esperava e não veio, em frases curtas."""
     if espera is None:
@@ -455,12 +558,22 @@ def conferir(espera: Espera | None, a_decidir: bool, obtido: Obtido | None) -> V
     return Veredito.DIVERGIU if divergencias(espera, obtido) else Veredito.OK
 
 
-def divergencias_do_fim(fim: Fim, estado: str | None, motivo: str | None) -> list[str]:
+def divergencias_do_fim(
+    fim: Fim,
+    estado: str | None,
+    motivo: str | None,
+    cobranca: str | None = None,
+    mensalidades: int | None = None,
+) -> list[str]:
     achadas = []
     if fim.estado is not None and estado != fim.estado:
         achadas.append(f"estado: esperava {fim.estado.value}, veio {estado}")
     if fim.motivo is not None and motivo != fim.motivo:
         achadas.append(f"motivo: esperava {fim.motivo.value}, veio {motivo}")
+    if fim.cobranca is not None and cobranca != fim.cobranca:
+        achadas.append(f"cobrança: esperava {fim.cobranca.value}, veio {cobranca}")
+    if fim.mensalidades is not None and mensalidades != fim.mensalidades:
+        achadas.append(f"mensalidades: esperava {fim.mensalidades}, veio {mensalidades}")
     return achadas
 
 
@@ -481,6 +594,8 @@ class ResultadoFim:
     estado: str | None
     motivo: str | None
     divergencias: list[str] = field(default_factory=list)
+    cobranca: str | None = None
+    mensalidades: int | None = None
 
 
 @dataclass(frozen=True)
@@ -523,6 +638,9 @@ class Rodada:
     pausa: Callable[[float], None] = time.sleep
     servico_vivo: Callable[[], bool] = lambda: True
     intervalo_s: float = 0.5
+    # Quanto esperar pelas mensagens que o passo exige (`mensagem_tem`) e que saem depois de o turno
+    # fechar (a confirmação do `/paguei` sai de uma rotina, fora do turno).
+    espera_mensagens_s: float = 20.0
 
 
 def _tamanho(arquivo: Path) -> int:
@@ -547,6 +665,28 @@ def erros_do_log(log: Path, desde: int) -> list[str]:
     ][:5]
 
 
+def esperar_mensagens(
+    falso: Any,
+    desde: float,
+    conversa_id: int,
+    trechos: list[str],
+    prazo_s: float,
+    *,
+    intervalo_s: float = 0.2,
+) -> list:
+    """Os registros do Chatwoot falso da conversa depois de `desde`, esperando até `prazo_s` que
+    cada trecho de `trechos` apareça em alguma mensagem enviada. No prazo, devolve o que houver (a
+    divergência sai depois, na conferência)."""
+    limite = time.perf_counter() + prazo_s
+    while True:
+        registros = [r for r in falso.registros_desde(desde) if r.conversa_id in (0, conversa_id)]
+        enviadas = [str(r.conteudo).casefold() for r in registros if r.tipo == "mensagem"]
+        completo = all(any(t.casefold() in e for e in enviadas) for t in trechos)
+        if completo or time.perf_counter() >= limite:
+            return registros
+        time.sleep(intervalo_s)
+
+
 def rodar_roteiro(
     roteiro: Roteiro, numero: int, telefone: str, rodada: Rodada, conversa_id: int | None = None
 ) -> ResultadoRoteiro:
@@ -566,7 +706,13 @@ def rodar_roteiro(
             posicao_no_log = _tamanho(rodada.log)
         mensagem_id = next(rodada.ids)
         evento = evento_do_cliente(
-            mensagem_id, conversa_id, telefone, passo.cliente, rodada.conta, rodada.inbox
+            mensagem_id,
+            conversa_id,
+            telefone,
+            passo.cliente,
+            rodada.conta,
+            rodada.inbox,
+            passo.anexo,
         )
         inicio = time.perf_counter()
         try:
@@ -593,13 +739,17 @@ def rodar_roteiro(
                 # próprio turno continua pego pelo resultado ERRO no banco.
                 avisos = [f"o webhook respondeu {codigos} (A8)", *erros]
                 erros = []
+            exigidas = passo.espera.mensagem_tem if passo.espera else []
             obtido = dataclasses.replace(
                 obtido,
-                registros_chatwoot=[
-                    r
-                    for r in rodada.falso.registros_desde(marca)
-                    if r.conversa_id in (0, conversa_id)
-                ],
+                registros_chatwoot=esperar_mensagens(
+                    rodada.falso,
+                    marca,
+                    conversa_id,
+                    exigidas,
+                    rodada.espera_mensagens_s if exigidas else 0,
+                    intervalo_s=rodada.intervalo_s,
+                ),
                 erros_no_log=erros,
                 avisos=avisos,
             )
@@ -613,8 +763,17 @@ def rodar_roteiro(
     if roteiro.fim is not None:
         conversa = ler_conversa(rodada.banco, conversa_id)
         estado, motivo = conversa if conversa else (None, None)
-        achadas = divergencias_do_fim(roteiro.fim, estado, motivo)
-        fim = ResultadoFim(Veredito.DIVERGIU if achadas else Veredito.OK, estado, motivo, achadas)
+        cobranca = ler_cobranca(rodada.banco, conversa_id)
+        status, abertas = cobranca if cobranca else (None, None)
+        achadas = divergencias_do_fim(roteiro.fim, estado, motivo, status, abertas)
+        fim = ResultadoFim(
+            Veredito.DIVERGIU if achadas else Veredito.OK,
+            estado,
+            motivo,
+            achadas,
+            status,
+            abertas,
+        )
     return ResultadoRoteiro(roteiro, telefone, resultados, fim)
 
 
@@ -670,7 +829,7 @@ def _linhas_do_passo(resultado: ResultadoPasso) -> list[str]:
     linhas = [
         f"#### Passo {resultado.indice}: {resultado.veredito.value}",
         "",
-        f"- **Mensagem:** `{passo.cliente}`",
+        f"- **Mensagem:** `{passo.cliente or f'[{passo.anexo} sem texto]'}`",
         f"- **Esperado:** {_esperado(passo)}" + (" (a decidir)" if passo.a_decidir else ""),
     ]
     obtido = resultado.obtido
@@ -752,18 +911,21 @@ def formatar_relatorio(resultados: list[ResultadoRoteiro], quando: str = "") -> 
             linhas += _linhas_do_passo(passo)
         if r.fim is not None and r.roteiro.fim is not None:
             esperado = ", ".join(
-                f"{nome} {valor.value}"
+                f"{nome} {valor if isinstance(valor, int) else valor.value}"
                 for nome, valor in (
                     ("estado", r.roteiro.fim.estado),
                     ("motivo", r.roteiro.fim.motivo),
+                    ("cobrança", r.roteiro.fim.cobranca),
+                    ("mensalidades", r.roteiro.fim.mensalidades),
                 )
-                if valor
+                if valor is not None
             )
             linhas += [
                 f"#### Fim: {r.fim.veredito.value}",
                 "",
                 f"- **Esperado:** {esperado}",
-                f"- **Obtido:** estado {r.fim.estado}, motivo {r.fim.motivo}",
+                f"- **Obtido:** estado {r.fim.estado}, motivo {r.fim.motivo}, cobrança "
+                f"{r.fim.cobranca}, mensalidades {r.fim.mensalidades}",
             ]
             linhas += [f"- **Divergência:** {d}" for d in r.fim.divergencias]
             linhas.append("")
@@ -779,23 +941,34 @@ def _porta_ocupada(porta: int) -> bool:
         return conexao.connect_ex(("127.0.0.1", porta)) == 0
 
 
+def _chave_do_luna(segredos: Path) -> dict:
+    """A chave do Luna: a variável `AGENTE_LLM_API_KEY`, se houver (o servidor Linux, sem a pasta de
+    segredos), ou o `openai.local.json` da pasta de segredos."""
+    chave = os.environ.get("AGENTE_LLM_API_KEY", "").strip()
+    if chave:
+        return {"api_key": chave}
+    return subir.ler_json(segredos / subir.ARQUIVO_OPENAI)
+
+
 def ensaiar(
     kit_demo: Path,
     segredos: Path,
     roteiros: list[Roteiro],
     saida: Path,
     porta: int,
+    teste: Path | None = None,
 ) -> int:
     """Sobe o Chatwoot falso e o serviço, roda os roteiros e grava o `relatorio.md` em `saida`.
 
-    Devolve 0 se nenhum passo divergiu, deu erro ou ficou sem turno (o "a decidir" não conta), e 1
-    se algum deu. O Chatwoot falso e o uvicorn são encerrados no `finally`.
+    Com `teste` (a política do modo teste), o ensaio usa essa política e o cardápio dela, sem
+    carteira. Devolve 0 se nenhum passo divergiu, deu erro ou ficou sem turno (o "a decidir" não
+    conta), e 1 se algum deu. O Chatwoot falso e o uvicorn são encerrados no `finally`.
     """
     if saida.exists():
         raise ErroDaDemo(f"a pasta {saida} já existe: o ensaio não sobrescreve")
     if _porta_ocupada(porta):
         raise ErroDaDemo(f"a porta {porta} está ocupada: a demo está rodando? Pare-a antes")
-    openai = subir.ler_json(segredos / subir.ARQUIVO_OPENAI)
+    openai = _chave_do_luna(segredos)
 
     falso = ChatwootFalsoLocal(CONTA)
     processos: list[subprocess.Popen] = []
@@ -803,7 +976,7 @@ def ensaiar(
     quando = datetime.now().strftime("%Y-%m-%d %H:%M")
     falso.iniciar()
     try:
-        telefones = montar_kit(kit_demo, saida, roteiros)
+        telefones = montar_kit(kit_demo, saida, roteiros, teste)
         segredo = secrets.token_urlsafe(24)
         ambiente = subir.montar_ambiente(
             chatwoot={
@@ -820,7 +993,9 @@ def ensaiar(
         )
         # Sem buffer: o ERROR do serviço tem de chegar ao log enquanto o passo ainda roda.
         ambiente["PYTHONUNBUFFERED"] = "1"
-        subir.preparar_banco(saida, ambiente, saida / "carteira-ensaio.csv")
+        subir.preparar_banco(
+            saida, ambiente, None if teste is not None else saida / "carteira-ensaio.csv"
+        )
 
         with (saida / "servico.log").open("wb") as log_do_servico:
             servico = subprocess.Popen(
@@ -885,6 +1060,11 @@ def main(argv: list[str] | None = None) -> int:
         help="pasta dos *.local.json (padrão: ../secrets, ao lado do repo)",
     )
     parser.add_argument("--porta", type=int, default=8010)
+    parser.add_argument(
+        "--teste",
+        type=Path,
+        help="a política do modo teste (D56): usa o `[teste]` e o cardápio dela, sem carteira",
+    )
     argumentos = parser.parse_args(argv)
     try:
         roteiros = carregar_roteiros(argumentos.roteiros)
@@ -894,7 +1074,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise ErroDaDemo(f"não há roteiro chamado {argumentos.roteiro}")
         kit = argumentos.kit.resolve()
         saida = kit / f"ensaio-{datetime.now().strftime('%Y%m%d-%H%M')}"
-        return ensaiar(kit, argumentos.segredos.resolve(), roteiros, saida, argumentos.porta)
+        return ensaiar(
+            kit,
+            argumentos.segredos.resolve(),
+            roteiros,
+            saida,
+            argumentos.porta,
+            argumentos.teste.resolve() if argumentos.teste else None,
+        )
     except ErroDaDemo as erro:
         print(f"erro: {erro}", file=sys.stderr)
         return 2

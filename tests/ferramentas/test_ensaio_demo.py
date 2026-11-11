@@ -8,6 +8,7 @@ import importlib.util
 import json
 import sys
 import threading
+import time
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -984,3 +985,155 @@ def test_o_cli_com_roteiro_desconhecido_sai_com_2(tmp_path, capsys):
     )
     assert codigo == 2
     assert "nao-existe" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- modo teste (D56)
+
+POLITICA_TESTE = _PASTA / "politica-teste-ensaio.toml"
+ROTEIROS_TESTE = _PASTA / "roteiros" / "teste.yaml"
+
+
+@pytest.mark.parametrize(
+    "acao",
+    [
+        "TESTE:CASO",
+        "TESTE:RESET",
+        "TESTE:PAGUEI",
+        "TESTE:NOTA",
+        "TESTE:DESCONHECIDO",
+        "TESTE:ABERTURA",
+        "TESTE:ENCERRADO",
+    ],
+)
+def test_os_rotulos_do_modo_teste_sao_acoes_validas(acao):
+    assert ensaiar.Espera(acao=acao).acao == acao
+
+
+def test_um_rotulo_teste_que_nao_existe_e_recusado():
+    with pytest.raises(ValueError, match="TESTE:NADA"):
+        ensaiar.Espera(acao="TESTE:NADA")
+
+
+def test_o_fim_confere_a_cobranca_e_as_mensalidades():
+    fim = ensaiar.Fim(cobranca="PAGA", mensalidades=0)
+    assert ensaiar.divergencias_do_fim(fim, "ENCERRADO", None, "PAGA", 0) == []
+    achadas = ensaiar.divergencias_do_fim(fim, "ENCERRADO", None, "ATIVA", 2)
+    assert len(achadas) == 2
+    assert any("cobrança" in a for a in achadas)
+    assert any("mensalidades" in a for a in achadas)
+    # Sem o dado na leitura, é divergência (não passa em silêncio).
+    assert ensaiar.divergencias_do_fim(fim, None, None, None, None)
+
+
+def test_ler_a_cobranca_da_conversa_do_chatwoot(banco):
+    caminho, fabrica = banco
+    with fabrica() as sessao:
+        _cobranca(sessao)
+        sessao.commit()
+    assert ensaiar.ler_cobranca(caminho, 9001) == ("ATIVA", 3)
+    assert ensaiar.ler_cobranca(caminho, 1) is None
+
+
+def test_o_fim_com_cobranca_no_roteiro_le_o_banco(cenario):
+    _, rodada = cenario({"oi": DIVIDA})
+    roteiro = ensaiar.Roteiro(
+        nome="a",
+        passos=[ensaiar.Passo(cliente="oi")],
+        fim=ensaiar.Fim(cobranca="ATIVA", mensalidades=3),
+    )
+    resultado = ensaiar.rodar_roteiro(roteiro, 1, "+5583900000001", rodada)
+    assert resultado.fim.veredito == Veredito.OK
+    assert resultado.fim.cobranca == "ATIVA"
+    errado = roteiro.model_copy(update={"fim": ensaiar.Fim(cobranca="PAGA")})
+    # Outro número de roteiro, outra conversa do Chatwoot: a do roteiro 1 já existe no banco.
+    resultado = ensaiar.rodar_roteiro(errado, 1, "+5583900000001", rodada)
+    assert resultado.fim.veredito == Veredito.DIVERGIU
+
+
+def test_esperar_mensagens_acha_a_que_chega_depois_do_turno():
+    falso = ensaiar.ChatwootFalsoLocal(91)
+    falso.iniciar()
+    try:
+        marca = time.perf_counter()
+        chatwoot = ChatwootHttp(falso.url, 91, "token")
+        threading.Timer(0.3, chatwoot.enviar_mensagem, args=(9001, "[TESTE] Simulando")).start()
+        registros = ensaiar.esperar_mensagens(
+            falso, marca, 9001, ["[teste] simulando"], prazo_s=5, intervalo_s=0.05
+        )
+        assert [r.conteudo for r in registros] == ["[TESTE] Simulando"]
+    finally:
+        falso.parar()
+
+
+def test_esperar_mensagens_desiste_no_prazo_e_devolve_o_que_ha():
+    falso = ensaiar.ChatwootFalsoLocal(91)
+    falso.iniciar()
+    try:
+        marca = time.perf_counter()
+        ChatwootHttp(falso.url, 91, "token").enviar_mensagem(9001, "outra coisa")
+        registros = ensaiar.esperar_mensagens(
+            falso, marca, 9001, ["nunca chega"], prazo_s=0.3, intervalo_s=0.05
+        )
+        assert [r.conteudo for r in registros] == ["outra coisa"]
+    finally:
+        falso.parar()
+
+
+def test_a_politica_teste_do_ensaio_carrega_com_os_cinco_casos():
+    politica = carregar_politica(POLITICA_TESTE)
+    assert politica.teste is not None
+    assert [c.numero for c in politica.teste.casos] == [1, 2, 3, 4, 5]
+    assert politica.comando_reinicio == "/reset"
+    assert politica.liberacao.modo == "piloto"
+
+
+def test_a_politica_teste_do_ensaio_so_difere_da_do_repo_no_que_o_ensaio_muda():
+    do_repo = carregar_politica(RAIZ / "politica.toml")
+    do_ensaio = carregar_politica(POLITICA_TESTE)
+    trocados = {"comando_reinicio", "telefones_equipe", "liberacao", "janela", "teste"}
+    assert do_ensaio.model_dump(exclude=trocados) == do_repo.model_dump(exclude=trocados)
+    # A janela do ensaio é aberta o dia todo, sem feriado: o ensaio não depende da hora em que roda.
+    horarios = do_ensaio.janela.dias.values()
+    assert len(horarios) == 7
+    assert all(
+        (h.inicio.isoformat(), h.fim.isoformat()) == ("00:00:00", "23:59:00") for h in horarios
+    )
+    assert not do_ensaio.janela.feriados
+
+
+def test_montar_kit_de_teste_grava_a_politica_o_cardapio_e_nenhuma_carteira(tmp_path):
+    saida = tmp_path / "ensaio"
+    roteiros = [_roteiro("a"), _roteiro("b")]
+
+    telefones = ensaiar.montar_kit(tmp_path / "kit-que-nao-existe", saida, roteiros, POLITICA_TESTE)
+
+    assert telefones == {"a": "+5583900000001", "b": "+5583900000002"}
+    carregada = carregar_politica(saida / "politica-demo.toml")
+    assert set(carregada.liberacao.telefones) == {"+5583900000001", "+5583900000002"}
+    assert carregada.telefones_equipe == {"+5583900000001", "+5583900000002"}
+    assert carregada.teste.cardapio == saida / "cardapio-teste.toml"
+    assert len(carregada.teste.casos) == 5
+    assert (saida / "cardapio-teste.toml").is_file()
+    assert not (saida / "carteira-ensaio.csv").exists()
+
+
+def test_montar_kit_de_teste_sem_a_politica_falha_dizendo_o_que_falta(tmp_path):
+    with pytest.raises(ensaiar.ErroDaDemo, match="nao-existe.toml"):
+        ensaiar.montar_kit(
+            tmp_path, tmp_path / "ensaio", [_roteiro()], tmp_path / "nao-existe.toml"
+        )
+
+
+def test_o_cli_com_politica_de_teste_que_nao_existe_sai_com_2(tmp_path, capsys):
+    codigo = ensaiar.main(
+        [
+            "--kit",
+            str(tmp_path),
+            "--teste",
+            str(tmp_path / "nao-existe.toml"),
+            "--roteiros",
+            str(ROTEIROS_TESTE),
+        ]
+    )
+    assert codigo == 2
+    assert "nao-existe.toml" in capsys.readouterr().err

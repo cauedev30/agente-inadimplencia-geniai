@@ -161,3 +161,12 @@ def test_o_ambiente_desliga_o_ctn_real_mesmo_com_a_chave_no_env_do_cwd(tmp_path,
         if variavel.startswith("AGENTE_"):
             monkeypatch.setenv(variavel, valor)
     assert Config().ctn_real_ligado is False
+
+
+def test_o_banco_sem_carteira_so_migra(tmp_path, monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(subir.subprocess, "run", lambda comando, **_: chamadas.append(comando))
+    subir.preparar_banco(tmp_path, {}, None)
+    assert len(chamadas) == 1
+    assert chamadas[0][-3:] == ["alembic", "upgrade", "head"][-3:]
+    assert "importar" not in chamadas[0]
