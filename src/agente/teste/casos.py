@@ -82,7 +82,8 @@ def conversa_viva_do_testador(
             if c.chatwoot_conversa_id is not None and c.id != fora_a_conversa
         ]
         if vivas:
-            return vivas[-1]
+            # `cobranca.conversas` não tem ordem: a mais recente é a de maior id.
+            return max(vivas, key=lambda conversa: conversa.id)
     return None
 
 

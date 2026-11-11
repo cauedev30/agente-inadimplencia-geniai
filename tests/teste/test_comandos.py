@@ -9,31 +9,22 @@ from agente.db.historico import registrar_mensagem
 from agente.db.modelos import Cobranca, Conversa, Mensagem, Transicao, Turno
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.chatwoot import ChatwootFalso
-from agente.integracoes.ctn import CTNComposto, CTNFalso
-from agente.integracoes.ctn_teste import CTNDeCasos, CTNEscritaDeTeste, RoteadorCTN
-from agente.integracoes.disparador import DisparadorFalso, FalhaNoEnvio
-from agente.integracoes.jev import JevFalso
-from agente.integracoes.pix import PixDeTeste
-from agente.integracoes.redator import RedatorFalso
+from agente.integracoes.disparador import FalhaNoEnvio
 from agente.teste.casos import ativar_caso
 from agente.teste.comandos import Comando, ler_comando
 from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
-    Modo,
     OrigemMensagem,
     ResultadoTurno,
     StatusCobranca,
 )
 from agente.turno.fila import agendar_turno, mensagens_pendentes
 from agente.turno.gates import humano_na_conversa
-from agente.turno.jev3 import aprovar_tudo
-from agente.turno.orquestrador import Dependencias, _historico, _historico_e_novas, processar_turno
-from tests.conftest import TESTADOR_1, TESTADOR_2
+from agente.turno.orquestrador import _historico, _historico_e_novas, processar_turno
+from tests.conftest import TESTADOR_2
+from tests.teste.auxiliares import CHATWOOT_ID, Mandante, montar_deps
 from tests.turno.test_orquestrador_gates import SEGUNDA_10H
-
-CHATWOOT_ID = 555
-
 
 # ---- ler_comando ----
 
@@ -80,77 +71,6 @@ class ChatwootQueFalha(ChatwootFalso):
             self.falhas -= 1
             raise FalhaNoEnvio("chatwoot fora")
         return super().enviar_mensagem(conversa_id, texto, botoes)
-
-
-@pytest.fixture
-def casos(politica_de_teste):
-    return CTNDeCasos(
-        politica_de_teste.teste.casos,
-        politica_de_teste.mensalidade_centavos,
-        lambda: SEGUNDA_10H.date(),
-    )
-
-
-def _deps(politica, casos, chatwoot=None, *, com_casos=True):
-    ctn = CTNComposto(RoteadorCTN(casos, CTNFalso()), CTNEscritaDeTeste())
-    return Dependencias(
-        politica=politica,
-        chatwoot=chatwoot or ChatwootFalso(),
-        disparador=DisparadorFalso(),
-        time_humano=4,
-        modo=Modo.ATIVO,
-        jev=JevFalso(list(aprovar_tudo()), registrar=True),
-        ctn=ctn,
-        pix=PixDeTeste(agora=lambda: SEGUNDA_10H),
-        redator=RedatorFalso(registrar=True),
-        conferir_no_contato=True,
-        casos=casos if com_casos else None,
-    )
-
-
-@pytest.fixture
-def deps(politica_de_teste, casos):
-    return _deps(politica_de_teste, casos)
-
-
-@pytest.fixture
-def conversa_de_teste(sessao, politica_de_teste, casos):
-    """O testador 1 no caso 1, com a conversa ligada ao Chatwoot e a conferência de hoje."""
-    cobranca = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 1, SEGUNDA_10H)
-    conversa = Conversa(cobranca=cobranca, chatwoot_conversa_id=CHATWOOT_ID)
-    sessao.add(conversa)
-    sessao.commit()
-    return conversa
-
-
-class Mandante:
-    """Manda mensagens do cliente e roda o turno, um minuto depois da anterior."""
-
-    def __init__(self, sessao, conversa):
-        self.sessao, self.conversa, self.n = sessao, conversa, 0
-
-    def manda(self, *textos):
-        for texto in textos:
-            self.n += 1
-            registrar_mensagem(
-                self.sessao,
-                self.conversa.id,
-                OrigemMensagem.CLIENTE,
-                texto,
-                f"cw-{self.conversa.id}-{self.n}",
-                False,
-                SEGUNDA_10H + timedelta(minutes=self.n),
-            )
-        self.sessao.commit()
-
-    def roda(self, deps):
-        agora = SEGUNDA_10H + timedelta(minutes=self.n)
-        return processar_turno(self.sessao, self.conversa.id, agora, deps)
-
-
-@pytest.fixture
-def testador(sessao, conversa_de_teste):
-    return Mandante(sessao, conversa_de_teste)
 
 
 def _ultimo_turno(sessao):
@@ -414,7 +334,7 @@ def test_comando_de_telefone_fora_do_piloto_vira_texto_comum(
 def test_sem_o_modo_teste_o_comando_e_texto_comum(
     sessao, conversa_de_teste, politica_de_teste, casos
 ):
-    deps = _deps(politica_de_teste, casos, com_casos=False)
+    deps = montar_deps(politica_de_teste, casos, com_casos=False)
     testador = Mandante(sessao, conversa_de_teste)
     testador.manda("/caso 3")
 
@@ -464,7 +384,7 @@ def test_falha_no_chatwoot_desfaz_o_turno_e_o_comando_e_refeito(
     sessao, politica_de_teste, casos, conversa_de_teste, testador
 ):
     chatwoot = ChatwootQueFalha(falhas=1)
-    deps = _deps(politica_de_teste, casos, chatwoot)
+    deps = montar_deps(politica_de_teste, casos, chatwoot)
     antiga = conversa_de_teste.cobranca
     testador.manda("/caso 3")
 
@@ -522,6 +442,39 @@ class ChatwootQueNaoMudaOStatus(ChatwootFalso):
         raise FalhaNoEnvio("chatwoot fora")
 
 
+class ChatwootQueNaoMudaOStatusNaPrimeira(ChatwootFalso):
+    def __init__(self):
+        super().__init__()
+        self.falhas = 1
+
+    def mudar_status(self, conversa_id, status):
+        if self.falhas:
+            self.falhas -= 1
+            self.chamadas.append(("mudar_status_falhou", conversa_id, status))
+            raise FalhaNoEnvio("chatwoot fora")
+        super().mudar_status(conversa_id, status)
+
+
+def test_o_status_que_falha_na_1a_vez_passa_na_2a_tentativa(
+    sessao, politica_de_teste, casos, conversa_de_teste, testador
+):
+    conversa_de_teste.human_owned = True
+    conversa_de_teste.estado = EstadoConversa.ATENDIMENTO_HUMANO
+    sessao.commit()
+    chatwoot = ChatwootQueNaoMudaOStatusNaPrimeira()
+    deps = montar_deps(politica_de_teste, casos, chatwoot)
+    testador.manda("/caso 4")
+
+    assert testador.roda(deps) is ResultadoTurno.FIXA
+
+    assert [c[0] for c in chatwoot.chamadas if c[0].startswith("mudar_status")] == [
+        "mudar_status_falhou",
+        "mudar_status",
+    ]
+    assert ("mudar_status", CHATWOOT_ID, "pending") in chatwoot.chamadas
+    assert len(chatwoot.enviadas(CHATWOOT_ID)) == 1
+
+
 def test_a_mensagem_que_chegou_na_conversa_ja_trocada_vai_para_a_viva_sem_chamar_o_chatwoot(
     sessao, testador, conversa_de_teste, deps
 ):
@@ -572,7 +525,7 @@ def test_o_rollback_do_reset_devolve_o_estado_do_caso_na_memoria(
     casos.pagar_meses("SIM-1-7777", 2, SEGUNDA_10H, "k")
     abertas = [a.mes_ano for a in casos.mensalidades_em_aberto("SIM-1-7777")]
     assert len(abertas) == 1
-    deps = _deps(politica_de_teste, casos, ChatwootQueFalha(falhas=1))
+    deps = montar_deps(politica_de_teste, casos, ChatwootQueFalha(falhas=1))
     testador.manda("#reiniciar")
 
     assert testador.roda(deps) is ResultadoTurno.ERRO
@@ -591,7 +544,7 @@ def test_o_status_que_falha_depois_do_commit_nao_desfaz_a_troca_nem_repete_o_env
     conversa_de_teste.estado = EstadoConversa.ATENDIMENTO_HUMANO
     sessao.commit()
     chatwoot = ChatwootQueNaoMudaOStatus()
-    deps = _deps(politica_de_teste, casos, chatwoot)
+    deps = montar_deps(politica_de_teste, casos, chatwoot)
     testador.manda("/caso 4")
 
     assert testador.roda(deps) is ResultadoTurno.FIXA
@@ -599,8 +552,10 @@ def test_o_status_que_falha_depois_do_commit_nao_desfaz_a_troca_nem_repete_o_env
     nova = _conversa_do_chatwoot(sessao)
     assert nova.cobranca.cliente.matricula_ctn == "SIM-4-7777"
     assert len(chatwoot.enviadas(CHATWOOT_ID)) == 1
+    # Duas tentativas, as duas falham: só o log, o turno segue intacto e sem reenvio.
     assert [c for c in chatwoot.chamadas if c[0] == "mudar_status"] == [
-        ("mudar_status", CHATWOOT_ID, "pending")
+        ("mudar_status", CHATWOOT_ID, "pending"),
+        ("mudar_status", CHATWOOT_ID, "pending"),
     ]
     assert conversa_de_teste.falhas_turno == 0
     assert mensagens_pendentes(sessao, conversa_de_teste.id) == []
@@ -663,7 +618,7 @@ def test_o_reinicio_com_o_comando_reset_da_politica_do_dev2(
     sessao, politica_de_teste, casos, conversa_de_teste, testador
 ):
     politica = politica_de_teste.model_copy(update={"comando_reinicio": "/reset"})
-    deps = _deps(politica, casos)
+    deps = montar_deps(politica, casos)
     assert ler_comando("/reset", politica) == Comando("reset", None, "")
     assert ler_comando("#reiniciar", politica) is None
     antiga = conversa_de_teste.cobranca

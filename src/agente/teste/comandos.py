@@ -258,14 +258,22 @@ def _rodar_comandos(rajada: _Rajada, mensagens: list[Mensagem]) -> ResultadoTurn
 
 
 def _devolver_ao_robo(rajada: _Rajada) -> None:
-    """Melhor esforço, depois do commit: se falhar, a conversa fica com o status que tinha (o
-    atendente a devolve ao robô marcando Pendente) e o caso já trocou."""
+    """Melhor esforço, depois do commit: 2 tentativas seguidas (uma falha passageira deixaria a
+    conversa "aberta" no Chatwoot, e o bot pode deixar de receber as mensagens). Se as duas
+    falharem, só o log: a conversa fica com o status que tinha (o atendente a devolve ao robô
+    marcando Pendente) e o caso já trocou."""
     if rajada.devolver_ao_robo is None:
         return
-    try:
-        rajada.deps.chatwoot.mudar_status(rajada.devolver_ao_robo, "pending")
-    except Exception:
-        log.exception("não consegui devolver a conversa do Chatwoot ao robô (status Pendente)")
+    for tentativa in (1, 2):
+        try:
+            rajada.deps.chatwoot.mudar_status(rajada.devolver_ao_robo, "pending")
+        except Exception:
+            if tentativa == 2:
+                log.exception(
+                    "não consegui devolver a conversa do Chatwoot ao robô (status Pendente)"
+                )
+        else:
+            return
 
 
 def _tratar_comandos(

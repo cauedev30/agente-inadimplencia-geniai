@@ -5,11 +5,12 @@ from datetime import UTC, date, datetime
 import pytest
 from sqlalchemy import select
 
-from agente.db.modelos import Cliente, Cobranca
+from agente.db.modelos import Cliente, Cobranca, Conversa
 from agente.integracoes.ctn_teste import CasoInexistente, CTNDeCasos
 from agente.politica import Regua
 from agente.teste.casos import (
     ativar_caso,
+    conversa_viva_do_testador,
     do_piloto,
     exigir_piloto_fora_da_carteira,
     garantir_caso,
@@ -216,3 +217,21 @@ def test_garantir_caso_com_o_caso_anterior_encerrado_recomeca_no_padrao(
     primeira.status = StatusCobranca.PAGA
     cobranca = garantir_caso(sessao, casos, politica_de_teste, TESTADOR_1, AGORA)
     assert cobranca.cliente.matricula_ctn == "SIM-1-7777"
+
+
+def test_a_conversa_viva_e_a_de_maior_id_mesmo_com_a_lista_fora_de_ordem(
+    sessao, casos, politica_de_teste
+):
+    cobranca = ativar_caso(sessao, casos, politica_de_teste, TESTADOR_1, 1, AGORA)
+    mais_nova = Conversa(id=20, cobranca=cobranca, chatwoot_conversa_id=2020)
+    mais_velha = Conversa(id=10, cobranca=cobranca, chatwoot_conversa_id=1010)
+    sessao.add_all([mais_nova, mais_velha])
+    sessao.flush()
+    # A lista `cobranca.conversas` não tem ordem (o banco a devolve como quiser): a de id maior
+    # fica na frente, e a escolhida tem de ser a mais nova do mesmo jeito.
+    cobranca.conversas.sort(key=lambda conversa: -conversa.id)
+    assert [c.id for c in cobranca.conversas] == [20, 10]
+
+    viva = conversa_viva_do_testador(sessao, TESTADOR_1, "teste", 999)
+
+    assert viva is mais_nova
