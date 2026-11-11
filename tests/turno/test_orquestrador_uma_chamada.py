@@ -727,12 +727,12 @@ def test_com_o_recebedor_preenchido_a_frase_vai_no_fim_do_pix(sessao, ligada, cl
     assert _turno(sessao).texto_enviado == texto
 
 
-# O botão "Pagar com Pix" (D26, D47): o redator redige e só o `interpolar` valida
+# O botão "Pagar com Pix" (D26, D59): a mensagem fixa, sem o Luna nem o Jev
 
 TOQUE = BOTAO_PAGAR_PIX.texto
 
 
-def test_o_botao_com_llm_turno_manda_o_pix_validado_so_pelo_interpolar(
+def test_o_botao_com_llm_turno_manda_o_pix_fixo_sem_chamar_o_luna(
     sessao, ligada, cliente, politica
 ):
     deps = _deps(politica)
@@ -747,43 +747,8 @@ def test_o_botao_com_llm_turno_manda_o_pix_validado_so_pelo_interpolar(
     assert sessao.scalars(select(Pagamento)).one().referencia == pix.txid
     turno = _turno(sessao)
     assert (turno.acao_principal, turno.resultado) == ("GENERATE_PIX", ResultadoTurno.ENVIADO)
-    assert turno.redacao["saida"] == "LLM" and _laudos(sessao, BatchJev.JEV3) == []
+    assert turno.redacao["saida"] == "FIXA" and _laudos(sessao, BatchJev.JEV3) == []
     assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
-
-
-def test_o_botao_com_o_texto_reprovado_no_interpolar_nao_deixa_o_pix_gravado(
-    sessao, ligada, cliente, politica
-):
-    deps = _deps(politica)
-    ruim = "Fica R$ 70 no Pix {pix_copia_e_cola}"
-    deps.redator = RedatorFalso(respostas=[ruim, ruim], registrar=True)
-
-    assert cliente(TOQUE, deps) is ResultadoTurno.ENVIADO
-
-    assert deps.jev.chamadas == 0
-    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
-    assert sessao.scalars(select(Pagamento)).all() == []
-    assert (ligada.forma_enviada, ligada.estado) == (None, EstadoConversa.INICIADO)
-    turno = _turno(sessao)
-    assert turno.redacao["saida"] == "RESPOSTA_SEGURA" and len(turno.redacao["tentativas"]) == 2
-    assert turno.numeros == {"executado": False}
-
-    deps.redator = RedatorFalso(respostas=[ruim, ruim], registrar=True)
-    assert cliente(TOQUE, deps) is ResultadoTurno.HANDOFF
-
-    assert ligada.motivo_humano is MotivoHumano.VALIDACAO
-    assert sessao.scalars(select(Pagamento)).all() == []
-
-
-def test_o_botao_sem_llm_turno_continua_no_jev_3(sessao, ligada, cliente, politica):
-    deps = _deps(politica)
-    deps.llm_turno = None
-    deps.jev = JevFalso([*aprovar_tudo()], registrar=True)
-
-    assert cliente(TOQUE, deps) is ResultadoTurno.ENVIADO
-
-    assert deps.jev.chamadas
-    assert {laudo.batch for laudo in sessao.scalars(select(LaudoGravado))} == {BatchJev.JEV3}
 
 
 # O savepoint quando o `executar` recusa o que a prévia aprovou (M4)

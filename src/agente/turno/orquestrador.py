@@ -59,7 +59,7 @@ from agente.turno.avaliacao import (
     numeros_previstos,
     rotulo_humano,
 )
-from agente.turno.catalogo import TEXTO_RESPOSTA_SEGURA, DadosFixa, mensagem_fixa
+from agente.turno.catalogo import TEXTO_DO_PIX, TEXTO_RESPOSTA_SEGURA, DadosFixa, mensagem_fixa
 from agente.turno.entrega import confirmar_envio, entregue
 from agente.turno.executar import contar_objecao, executar, proximo_estado
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
@@ -1069,33 +1069,40 @@ def _pedir_texto(
 def _pagar_pix(
     sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
-    """O toque no botão "Pagar com Pix" (D26): GENERATE_PIX direto, sem o Jev 1 nem o Jev 2.
+    """O toque no botão "Pagar com Pix" (D26, D59): GENERATE_PIX direto e uma mensagem fixa.
 
-    O pedido é inequívoco, então não há leitura nem decisão. O resto é o turno de sempre: o
-    backend gera (ou reaproveita) o Pix integral, o LLM redige, o Jev 3 valida e a mensagem conta
-    no teto. Em sombra, só a prévia é gravada.
-
-    Com o turno de uma chamada (`llm_turno`, D47), o Jev não existe: o redator redige e só o
-    `interpolar` valida. O texto que reprova desfaz o Pix, como o Jev 3 faria no pipeline.
+    O pedido é inequívoco, então não há leitura, decisão nem LLM. O backend gera (ou reaproveita) o
+    Pix integral, o `TEXTO_DO_PIX` recebe o valor, o vencimento e o código, e a mensagem conta no
+    teto. Em sombra, só a prévia é gravada.
     """
     avaliacao = Avaliacao(None, None, Acao.GENERATE_PIX, [], None)
     cobranca = conversa.cobranca
     if deps.modo is Modo.SOMBRA:
         previstos = numeros_previstos(avaliacao, conversa, cobranca, deps.politica)
         return _fechar(sessao, turno, ResultadoTurno.SOMBRA, avaliacao, previstos, agora)
-    historico = _historico(sessao, conversa.id)
-    estado = estado_jev(conversa, cobranca, historico, deps.politica)
-    return _agir(
+    # A trava vem antes do savepoint: o rollback dele soltaria a trava tomada dentro.
+    if _cobranca_fechou_no_meio(sessao, conversa):
+        return _fechar_ignorado(sessao, turno, avaliacao, agora)
+    # O que o backend grava só vale se a cobrança seguir ativa depois de gerar o Pix.
+    ponto = sessao.begin_nested()
+    numeros = executar([Acao.GENERATE_PIX], cobranca, conversa, deps, agora, objecao=False)
+    if _cobranca_fechou_no_meio(sessao, conversa):
+        ponto.rollback()
+        return _fechar_ignorado(sessao, turno, avaliacao, agora, nao_executado=True)
+    ponto.commit()
+    texto = anexar_recebedor(interpolar(TEXTO_DO_PIX, numeros), numeros, deps.politica)
+    _gravar_envio(sessao, conversa, texto, agora)
+    destino = proximo_estado(conversa.estado, numeros.forma, False)
+    _mudar_estado(sessao, conversa, destino, None, agora)
+    return _fechar(
         sessao,
-        conversa,
         turno,
+        ResultadoTurno.ENVIADO,
         avaliacao,
-        estado,
-        historico,
-        deps,
-        {},
+        numeros.como_dict(),
         agora,
-        validar_no_jev=deps.llm_turno is None,
+        texto_enviado=texto,
+        redacao={"saida": "FIXA"},
     )
 
 

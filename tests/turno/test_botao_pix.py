@@ -11,14 +11,14 @@ from agente.api.chatwoot_webhook import ler_evento, receber_evento
 from agente.config import Config
 from agente.db.historico import mensagens_no_teto, registrar_mensagem
 from agente.db.modelos import LaudoGravado, Mensagem, Pagamento, Turno
+from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevFalso
-from agente.integracoes.pix import PixFalso
+from agente.integracoes.pix import PixFalso, PixIndisponivel
 from agente.integracoes.redator import RedatorFalso
 from agente.pagamento.expirar import expirar_pix
 from agente.tipos import (
-    BatchJev,
     EstadoConversa,
     FormaPagamento,
     Modo,
@@ -28,6 +28,7 @@ from agente.tipos import (
     TipoFixa,
 )
 from agente.turno import orquestrador
+from agente.turno.catalogo import TEXTO_DO_PIX
 from agente.turno.fila import mensagens_pendentes
 from agente.turno.gates import Adiar, Fixa, Ignorar, PagarPix, Seguir, avaliar_gates
 from agente.turno.jev3 import aprovar_tudo
@@ -179,17 +180,11 @@ def test_tocar_no_botao_gera_o_pix_integral_e_conta_no_teto(sessao, ligada, clie
 
 
 def test_o_pagamento_antes_do_pix_do_toque_nao_gera_pix_nem_envia(
-    sessao, ligada, cliente, politica, monkeypatch
+    sessao, ligada, cliente, politica
 ):
     # O toque relê a cobrança travada antes de executar: a conversa velha da sessão não vale.
     deps = _deps(politica)
-    estado_jev = orquestrador.estado_jev
-
-    def pagando_no_meio(*args):
-        _pagar_por_fora(sessao, ligada)
-        return estado_jev(*args)
-
-    monkeypatch.setattr(orquestrador, "estado_jev", pagando_no_meio)
+    _pagar_por_fora(sessao, ligada)
 
     assert cliente(TOQUE, deps) is ResultadoTurno.IGNORADO
 
@@ -197,18 +192,62 @@ def test_o_pagamento_antes_do_pix_do_toque_nao_gera_pix_nem_envia(
     assert deps.chatwoot.enviadas(555) == []
 
 
-def test_o_toque_nao_passa_pelo_jev_1_nem_pelo_jev_2(sessao, ligada, cliente, politica):
+def test_o_pagamento_durante_o_pix_do_toque_desfaz_o_pix_e_nao_envia(
+    sessao, ligada, cliente, politica, monkeypatch
+):
+    deps = _deps(politica)
+    executar = orquestrador.executar
+
+    def pagando_no_meio(*args, **kwargs):
+        numeros = executar(*args, **kwargs)
+        _pagar_por_fora(sessao, ligada)
+        return numeros
+
+    monkeypatch.setattr(orquestrador, "executar", pagando_no_meio)
+
+    assert cliente(TOQUE, deps) is ResultadoTurno.IGNORADO
+
+    pix = select(Pagamento).where(Pagamento.forma == FormaPagamento.PIX)
+    assert sessao.scalars(pix).all() == []
+    assert deps.chatwoot.enviadas(555) == []
+
+
+def test_o_toque_responde_a_mensagem_fixa_sem_chamar_nenhum_llm(sessao, ligada, cliente, politica):
     deps = _deps(politica)
 
-    cliente(TOQUE, deps)
+    assert cliente(TOQUE, deps) is ResultadoTurno.ENVIADO
 
-    perguntas = {nome for nomes, _ in deps.jev.chamadas for nome in nomes}
-    assert "tom" not in perguntas and "acao" not in perguntas
-    assert perguntas  # o Jev 3 valida o texto
+    assert deps.redator.pedidos == [] and deps.jev.chamadas == []
+    [pix] = deps.pix.cobrancas.values()
+    [texto] = deps.chatwoot.enviadas(555)
+    vence = pix.expira_em.astimezone(deps.politica.janela.zona).strftime("%d/%m às %H:%M")
+    assert texto == TEXTO_DO_PIX.format(
+        valor_pix=formatar_reais(ligada.cobranca.divida_centavos),
+        pix_vencimento=vence,
+        pix_copia_e_cola=pix.br_code,
+    )
     turno = sessao.scalars(select(Turno)).one()
     assert turno.acao_principal == "GENERATE_PIX" and turno.acoes_anexadas == []
-    batches = {laudo.batch for laudo in sessao.scalars(select(LaudoGravado))}
-    assert batches == {BatchJev.JEV3}
+    assert turno.resultado is ResultadoTurno.ENVIADO and turno.texto_enviado == texto
+    assert sessao.scalars(select(LaudoGravado)).all() == []
+
+
+class _PixForaDoAr(PixFalso):
+    def criar_cobranca(self, *args, **kwargs):
+        raise PixIndisponivel("o banco não respondeu")
+
+
+def test_a_falha_do_pix_no_toque_nao_grava_nem_envia_e_o_turno_erra(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica)
+    deps.pix = _PixForaDoAr(agora=lambda: SEGUNDA_10H)
+
+    assert cliente(TOQUE, deps) is ResultadoTurno.ERRO
+
+    assert sessao.scalars(select(Pagamento)).all() == []
+    assert deps.chatwoot.enviadas(555) == []
+    assert mensagens_no_teto(sessao, ligada.id) == 0
 
 
 def test_tocar_duas_vezes_reaproveita_o_pix_que_ainda_vale(sessao, ligada, cliente, politica):

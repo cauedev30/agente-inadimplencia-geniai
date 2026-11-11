@@ -21,6 +21,14 @@ TEXTO_RESPOSTA_SEGURA = (
     "Desculpe, não consegui te responder direito agora. Pode me contar de novo o que você precisa?"
 )
 
+# A resposta ao toque em "Pagar com Pix" (D26, D59): fixa, com os marcadores que o `interpolar`
+# preenche com o Pix do backend. Conta no teto como qualquer mensagem (D40). A frase do recebedor
+# entra depois (`anexar_recebedor`), e o código vai sozinho no fim, para o cliente copiar.
+TEXTO_DO_PIX = (
+    "Aqui está o seu Pix de {valor_pix}, válido até {pix_vencimento}. "
+    "Copie o código abaixo e cole no app do seu banco para pagar:\n\n{pix_copia_e_cola}"
+)
+
 
 @dataclass(frozen=True)
 class DadosFixa:
