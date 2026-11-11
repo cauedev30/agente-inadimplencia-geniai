@@ -317,3 +317,27 @@ class BaixaCTNRegistro(Base):
     # A tabela só cresce e a rotina filtra por estes dois a cada 10 minutos (migração 0015).
     aplicada_em: Mapped[datetime | None] = mapped_column(index=True)
     efeito: Mapped[str | None] = mapped_column(String(40), index=True)
+
+
+class NotaTeste(Base):
+    """Uma observação do testador (`/nota`, D56): presa à conversa, à cobrança, ao último turno
+    fechado que não foi de comando e à mensagem do comando. Nunca vai ao LLM nem conta no teto; o
+    relatório das notas (`agente notas-teste`) as reúne para o Cauê."""
+
+    __tablename__ = "nota_teste"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversa_id: Mapped[int] = mapped_column(ForeignKey("conversa.id"), index=True)
+    cobranca_id: Mapped[int] = mapped_column(ForeignKey("cobranca.id"))
+    # Nulo quando a conversa ainda não teve turno de verdade (só comandos e a abertura).
+    turno_id: Mapped[int | None] = mapped_column(ForeignKey("turno.id"))
+    mensagem_id: Mapped[int] = mapped_column(ForeignKey("mensagem.id"), unique=True)
+    # O número do caso do cardápio; 0 se a cobrança não é simulada.
+    caso: Mapped[int]
+    texto: Mapped[str] = mapped_column(Text)
+    criada_em: Mapped[datetime] = mapped_column(index=True)
+
+    conversa: Mapped[Conversa] = relationship()
+    cobranca: Mapped[Cobranca] = relationship()
+    turno: Mapped[Turno | None] = relationship()
+    mensagem: Mapped[Mensagem] = relationship()

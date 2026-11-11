@@ -2,7 +2,8 @@
 `agente simular` (as conversas simuladas), `agente comparar-redatores` (a escolha do LLM, T6) e
 `agente reproduzir` (a pré-sombra: as conversas reais do Chatwoot, só lidas, pelo turno em sombra) e
 `agente estimar-carteira` (a carteira estimada das conversas, para a reprodução) e
-`agente importar-ctn` (a carteira do dia pelo retrato da inadimplência do CTN real).
+`agente importar-ctn` (a carteira do dia pelo retrato da inadimplência do CTN real) e
+`agente notas-teste` (as notas dos testadores do modo teste, em Markdown).
 """
 
 import argparse
@@ -62,6 +63,7 @@ from agente.simulacao import (
     formatar_relatorio,
     rodar_simulacao,
 )
+from agente.teste.notas import relatorio_das_notas
 
 Comando = Callable[[argparse.Namespace], int]
 
@@ -415,6 +417,21 @@ _AVISO_SEM_ENCERRAR = {
 }
 
 
+@_sem_detalhe_de_erro("Nada foi alterado; o comando só lê o banco.")
+def _notas_teste(argumentos: argparse.Namespace) -> int:
+    config = carregar_config()
+    politica = carregar_politica(config.politica_path)
+    with criar_sessao(config.database_url, ocultar_parametros=True)() as sessao:
+        relatorio = relatorio_das_notas(sessao, politica, argumentos.desde)
+    if argumentos.saida is None:
+        print(relatorio)
+        return 0
+    argumentos.saida.parent.mkdir(parents=True, exist_ok=True)
+    argumentos.saida.write_text(relatorio, encoding="utf-8")
+    print(f"relatório: {argumentos.saida} (testador mascarado; notas do modo teste)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # O console do Windows não usa UTF-8 por padrão e quebra os acentos.
     if hasattr(sys.stdout, "reconfigure"):
@@ -488,6 +505,16 @@ def main(argv: list[str] | None = None) -> int:
         "--simular", action="store_true", help="mostra os totais sem gravar nada"
     )
     importar_ctn.set_defaults(rodar=_importar_ctn)
+    notas = comandos.add_parser(
+        "notas-teste", help="junta as notas (/nota) dos testadores num relatório em Markdown"
+    )
+    notas.add_argument(
+        "--desde",
+        type=date.fromisoformat,
+        help="só as notas deste dia em diante, AAAA-MM-DD (no fuso da janela)",
+    )
+    notas.add_argument("--saida", type=Path, help="grava o relatório neste arquivo (padrão: tela)")
+    notas.set_defaults(rodar=_notas_teste)
     argumentos = parser.parse_args(argv)
     return argumentos.rodar(argumentos)
 

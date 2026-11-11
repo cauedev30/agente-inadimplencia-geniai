@@ -281,6 +281,34 @@ def test_migracao_0017_cria_o_ult_mesref_na_cobranca(tmp_path):
     motor.dispose()
 
 
+def test_migracao_0018_cria_as_notas_do_teste(tmp_path):
+    url = f"sqlite:///{(tmp_path / 'm18.db').as_posix()}"
+    config = alembic_config(url)
+
+    command.upgrade(config, "0017")
+    motor = create_engine(url)
+    assert "nota_teste" not in inspect(motor).get_table_names()
+
+    command.upgrade(config, "0018")
+    colunas = {c["name"]: c for c in inspect(motor).get_columns("nota_teste")}
+    assert set(colunas) == {
+        "id",
+        "conversa_id",
+        "cobranca_id",
+        "turno_id",
+        "mensagem_id",
+        "caso",
+        "texto",
+        "criada_em",
+    }
+    assert colunas["turno_id"]["nullable"] is True
+    assert all(not colunas[c]["nullable"] for c in colunas if c != "turno_id")
+
+    command.downgrade(config, "0017")
+    assert "nota_teste" not in inspect(motor).get_table_names()
+    motor.dispose()
+
+
 def test_o_modelo_das_baixas_tem_os_mesmos_indices_da_migracao(sessao):
     indices = {i["name"] for i in inspect(sessao.get_bind()).get_indexes("baixa_ctn")}
     assert {"ix_baixa_ctn_aplicada_em", "ix_baixa_ctn_efeito"} <= indices

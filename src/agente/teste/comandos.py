@@ -27,6 +27,7 @@ from agente.pagamento.baixas_ctn import DependenciasDasBaixas, aplicar_baixas_si
 from agente.pagamento.confirmar import ResultadoConfirmacao, confirmar_pagamento
 from agente.politica import CasoTeste, Politica
 from agente.teste.casos import ativar_caso, conversa_viva_do_testador, do_piloto
+from agente.teste.notas import gravar_nota
 from agente.tipos import (
     FormaPagamento,
     OrigemMensagem,
@@ -304,6 +305,21 @@ def _executar_depois(rajada: _Rajada) -> None:
             _avisar_depois_do_commit(rajada, TEXTO_PAGAMENTO_FALHOU)
 
 
+TEXTO_NOTA_VAZIA = "[TESTE] Escreva a nota depois do /nota."
+TEXTO_NOTA_ANOTADA = "[TESTE] Nota anotada."
+
+
+def _tratar_nota(rajada: _Rajada, comando: Comando, mensagem: Mensagem) -> None:
+    """`/nota <texto>`: grava a observação presa ao último turno de verdade da conversa. A nota é
+    parte do turno do comando: se a resposta não sair, o turno e a nota são desfeitos juntos e o
+    testador manda de novo."""
+    if not comando.texto:
+        _responder(rajada, TEXTO_NOTA_VAZIA)
+        return
+    gravar_nota(rajada.sessao, rajada.conversa, mensagem, comando.texto, rajada.agora)
+    _responder(rajada, TEXTO_NOTA_ANOTADA)
+
+
 def _tratar(rajada: _Rajada, comando: Comando, mensagem: Mensagem) -> Cobranca | None:
     if comando.nome in ("caso", "reset"):
         return _tratar_caso(rajada, comando)
@@ -313,8 +329,7 @@ def _tratar(rajada: _Rajada, comando: Comando, mensagem: Mensagem) -> Cobranca |
     if comando.nome == "paguei":
         _tratar_paguei(rajada, comando, mensagem)
         return None
-    # O `/nota` entra na tarefa 2.3.
-    _responder(rajada, f"[TESTE] O comando /{comando.nome} ainda não está disponível aqui.")
+    _tratar_nota(rajada, comando, mensagem)
     return None
 
 
