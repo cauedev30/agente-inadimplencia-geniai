@@ -126,4 +126,4 @@ regua = "regua"  # opcional; quando vem, vence o número de mensalidades
 cardapio = "../../cardapio-teste.toml"  # relativo a esta pasta; o ensaio o copia
 campanha = "teste"  # a campanha das cobranças dos casos
 caso_padrao = 1  # o caso do 1º contato
-texto_abertura = "Oi, {nome}! Aqui é o agente da GeniAI. Vi {mensalidades} mensalidades em aberto, {valor} no total. [TESTE] No cliente real aqui vem o botão \"Pagar com Pix\". No teste, escreva: Pagar com Pix"  # provisório (P2); {nome} e {valor} obrigatórios
+texto_abertura = "Oi, {nome}! Vi {mensalidades} mensalidades em aberto, {valor} no total. [TESTE] No cliente real aqui vem o botão \"Pagar com Pix\". No teste, escreva: Pagar com Pix"  # provisório (P2); {nome} e {valor} obrigatórios
