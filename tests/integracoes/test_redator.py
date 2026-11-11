@@ -55,7 +55,7 @@ class ContratoRedator:
         assert isinstance(texto, str) and texto.strip()
         assert "{divida}" in texto and "{link_ctn}" in texto
 
-    def test_se_identifica_para_a_comparacao(self, redator):
+    def test_se_identifica(self, redator):
         assert redator.nome
 
 

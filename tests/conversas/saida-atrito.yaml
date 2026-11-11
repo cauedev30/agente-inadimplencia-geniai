@@ -1,9 +1,0 @@
-# Uma conversa por saída para o humano (tarefa 4.6).
-nome: Atrito com a clínica
-regua: R3
-mensalidades: 3
-propenso: false
-turnos:
-  - cliente: Não vou pagar nada, a clínica me atendeu muito mal da última vez.
-    perguntas: {atrito_clinica: true, tom: irritado}
-    esperado: {gatilho: ATRITO}

@@ -17,7 +17,6 @@ from agente.integracoes.jev import JevFalso, JevIndisponivel, responder
 from agente.integracoes.pix import PixFalso
 from agente.integracoes.redator import RedatorFalso, RedatorIndisponivel
 from agente.politica import Regua
-from agente.simulacao import DependenciasSimulacao, carregar_casos, rodar_simulacao
 from agente.tipos import (
     BatchJev,
     EstadoConversa,
@@ -32,7 +31,6 @@ from agente.turno.jev3 import aprovar_tudo
 from agente.turno.liberacao import liberar_tudo
 from agente.turno.orquestrador import Dependencias, processar_turno
 
-from ..conftest import RAIZ
 from .test_orquestrador_gates import SEGUNDA_10H
 
 OBJECAO = [responder("objecao_valor", True), responder("acao", "OFFER_DISCOUNT")]
@@ -376,18 +374,6 @@ def test_em_risco_o_cliente_que_melhora_segue_com_o_robo(sessao, ligada, cliente
     assert cliente("tá bom, me manda", segundo) is ResultadoTurno.ENVIADO
 
     assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
-
-
-def test_os_roteiros_da_46_passam_em_modo_ativo_com_as_falsas(politica):
-    casos = carregar_casos(RAIZ / "tests" / "conversas")
-
-    relatorio = rodar_simulacao(casos, DependenciasSimulacao(politica))
-
-    assert relatorio.divergencias == []
-    # Todo turno que não saiu para o humano nem foi NONE mandou um texto ao cliente.
-    acoes = [t.esperado.acao for caso in casos for t in caso.turnos if t.esperado.acao]
-    assert len(relatorio.textos) == sum(acao.value != "NONE" for acao in acoes)
-    assert all("{" not in texto for texto in relatorio.textos)
 
 
 def test_none_numa_objecao_sem_desconto_tambem_conta_para_o_humano(

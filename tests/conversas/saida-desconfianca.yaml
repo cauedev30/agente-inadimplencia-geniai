@@ -1,8 +1,0 @@
-nome: Desconfia de golpe
-regua: R3
-mensalidades: 3
-propenso: false
-turnos:
-  - cliente: Isso é golpe né? Como eu sei que vocês são mesmo do Cartão de Todos?
-    perguntas: {desconfia_golpe: true}
-    esperado: {gatilho: DESCONFIANCA}

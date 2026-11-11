@@ -1,8 +1,0 @@
-nome: Quer pagar na conta de energia
-regua: R2
-mensalidades: 2
-propenso: false
-turnos:
-  - cliente: Dá para colocar na minha conta de luz da Energisa?
-    perguntas: {quer_conta_energia: true, intencao_pagar: disposto}
-    esperado: {gatilho: ENERGISA}

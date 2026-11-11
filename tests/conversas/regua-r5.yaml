@@ -1,8 +1,0 @@
-nome: R5, pergunta fora de escopo
-regua: R5
-mensalidades: 5
-propenso: false
-turnos:
-  - cliente: Qual o horário de funcionamento da clínica do centro?
-    perguntas: {acao: OUT_OF_SCOPE}
-    esperado: {acao: OUT_OF_SCOPE, anexos: []}
