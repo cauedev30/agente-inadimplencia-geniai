@@ -72,6 +72,29 @@ docker compose -f deploy/dev2/compose.yaml logs --tail 200 postgres
 O `/saude` do serviço (`curl http://127.0.0.1:8000/saude`, de dentro do servidor) dá 503 se o laço
 dos turnos parou há mais de 60 segundos.
 
+## Testes do Postgres
+
+Os testes de `tests/postgres/` (o `alembic upgrade head` num banco vazio e os comandos do modo teste
+`/caso`, `/paguei`, `/paguei n` e `/nota`, mais a corrida do 1º contato) só rodam com a variável
+`AGENTE_TESTE_POSTGRES_URL`; sem ela, são pulados. Eles usam o banco `agente_teste`, que o Postgres do
+compose cria quando o volume nasce (`initdb/01-banco-de-teste.sql`), e **apagam o schema `public` dele
+a cada teste**: nunca aponte a variável para o banco `agente`. (Um volume criado antes do
+`initdb` não tem o `agente_teste`; crie com
+`docker compose -f deploy/dev2/compose.yaml exec postgres psql -U agente -c "CREATE DATABASE agente_teste"`.)
+
+O compose não publica a porta do Postgres, e a imagem do agente não tem o `pytest` (é `--no-dev`).
+Por isso o teste roda num contêiner descartável na rede do compose, com o código montado, que instala as
+dependências de dev e acessa o banco pelo nome `postgres` (**a confirmar no dev2**: nunca rodou lá).
+De dentro de `/opt/agente-inadimplencia/app`, com o usuário e a senha do `deploy/dev2/.env` (a senha
+sem `%`, que o Alembic lê como interpolação):
+
+```
+docker run --rm --network agente-inadimplencia_default -v "$PWD":/app -w /app   -e UV_PROJECT_ENVIRONMENT=/tmp/venv -e PYTHONDONTWRITEBYTECODE=1   -e AGENTE_TESTE_POSTGRES_URL='postgresql+psycopg://agente:<senha>@postgres:5432/agente_teste'   python:3.12-slim sh -c "pip install -q uv && uv sync --frozen && uv run pytest -p no:cacheprovider tests/postgres"
+```
+
+A rede se chama `<projeto>_default`; se o nome não bater, `docker network ls` mostra o certo. Os 8
+testes passando (nenhum pulado) é o "pronto" da tarefa 2.2.
+
 ## Parar e apagar
 
 ```
