@@ -98,3 +98,7 @@ com a correção quando a hora chegar (texto completo na fonte).
   ponto de partida da tarefa 1.8.
 - Frentes com o gestor e com o dev (G1.1, G4, G2.4, G9, G7, G5, G3, T1, T2, T3, T4, T9): continuam em
   `repo/docs/duvidas.md`; as de webchat (G7) ficam "sem efeito pela D60".
+- Achados da tarefa 1.3 (código sem leitor depois do Jev): `politica.objecoes_sem_desconto_ate_humano` e a coluna
+  `Conversa.objecoes_sem_desconto`; `proximo_estado(..., em_risco)` chamado sempre com `False`; motivos
+  `JEV_INDISPONIVEL`, `DECISAO_JEV2`, `BAIXA_CONFIANCA`, `SEM_MELHORA` e `OBJECAO_SEM_DESCONTO` e
+  `EstadoConversa.EM_RISCO` sem uso; o `LLMTurnoOpenAI` do serviço não é fechado no encerramento (já era assim).
