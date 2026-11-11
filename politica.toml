@@ -29,19 +29,8 @@ integracao_tentativas = 3            # padrão: tentativas do turno com o CTN, o
 erro_interno_tentativas = 3          # padrão: tentativas do turno com um erro de código; depois, o humano
 integracao_espera_segundos = 60      # padrão: a espera até a 2ª tentativa; dobra a cada falha
 integracao_espera_maxima_segundos = 3600  # padrão: a espera não passa disto
-# O link provisório da 6ª mensagem: só vale sem AGENTE_WEBCHAT_URL_BASE; com ela, o link leva o token (7.4).
-link_canal_externo = "https://atendimento.invalid/provisorio"
-# D44: a saída para o humano por estes motivos não manda o link do webchat; o atendente segue na mesma
-# conversa do WhatsApp. Quem desconfia de golpe e recebe um link só desconfia mais.
-motivos_humano_no_whatsapp = ["DESCONFIANCA"]
-# Padrão (G7.5, a confirmar com o gestor): a fixa HUMANO_NO_WHATSAPP, sem botão.
+# D44: a saída por DESCONFIANCA (golpe) manda esta fixa, sem botão; o atendente segue na mesma conversa.
 texto_humano_no_whatsapp = "Entendo a sua preocupação. Um atendente da unidade vai continuar com você aqui mesmo, nesta conversa."
-# Webchat (D32, G7): padrões até o gestor responder.
-webchat_token_validade_horas = 720   # padrão (G7): o link vale 30 dias, ou até a cobrança encerrar
-webchat_cpf_digitos = 3              # padrão (G7.2): os primeiros dígitos do CPF pedidos antes de abrir o chat
-webchat_verificacao_validade_minutos = 120  # padrão: a amarração só vale para a cobrança que passou pelo CPF há menos disto
-webchat_cpf_bloqueio_horas = 1       # decisão do Cauê: depois dos erros, o link bloqueia por esta hora e as tentativas zeram
-webchat_cpf_tentativas = 3           # padrão (G7.2): erros no CPF; depois, o link da cobrança fica bloqueado
 template_abertura = "cobranca_abertura"  # padrão: o nome do template aprovado na Meta (D28, T4)
 template_confirmacao = "cobranca_confirmacao"  # padrão (D28, T4): a confirmação do pagamento fora das 24h do WhatsApp (template de utilidade)
 # Spec do CTN real, decisão 3 (padrão, o Cauê pode mudar): o aviso único quando o cliente quitou por fora

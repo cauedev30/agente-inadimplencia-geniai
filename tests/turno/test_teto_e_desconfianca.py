@@ -1,6 +1,6 @@
 """O teto depois da saída por desconfiança, a volta ao humano de quem já saiu pelo teto e a
 desconfiança junto com outro gatilho (tarefa 8.11): nenhum caminho deixa o cliente sem resposta,
-e quem desconfia de golpe nunca recebe link (D44)."""
+e a fixa do golpe (D44) só na saída por desconfiança."""
 
 from datetime import timedelta
 
@@ -59,7 +59,7 @@ def _transicoes_para_o_humano(sessao):
     ]
 
 
-def test_a_6a_de_quem_desconfiou_e_devolvido_sai_sem_link(sessao, ligada, cliente, politica):
+def test_a_6a_de_quem_desconfiou_e_devolvido_e_a_comum(sessao, ligada, cliente, politica):
     deps = _deps(politica, [DESCONFIA])
     assert cliente("Isso é mesmo do Cartão de Todos?", deps) is ResultadoTurno.HANDOFF
     _devolver(sessao, ligada)
@@ -67,10 +67,9 @@ def test_a_6a_de_quem_desconfiou_e_devolvido_sai_sem_link(sessao, ligada, client
 
     assert cliente("e aí?", deps) is ResultadoTurno.FIXA
 
-    # A 6ª é a fixa do WhatsApp, sem botão nem link, com a transição TETO.
-    assert deps.chatwoot.enviadas(555) == [politica.texto_humano_no_whatsapp] * 2
+    # A saída por desconfiança foi a fixa do golpe; a 6ª é a comum, sem botão, com a transição TETO.
+    assert deps.chatwoot.enviadas(555) == [politica.texto_humano_no_whatsapp, TEXTO_CANAL_EXTERNO]
     assert deps.chatwoot.chamadas[-1][3] == []
-    assert TEXTO_CANAL_EXTERNO not in deps.chatwoot.enviadas(555)
     assert ligada.estado is EstadoConversa.ATENDIMENTO_HUMANO
     assert ligada.motivo_humano is MotivoHumano.TETO
     assert _transicoes_para_o_humano(sessao) == [MotivoHumano.DESCONFIANCA, MotivoHumano.TETO]
@@ -78,14 +77,14 @@ def test_a_6a_de_quem_desconfiou_e_devolvido_sai_sem_link(sessao, ligada, client
     assert [m.conta_no_teto for m in fixas] == [False, False]
 
 
-def test_a_6a_comum_segue_com_o_link(sessao, ligada, cliente, politica):
+def test_a_6a_comum_sai_sem_botao(sessao, ligada, cliente, politica):
     deps = _deps(politica)
     _cinco_do_agente(sessao, ligada, politica)
 
     assert cliente("e aí?", deps) is ResultadoTurno.FIXA
 
     assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
-    assert deps.chatwoot.chamadas[-1][3] != []
+    assert deps.chatwoot.chamadas[-1][3] == []
     assert _transicoes_para_o_humano(sessao) == [MotivoHumano.TETO]
 
 
@@ -111,7 +110,7 @@ def test_quem_saiu_pelo_teto_e_foi_devolvido_volta_ao_humano_sem_mensagem(
     assert _transicoes_para_o_humano(sessao) == [MotivoHumano.TETO, MotivoHumano.TETO]
 
 
-def test_quem_saiu_pelo_teto_sem_link_e_foi_devolvido_tambem_volta_sem_mensagem(
+def test_quem_desconfiou_e_saiu_pelo_teto_e_foi_devolvido_tambem_volta_sem_mensagem(
     sessao, ligada, cliente, politica
 ):
     deps = _deps(politica, [DESCONFIA])
@@ -127,7 +126,7 @@ def test_quem_saiu_pelo_teto_sem_link_e_foi_devolvido_tambem_volta_sem_mensagem(
     assert ligada.estado is EstadoConversa.ATENDIMENTO_HUMANO
 
 
-def test_golpe_com_contestacao_sai_sem_link_e_com_o_motivo_da_contestacao(
+def test_golpe_com_contestacao_sai_com_o_motivo_da_contestacao_e_o_canal_externo(
     sessao, ligada, cliente, politica
 ):
     saida = _bruto(contesta_divida=True, desconfia_golpe=True, acao="NONE", reply="")
@@ -135,17 +134,8 @@ def test_golpe_com_contestacao_sai_sem_link_e_com_o_motivo_da_contestacao(
 
     assert cliente("isso é falso, não devo nada", deps) is ResultadoTurno.HANDOFF
 
-    assert deps.chatwoot.enviadas(555) == [politica.texto_humano_no_whatsapp]
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
     assert deps.chatwoot.chamadas[-1][3] == []
     assert ligada.motivo_humano is MotivoHumano.CONTESTACAO
     etiqueta = next(c[2] for c in deps.chatwoot.chamadas if c[0] == "etiquetar")
     assert etiqueta == ["contestacao"]
-
-
-def test_contestacao_sem_desconfianca_nao_tira_o_link(sessao, ligada, cliente, politica):
-    saida = _bruto(contesta_divida=True, desconfia_golpe=False, acao="NONE", reply="")
-    deps = _deps(politica, [saida])
-
-    cliente("não devo nada", deps)
-
-    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]

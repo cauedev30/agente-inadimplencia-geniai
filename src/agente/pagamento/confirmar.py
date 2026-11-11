@@ -209,7 +209,6 @@ def _gravar_confirmacao(
             nome=cliente.nome,
             valor_centavos=valor_centavos,
             link_cartao=link_cartao,
-            link_canal_externo=deps.politica.link_canal_externo,
         )
         origem, texto = OrigemMensagem.FIXA, _texto_com_botoes(mensagem_fixa(tipo, dados))
     else:
@@ -330,8 +329,6 @@ def confirmar_pagamento(
         if com_humano and conversa.chatwoot_conversa_id is not None:
             pendencias.append(Pendencia.AVISO_HUMANO.value)
         transicionar(sessao, conversa, EstadoConversa.ENCERRADO, None, None, momento=agora)
-    if cobranca.webchat_conversa_id is not None:
-        pendencias.append(Pendencia.RESOLVER_WEBCHAT.value)
     pagamento.pendencias = pendencias
     pagamento.proxima_tentativa_em = agora if pendencias else None
     sessao.flush()

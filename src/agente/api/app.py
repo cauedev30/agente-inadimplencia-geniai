@@ -14,7 +14,6 @@ from starlette.concurrency import run_in_threadpool
 from agente.api.chatwoot_webhook import receber_evento
 from agente.api.ctn_webhook import criar_rota_ctn
 from agente.api.pix_webhook import criar_rota_pix
-from agente.api.webchat import criar_rota_webchat
 from agente.config import Config
 from agente.integracoes.ctn import CTN
 from agente.pagamento.baixas_ctn import DependenciasDasBaixas, ler_baixas
@@ -26,19 +25,11 @@ from agente.pagamento.concluir import (
 from agente.pagamento.expirar import expirar_pix
 from agente.politica import Politica
 from agente.turno.fila import Processar, Rotina, Trabalhador, a_cada, processar_sem_acao
-from agente.webchat.amarrar import (
-    contar_amarracoes_sem_concluir,
-    da_inbox_do_webchat,
-    refazer_amarracoes,
-    tratar_evento_webchat,
-)
 
 log = logging.getLogger(__name__)
 
 # O Pix vencido não tem pressa (G2.4): uma varredura por minuto basta.
 INTERVALO_EXPIRAR_PIX = timedelta(minutes=1)
-# A amarração do webchat pendente já espera por `espera_integracao`; a varredura é só a checagem.
-INTERVALO_AMARRACOES = timedelta(seconds=10)
 # O CTN coleta as baixas a cada 10 minutos (spec do CTN real, seção 2): ler mais só gasta cota.
 INTERVALO_BAIXAS = timedelta(minutes=10)
 
@@ -84,14 +75,6 @@ def _rotinas(
                 return ler_baixas(sessao, deps_baixas, agora)
 
             rotinas.append(a_cada(INTERVALO_BAIXAS, baixas))
-        if config.webchat_inbox is not None:
-            # A amarração do webchat que o Chatwoot não deixou terminar (tarefa 7.3).
-            def refazer(sessao: Session, agora: datetime) -> int:
-                return refazer_amarracoes(
-                    sessao, dependencias.chatwoot, config, politica, dependencias.time_humano, agora
-                )
-
-            rotinas.append(a_cada(INTERVALO_AMARRACOES, refazer))
     return rotinas
 
 
@@ -108,7 +91,7 @@ def criar_app(
 ) -> FastAPI:
     """`dependencias` são as do turno; os webhooks de pagamento as passam ao confirmar_pagamento.
 
-    `ctn` confere o CPF da página do webchat; sem ele (ou sem os segredos), a página fica desligada.
+    `ctn` é o do CTN real, quando ligado; o app o fecha no encerramento.
     """
     trabalhador = Trabalhador(
         fabrica, processar, relogio, rotinas=_rotinas(dependencias, politica, config, ctn)
@@ -143,17 +126,6 @@ def criar_app(
             raise HTTPException(503, "não foi possível contar os pagamentos sem concluir") from None
         return {"pagamentos_sem_concluir": sem_concluir}
 
-    @app.get("/saude/webchat")
-    def saude_webchat() -> dict:
-        # As amarrações do webchat que esgotaram as tentativas: o atendente está sem o resumo.
-        try:
-            with fabrica() as sessao:
-                sem_concluir = contar_amarracoes_sem_concluir(sessao)
-        except Exception:
-            log.exception("a contagem das amarrações do webchat falhou")
-            raise HTTPException(503, "não foi possível contar as amarrações") from None
-        return {"amarracoes_sem_concluir": sem_concluir}
-
     @app.post("/webhooks/chatwoot/{segredo}")
     async def webhook_chatwoot(segredo: str, request: Request) -> dict:
         if config.webhook_segredo is None:
@@ -169,20 +141,6 @@ def criar_app(
 
         def _tratar() -> str:
             with fabrica() as sessao:
-                eventos_do_webchat = ("conversation_created", "message_created")
-                if dados.get("event") in eventos_do_webchat and da_inbox_do_webchat(dados, config):
-                    # A conversa do webchat: a amarração à cobrança (tarefa 7.3).
-                    if dependencias is None:
-                        return "ignorado"
-                    return tratar_evento_webchat(
-                        sessao,
-                        dependencias.chatwoot,
-                        dados,
-                        config,
-                        politica,
-                        dependencias.time_humano,
-                        relogio(),
-                    )
                 return receber_evento(
                     sessao,
                     dados,
@@ -196,9 +154,4 @@ def criar_app(
 
     app.include_router(criar_rota_pix(fabrica, config.pix_webhook_segredo, dependencias))
     app.include_router(criar_rota_ctn(fabrica, config.ctn_webhook_segredo, dependencias))
-    app.include_router(
-        criar_rota_webchat(
-            fabrica, politica, config, ctn, relogio, getattr(dependencias, "chatwoot", None)
-        )
-    )
     return app

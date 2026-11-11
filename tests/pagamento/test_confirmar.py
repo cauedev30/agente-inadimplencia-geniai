@@ -225,7 +225,7 @@ def test_o_propenso_que_pagou_no_pix_recebe_o_convite_do_cartao(sessao, ligada, 
     [link] = [url for url in deps.ctn.links if url.startswith("cartao")]
     esperada = mensagem_fixa(
         TipoFixa.CONFIRMACAO_CONVITE_CARTAO,
-        DadosFixa("Cliente Fictício", DIVIDA, f"https://ctn.invalid/cartao/{link}", ""),
+        DadosFixa("Cliente Fictício", DIVIDA, f"https://ctn.invalid/cartao/{link}"),
     )
     [chamada] = _enviadas(deps)
     # O botão de link vai no texto, como o Chatwoot o entrega.
@@ -487,55 +487,6 @@ def test_o_webhook_repetido_com_a_conclusao_pendente_nao_refaz_nada(sessao, liga
 
     assert repetido is ResultadoConfirmacao.JA_CONFIRMADO
     assert len(deps.chatwoot.enviadas(555)) == 1 and len(deps.ctn.baixas) == 1
-
-
-def test_o_pagamento_resolve_a_conversa_do_webchat_amarrada(sessao, ligada, deps):
-    ligada.cobranca.webchat_conversa_id = 777
-    txid = _pix(sessao, ligada, deps)
-
-    _pagar(sessao, deps, txid, DIVIDA)
-
-    assert ("mudar_status", 777, "resolved") in deps.chatwoot.chamadas
-    assert sessao.scalars(select(Pagamento)).one().pendencias == []
-
-
-def test_o_webchat_resolvido_pelo_pagamento_leva_a_nota_do_motivo_antes(sessao, ligada, deps):
-    ligada.cobranca.webchat_conversa_id = 777
-    txid = _pix(sessao, ligada, deps)
-
-    _pagar(sessao, deps, txid, DIVIDA)
-
-    do_webchat = [c for c in deps.chatwoot.chamadas if c[1] == 777]
-    assert [c[0] for c in do_webchat] == ["nota_privada", "mudar_status"]
-    assert do_webchat[0][2].startswith("Pagamento confirmado") and txid in do_webchat[0][2]
-
-
-def test_sem_webchat_amarrado_nada_e_resolvido(sessao, ligada, deps):
-    txid = _pix(sessao, ligada, deps)
-
-    _pagar(sessao, deps, txid, DIVIDA)
-
-    assert [c for c in deps.chatwoot.chamadas if c[0] == "mudar_status"] == []
-
-
-def test_o_chatwoot_fora_deixa_o_webchat_para_resolver_depois(sessao, ligada, politica):
-    deps = _deps(politica)
-    deps.chatwoot = ChatwootInstavel()
-    ligada.cobranca.webchat_conversa_id = 777
-    txid = _pix(sessao, ligada, deps)
-    confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
-    deps.chatwoot.fora = True
-    deps.chatwoot.mudar_status = lambda *a: (_ for _ in ()).throw(httpx.ConnectError("fora"))
-    concluir_pagamentos(sessao, deps, AGORA)
-    pagamento = sessao.scalars(select(Pagamento)).one()
-    assert Pendencia.RESOLVER_WEBCHAT.value in pagamento.pendencias
-
-    del deps.chatwoot.mudar_status
-    deps.chatwoot.fora = False
-    concluir_pagamentos(sessao, deps, pagamento.proxima_tentativa_em)
-
-    assert ("mudar_status", 777, "resolved") in deps.chatwoot.chamadas
-    assert pagamento.pendencias == []
 
 
 def test_o_convite_do_cartao_e_pedido_ao_ctn_antes_de_travar_a_cobranca(sessao, ligada, deps):
@@ -1127,26 +1078,27 @@ def test_o_pagamento_em_dobro_nunca_recebe_a_nota_de_concluido(sessao, ligada, p
 def test_a_nota_de_concluido_vale_mesmo_quando_o_ultimo_passo_e_outro(sessao, ligada, politica):
     """A baixa sai antes do último passo: a nota de concluído não depende de ser ele o da baixa."""
     deps = _deps(politica)
-    ligada.cobranca.webchat_conversa_id = 777
+    ligada.estado = EstadoConversa.ATENDIMENTO_HUMANO
+    ligada.human_owned = True
     txid = _pix(sessao, ligada, deps)
     confirmar_pagamento(sessao, deps, txid, DIVIDA, PAGO_EM)
-    mudar_status = deps.chatwoot.mudar_status
+    nota_privada = deps.chatwoot.nota_privada
 
-    def mudar_status_sem_o_webchat(conversa_id, status):
-        if conversa_id == 777:
+    def nota_privada_sem_o_aviso_humano(conversa_id, texto):
+        if texto.startswith("Pagamento confirmado: "):
             raise httpx.ConnectError("fora")
-        mudar_status(conversa_id, status)
+        nota_privada(conversa_id, texto)
 
     deps.ctn.fora_do_ar = True
-    deps.chatwoot.mudar_status = mudar_status_sem_o_webchat
+    deps.chatwoot.nota_privada = nota_privada_sem_o_aviso_humano
     agora = _esgotar(sessao, deps)
     deps.ctn.fora_do_ar = False
     concluir_pagamentos(sessao, deps, agora)
     pagamento = sessao.scalars(select(Pagamento)).one()
     assert len(deps.ctn.baixas) == 1 and _notas_de_concluido(deps) == []
-    assert Pendencia.RESOLVER_WEBCHAT.value in pagamento.pendencias
+    assert Pendencia.AVISO_HUMANO.value in pagamento.pendencias
 
-    del deps.chatwoot.mudar_status
+    del deps.chatwoot.nota_privada
     concluir_pagamentos(sessao, deps, pagamento.proxima_tentativa_em)
 
     assert pagamento.pendencias == [] and len(_notas_de_concluido(deps)) == 1

@@ -15,17 +15,9 @@ from agente.integracoes.llm_turno import LLMTurnoOpenAI
 from agente.integracoes.pix import PixDeTeste
 from agente.integracoes.transcritor import TranscritorOpenAI
 from agente.politica import Regua
-from agente.webchat.link import ConfigWebchat
 
 from ..conftest import RAIZ, TESTADOR_1, escrever_politica_de_teste
 
-WEBCHAT_COMPLETO = {
-    "webchat_url_base": "https://atendimento.exemplo.invalid",
-    "webchat_segredo": "segredo-do-webchat-com-32-caracteres-ou-mais",
-    "webchat_identidade_hmac": "chave-da-identidade",
-    "webchat_website_token": "token-do-site",
-    "chatwoot_url": "https://chat.invalid",
-}
 CHAVE_LUNA = "chave-do-luna"
 CHATWOOT_REAL = {
     "chatwoot_url": "https://chatwoot.invalid",
@@ -157,36 +149,6 @@ def test_com_a_transcricao_configurada_o_transcritor_e_o_real():
 def test_app_de_producao_responde_a_saude():
     with TestClient(montar_app(_config(), iniciar_trabalhador=False)) as cliente:
         assert cliente.get("/saude").json() == {"status": "ok"}
-
-
-def test_com_dominio_e_segredo_o_handoff_leva_o_link_do_webchat():
-    config = _config(**WEBCHAT_COMPLETO)
-
-    assert montar_dependencias(config).webchat == ConfigWebchat(
-        "https://atendimento.exemplo.invalid", WEBCHAT_COMPLETO["webchat_segredo"]
-    )
-
-
-@pytest.mark.parametrize(
-    "faltando",
-    [
-        "webchat_url_base",
-        "webchat_segredo",
-        "webchat_identidade_hmac",
-        "webchat_website_token",
-    ],
-)
-def test_com_a_pagina_desligada_o_link_continua_provisorio(faltando, caplog):
-    campos = {**WEBCHAT_COMPLETO}
-    del campos[faltando]
-
-    assert montar_dependencias(_config(**campos)).webchat is None
-    if faltando != "webchat_url_base":
-        assert "webchat" in caplog.text.lower()
-
-
-def test_sem_nada_do_webchat_o_link_continua_provisorio():
-    assert montar_dependencias(_config()).webchat is None
 
 
 # ---- o CTN real (EFICAZ) e a trava do Luna (M2) ----

@@ -235,7 +235,7 @@ def test_o_desconto_sobe_o_degrau_e_manda_o_link_com_o_valor_final(
 # O texto do handoff
 
 
-def test_o_texto_valido_do_handoff_e_a_mensagem_ao_cliente_e_o_botao_continua(
+def test_o_texto_valido_do_handoff_e_a_mensagem_ao_cliente_sem_botao(
     sessao, ligada, cliente, politica
 ):
     deps = _deps(politica, [_bruto(vulnerabilidade=True, handoff_reply=HANDOFF)])
@@ -243,8 +243,7 @@ def test_o_texto_valido_do_handoff_e_a_mensagem_ao_cliente_e_o_botao_continua(
     assert cliente("perdi o emprego", deps) is ResultadoTurno.HANDOFF
 
     assert deps.chatwoot.enviadas(555) == [f"{HANDOFF}\n\n{TEXTO_CANAL_EXTERNO}"]
-    [botao] = deps.chatwoot.chamadas[-1][3]
-    assert botao.valor == deps.politica.link_canal_externo
+    assert deps.chatwoot.chamadas[-1][3] == []
     assert ligada.motivo_humano is MotivoHumano.CAUTELA
     turno = _turno(sessao)
     assert (turno.resultado, turno.acao_principal) == (ResultadoTurno.HANDOFF, "HUMAN:CAUTELA")
@@ -277,10 +276,10 @@ def test_o_pedido_de_humano_vai_ao_canal_externo_com_o_motivo_novo(
     assert _turno(sessao).acao_principal == "HUMAN:PEDIU_HUMANO"
 
 
-# A D44: golpe nunca recebe link
+# A D44: golpe fica no WhatsApp, com a fixa do golpe
 
 
-def test_desconfia_golpe_fica_no_whatsapp_sem_link(sessao, ligada, cliente, politica):
+def test_desconfia_golpe_fica_no_whatsapp_com_a_fixa_do_golpe(sessao, ligada, cliente, politica):
     deps = _deps(politica, [_bruto(desconfia_golpe=True, handoff_reply=HANDOFF)])
 
     assert cliente("isso parece golpe, como sei que é de vocês?", deps) is ResultadoTurno.HANDOFF
@@ -291,7 +290,7 @@ def test_desconfia_golpe_fica_no_whatsapp_sem_link(sessao, ligada, cliente, poli
     assert deps.ctn.links == {} and deps.pix.cobrancas == {}
 
 
-def test_quer_retencao_com_desconfia_golpe_leva_retencao_e_tambem_sem_link(
+def test_quer_retencao_com_desconfia_golpe_leva_retencao_e_o_canal_externo_sem_botao(
     sessao, ligada, cliente, politica
 ):
     deps = _deps(politica, [_bruto(quer_retencao=True, desconfia_golpe=True)])
@@ -299,11 +298,13 @@ def test_quer_retencao_com_desconfia_golpe_leva_retencao_e_tambem_sem_link(
     cliente("quero cancelar, isso é uma fraude", deps)
 
     assert ligada.motivo_humano is MotivoHumano.RETENCAO
-    assert deps.chatwoot.enviadas(555) == [deps.politica.texto_humano_no_whatsapp]
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
     assert deps.chatwoot.chamadas[-1][3] == []
 
 
-def test_golpe_na_mensagem_com_o_llm_dizendo_nao_vai_sem_link(sessao, ligada, cliente, politica):
+def test_golpe_na_mensagem_com_o_llm_dizendo_nao_leva_a_fixa_do_golpe(
+    sessao, ligada, cliente, politica
+):
     deps = _deps(politica, [_bruto()])
 
     assert cliente("isso é golpe?", deps) is ResultadoTurno.HANDOFF
@@ -314,7 +315,7 @@ def test_golpe_na_mensagem_com_o_llm_dizendo_nao_vai_sem_link(sessao, ligada, cl
     assert len(deps.llm_turno.pedidos) == 1
 
 
-def test_procon_e_golpe_com_o_llm_fora_vai_sem_link(sessao, ligada, cliente, politica):
+def test_procon_e_golpe_com_o_llm_fora_leva_a_fixa_do_golpe(sessao, ligada, cliente, politica):
     deps = _deps(politica, [LLMTurnoIndisponivel("fora do ar")])
 
     assert cliente("vou no Procon, isso é golpe", deps) is ResultadoTurno.HANDOFF

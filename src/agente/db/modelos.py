@@ -106,7 +106,9 @@ class Cobranca(Base):
         _enum(StatusCobranca), default=StatusCobranca.ATIVA
     )
     criada_em: Mapped[datetime] = mapped_column(default=_agora)
-    # Os erros no CPF da página do webchat; ao chegar no limite do politica.toml, o link bloqueia.
+    # As colunas webchat_* abaixo ficam sem uso desde que o webchat saiu (D60): sem migração
+    # nova (padrão D do plano do enxugamento).
+    # Os erros no CPF da página do webchat.
     webchat_tentativas_cpf: Mapped[int] = mapped_column(default=0)
     # Até quando o link está bloqueado por erros no CPF; passado o prazo, as tentativas zeram.
     webchat_bloqueado_ate: Mapped[datetime | None]
@@ -265,10 +267,9 @@ class Pagamento(Base):
 
 
 class AmarracaoWebchat(Base):
-    """Uma amarração do webchat que o Chatwoot não deixou terminar: a rotina do Trabalhador a refaz.
+    """Sem uso desde que o webchat saiu (D60); a tabela fica, sem migração nova (padrão D).
 
-    A linha some quando a amarração conclui. `atencao_em` marca as tentativas esgotadas: o
-    /saude/webchat conta essas.
+    Era a amarração do webchat que o Chatwoot não deixou terminar.
     """
 
     __tablename__ = "amarracao_webchat"

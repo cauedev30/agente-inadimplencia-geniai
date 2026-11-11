@@ -1,5 +1,5 @@
-"""Saída para o humano. Toda saída do robô passa por aqui: leva ao canal externo (D5) ou, por
-desconfiança de golpe, fica no próprio WhatsApp (D44)."""
+"""Saída para o humano. Toda saída do robô passa por aqui: avisa que o atendente segue na
+mesma conversa (D60) ou, por desconfiança de golpe, manda a fixa do WhatsApp (D44)."""
 
 from datetime import datetime
 
@@ -13,7 +13,6 @@ from agente.pagamento.expirar import expirar_pendentes
 from agente.politica import Politica
 from agente.tipos import EstadoConversa, Laudo, MotivoHumano, OrigemMensagem, TipoFixa
 from agente.turno.catalogo import DadosFixa, mensagem_fixa
-from agente.webchat.link import ConfigWebchat, link_canal_externo
 
 NOTA_TETO_REPETIDO = "O teto já foi atingido; o cliente escreveu de novo."
 NOTA_CONCILIACAO_REPETIDA = (
@@ -73,11 +72,6 @@ def _saiu_para_o_humano(sessao: Session, conversa: Conversa, *motivos: MotivoHum
     return bool(sessao.scalar(consulta))
 
 
-def ja_desconfiou(sessao: Session, conversa: Conversa, politica: Politica) -> bool:
-    """A conversa já saiu para o humano por um motivo de `motivos_humano_no_whatsapp` (D44)."""
-    return _saiu_para_o_humano(sessao, conversa, *politica.motivos_humano_no_whatsapp)
-
-
 def ja_saiu_pelo_teto(sessao: Session, conversa: Conversa) -> bool:
     """A conversa já recebeu a 6ª mensagem e saiu para o humano pelo teto (D33)."""
     return _saiu_para_o_humano(sessao, conversa, MotivoHumano.TETO)
@@ -99,21 +93,18 @@ def fazer_handoff(
     time_id: int | None,
     agora: datetime,
     laudo_id: int | None = None,
-    webchat: ConfigWebchat | None = None,
     *,
-    sem_link: bool = False,
     enviar_mensagem: bool = True,
     texto: str | None = None,
 ) -> None:
     """Nota com o laudo, etiqueta, atribuição, status aberta, estado e a mensagem do canal.
 
-    A mensagem do canal leva o link do webchat com o token da cobrança; sem `webchat` (sem o
-    domínio, G7), leva o link provisório do politica.toml. Com `sem_link` (D44), ou nos motivos de
-    `motivos_humano_no_whatsapp`, vai a fixa sem link e nenhum token é gerado. Sem
-    `enviar_mensagem`, o cliente não recebe nada: é a volta ao humano de quem já recebeu a 6ª, ou
-    de quem já recebeu a mensagem da cobrança quitada (CONCILIACAO).
-    Com `texto` (o turno de uma chamada, D47), ele troca o texto fixo da mensagem no WhatsApp (D44)
-    e abre a mensagem do canal externo, que fecha com a frase fixa da D19 e leva o botão.
+    O atendente segue na mesma conversa do WhatsApp (D60): a mensagem é a `CANAL_EXTERNO`, sem botão
+    e sem link; por DESCONFIANCA (golpe, D44), a fixa `HUMANO_NO_WHATSAPP`. Sem `enviar_mensagem`,
+    o cliente não recebe nada: é a volta ao humano de quem já recebeu a 6ª, ou de quem já recebeu a
+    mensagem da cobrança quitada (CONCILIACAO).
+    Com `texto` (o turno de uma chamada, D47), ele troca o texto da fixa do golpe (D44) ou abre a
+    mensagem `CANAL_EXTERNO`, que fecha com a frase fixa.
     """
     if conversa.chatwoot_conversa_id is None:
         raise ValueError(f"a conversa {conversa.id} não está ligada a uma conversa do Chatwoot")
@@ -131,24 +122,16 @@ def fazer_handoff(
     if not enviar_mensagem:
         return
     nome = conversa.cobranca.cliente.nome
-    if sem_link or motivo in politica.motivos_humano_no_whatsapp:
-        # D44: o atendente segue na mesma conversa; sem link, e sem gerar o token do webchat.
+    if motivo is MotivoHumano.DESCONFIANCA:
         dados = DadosFixa(
             nome=nome,
             valor_centavos=None,
             link_cartao=None,
-            link_canal_externo="",
             texto=texto or politica.texto_humano_no_whatsapp,
         )
         enviar_fixa(sessao, chatwoot, conversa, TipoFixa.HUMANO_NO_WHATSAPP, dados, agora)
         return
-    dados = DadosFixa(
-        nome=nome,
-        valor_centavos=None,
-        link_cartao=None,
-        link_canal_externo=link_canal_externo(webchat, politica, conversa.cobranca_id, agora),
-        texto=texto,
-    )
+    dados = DadosFixa(nome=nome, valor_centavos=None, link_cartao=None, texto=texto)
     enviar_fixa(sessao, chatwoot, conversa, TipoFixa.CANAL_EXTERNO, dados, agora)
 
 

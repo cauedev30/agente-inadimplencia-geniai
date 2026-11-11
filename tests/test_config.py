@@ -74,40 +74,6 @@ def test_config_le_o_corpo_extra_do_llm_como_json(monkeypatch):
     assert carregar_config(_env_file=None).llm_corpo_extra == {"reasoning_effort": "low"}
 
 
-def test_o_segredo_curto_do_webchat_e_recusado():
-    with pytest.raises(ValidationError, match="32"):
-        carregar_config(database_url="sqlite://", webchat_segredo="curto")
-    carregar_config(database_url="sqlite://", webchat_segredo="x" * 32)
-
-
-def test_webchat_ligado_exige_todos_os_segredos_e_o_chatwoot():
-    completo = {
-        "webchat_segredo": "x" * 32,
-        "webchat_identidade_hmac": "h",
-        "webchat_website_token": "t",
-        "chatwoot_url": "https://chat.invalid",
-    }
-    assert carregar_config(database_url="sqlite://", **completo).webchat_ligado
-    for faltando in completo:
-        parcial = {k: v for k, v in completo.items() if k != faltando}
-        assert not carregar_config(database_url="sqlite://", **parcial).webchat_ligado
-
-
-def test_segredos_do_webchat_vazios_valem_como_ausentes():
-    config = carregar_config(
-        database_url="sqlite://",
-        webchat_segredo="  ",
-        webchat_identidade_hmac="",
-        webchat_website_token="",
-        webchat_url_base="",
-    )
-
-    assert config.webchat_segredo is None
-    assert config.webchat_identidade_hmac is None
-    assert config.webchat_website_token is None
-    assert config.webchat_url_base is None
-
-
 def test_sem_nenhuma_variavel_da_transcricao_ela_fica_desligada():
     config = carregar_config(database_url="sqlite://")
 
@@ -175,10 +141,10 @@ def test_o_env_example_copiado_como_esta_sobe_com_tudo_desligado(monkeypatch):
 
     config = carregar_config(_env_file=Path(__file__).parents[1] / ".env.example")
 
-    assert not config.transcricao_ligada and not config.webchat_ligado
+    assert not config.transcricao_ligada
     assert config.ctn_api_key is None and config.llm_dados_reais_liberados is False
     assert config.chatwoot_conta is None and config.chatwoot_inbox is None
-    assert config.chatwoot_time_humano is None and config.webchat_inbox is None
+    assert config.chatwoot_time_humano is None
 
 
 def test_sem_variavel_do_ctn_ele_fica_desligado_e_a_liberacao_do_llm_fechada(monkeypatch):

@@ -304,7 +304,7 @@ def test_o_sistema_diz_que_desabafo_sem_aspereza_nao_e_irritado():
 
 
 def test_o_sistema_nao_promete_onde_a_equipe_fala_com_o_cliente():
-    # O canal (o WhatsApp ou o botão do webchat) é escolhido depois pelo código (D47, I2). A regra
+    # A frase do canal é fixa e vem depois do handoff_reply, posta pelo código (D47, D60). A regra
     # do handoff_reply não diz "por aqui"; o "por aqui" das regras do reply (assunto não tratado,
     # sem parcelamento) é outra coisa.
     trecho = SISTEMA.split("- handoff_reply:")[1].split("Como escrever o reply")[0]

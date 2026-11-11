@@ -9,16 +9,17 @@ _TELEFONE = re.compile(r"\+55(\d{6,7})(\d{4})\b")
 _CPF_FORMATADO = re.compile(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b")
 # 11 dígitos soltos podem ser CPF ou telefone sem o +: mascara tudo.
 _ONZE_DIGITOS = re.compile(r"\b\d{11}\b")
-# O token do link do webchat é uma credencial de dias: não vai ao log de acesso.
-_TOKEN_WEBCHAT = re.compile(r"/atendimento/[^/\s?#\"']+")
+# O segredo do webhook do Chatwoot vai no caminho (/webhooks/chatwoot/<segredo>) e é uma credencial:
+# não vai ao log de acesso nem a nenhuma mensagem (AUD-01).
+_SEGREDO_DO_WEBHOOK = re.compile(r"/webhooks/chatwoot/[^/\s?#\"']+")
 
 
-def cortar_token_webchat(texto: str) -> str:
-    return _TOKEN_WEBCHAT.sub("/atendimento/***", texto)
+def cortar_segredo_do_webhook(texto: str) -> str:
+    return _SEGREDO_DO_WEBHOOK.sub("/webhooks/chatwoot/***", texto)
 
 
 def mascarar(texto: str) -> str:
-    texto = cortar_token_webchat(texto)
+    texto = cortar_segredo_do_webhook(texto)
     texto = _TELEFONE.sub(lambda m: "+55" + "*" * len(m.group(1)) + m.group(2), texto)
     texto = _CPF_FORMATADO.sub("***.***.***-**", texto)
     return _ONZE_DIGITOS.sub("*" * 11, texto)
@@ -32,12 +33,13 @@ class MascaraDadosPessoais(logging.Filter):
 
 
 class CortaTokenDoAcesso(logging.Filter):
-    """O log de acesso do uvicorn leva o caminho em `args`: troca o token por `***`."""
+    """O log de acesso do uvicorn leva o caminho em `args`: troca o segredo do webhook por `***`."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, tuple):
             record.args = tuple(
-                cortar_token_webchat(arg) if isinstance(arg, str) else arg for arg in record.args
+                cortar_segredo_do_webhook(arg) if isinstance(arg, str) else arg
+                for arg in record.args
             )
         return True
 

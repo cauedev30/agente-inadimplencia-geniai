@@ -8,10 +8,11 @@ from dataclasses import dataclass, field
 from agente.dominio.dinheiro import formatar_reais
 from agente.tipos import Botao, TipoFixa
 
-# D19: o texto do canal externo é fixo.
+# A 6ª mensagem e a saída padrão para o humano (D33, D60): sem botão e sem link, o atendente segue
+# na mesma conversa. O texto redigido pelo LLM, quando há, vem antes.
 TEXTO_CANAL_EXTERNO = (
-    "Para o problema ser resolvido de forma mais eficaz, entre em contato conosco "
-    "por esse canal de atendimento."
+    "Para resolver da melhor forma, um atendente da unidade vai continuar com você aqui mesmo, "
+    "nesta conversa."
 )
 
 
@@ -35,10 +36,9 @@ class DadosFixa:
     nome: str
     valor_centavos: int | None
     link_cartao: str | None
-    link_canal_externo: str
     # O texto que a política dá à fixa que não tem texto próprio (PEDIR_TEXTO e HUMANO_NO_WHATSAPP).
-    # No CANAL_EXTERNO, o texto redigido pelo LLM no turno de uma chamada (D47), seguido da frase da
-    # D19; sem ele, só a da D19.
+    # No CANAL_EXTERNO, o texto redigido pelo LLM no turno de uma chamada (D47), seguido da frase
+    # fixa; sem ele, só a fixa.
     texto: str | None = None
 
 
@@ -60,12 +60,10 @@ def _confirmacao(dados: DadosFixa) -> str:
 
 def mensagem_fixa(tipo: TipoFixa, dados: DadosFixa) -> MensagemPronta:
     if tipo is TipoFixa.CANAL_EXTERNO:
-        botao = Botao("url", "Falar com um atendente", dados.link_canal_externo)
-        # O texto redigido pelo LLM abre a mensagem e a frase fixa da D19 fecha, porque é ela que
-        # manda o cliente tocar no botão (o atendente está atrás dele); o LLM não sabe o canal
-        # (D47, I2 da revisão da E1).
+        # O texto redigido pelo LLM abre a mensagem e a frase fixa fecha: é ela que diz ao cliente
+        # que o atendente segue na conversa (D47, D60).
         texto = f"{dados.texto}\n\n{TEXTO_CANAL_EXTERNO}" if dados.texto else TEXTO_CANAL_EXTERNO
-        return MensagemPronta(texto, [botao])
+        return MensagemPronta(texto)
     if tipo is TipoFixa.PEDIR_TEXTO:
         if not dados.texto:
             raise ValueError("o pedido de texto precisa do texto da política")

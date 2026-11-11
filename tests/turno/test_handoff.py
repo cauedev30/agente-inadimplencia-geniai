@@ -15,8 +15,6 @@ from agente.tipos import (
 )
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.handoff import devolver_ao_robo, fazer_handoff
-from agente.webchat.link import ConfigWebchat
-from agente.webchat.token import validar_token
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 LAUDOS = [Laudo("risco_juridico", True, 0.91, 0.80)]
@@ -47,6 +45,7 @@ def test_handoff_faz_as_seis_etapas_na_ordem(sessao, conversa, politica):
     assert chatwoot.chamadas[2][2] == 4
     assert chatwoot.chamadas[3][2] == "open"
     assert chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+    assert chatwoot.chamadas[-1][3] == []
     assert conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO
     assert conversa.motivo_humano is MotivoHumano.JURIDICO
 
@@ -113,48 +112,9 @@ def test_com_handoff_expira_pix_o_handoff_expira_o_pendente(sessao, conversa, po
     assert (pix.status, pago.status) == (StatusPagamento.EXPIRADO, StatusPagamento.PAGO)
 
 
-def test_o_handoff_com_webchat_manda_o_link_com_o_token_da_cobranca(sessao, conversa, politica):
+def test_desconfianca_manda_a_fixa_do_golpe_sem_botao(sessao, conversa, politica):
     conversa.chatwoot_conversa_id = 555
     chatwoot = ChatwootFalso()
-    webchat = ConfigWebchat(
-        "https://atendimento.exemplo.invalid", "segredo-do-webchat-com-32-caracteres-ou-mais"
-    )
-
-    fazer_handoff(
-        sessao, chatwoot, conversa, MotivoHumano.TETO, [], politica, 4, AGORA, webchat=webchat
-    )
-
-    [botao] = chatwoot.chamadas[-1][3]
-    prefixo = "https://atendimento.exemplo.invalid/atendimento/"
-    assert botao.valor.startswith(prefixo)
-    token = botao.valor.removeprefix(prefixo)
-    assert (
-        validar_token(sessao, "segredo-do-webchat-com-32-caracteres-ou-mais", token, AGORA)
-        == conversa.cobranca_id
-    )
-
-
-def test_o_handoff_sem_webchat_mantem_o_link_provisorio(sessao, conversa, politica):
-    chatwoot = ChatwootFalso()
-
-    _handoff(sessao, conversa, politica, chatwoot)
-
-    [botao] = chatwoot.chamadas[-1][3]
-    assert botao.valor == politica.link_canal_externo
-
-
-def test_desconfianca_manda_a_fixa_sem_botao_e_sem_gerar_token(
-    sessao, conversa, politica, monkeypatch
-):
-    def _nao_deve_gerar_link(*args, **kwargs):
-        raise AssertionError("o link do webchat não deve ser gerado")
-
-    monkeypatch.setattr("agente.turno.handoff.link_canal_externo", _nao_deve_gerar_link)
-    conversa.chatwoot_conversa_id = 555
-    chatwoot = ChatwootFalso()
-    webchat = ConfigWebchat(
-        "https://atendimento.exemplo.invalid", "segredo-do-webchat-com-32-caracteres-ou-mais"
-    )
 
     fazer_handoff(
         sessao,
@@ -165,7 +125,6 @@ def test_desconfianca_manda_a_fixa_sem_botao_e_sem_gerar_token(
         politica,
         4,
         AGORA,
-        webchat=webchat,
     )
 
     # Tudo igual ao handoff de sempre: nota, etiqueta, atribuição, status, mensagem.
@@ -204,21 +163,21 @@ def test_desconfianca_ainda_expira_o_pix_quando_a_politica_manda(sessao, convers
     assert pix.status is StatusPagamento.EXPIRADO
 
 
-def test_os_outros_motivos_seguem_mandando_o_canal_externo(sessao, conversa, politica):
+def test_os_outros_motivos_mandam_o_canal_externo_sem_botao(sessao, conversa, politica):
     chatwoot = ChatwootFalso()
     conversa.chatwoot_conversa_id = 555
 
     for motivo in (MotivoHumano.CONTESTACAO, MotivoHumano.TETO):
-        assert motivo not in politica.motivos_humano_no_whatsapp
         fazer_handoff(sessao, chatwoot, conversa, motivo, [], politica, None, AGORA)
 
     assert chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO, TEXTO_CANAL_EXTERNO]
+    assert [c[3] for c in chatwoot.chamadas if c[0] == "enviar_mensagem"] == [[], []]
 
 
 TEXTO_REDIGIDO = "Entendi, você falou do desemprego. Passei a conversa para a nossa equipe."
 
 
-def test_o_texto_redigido_troca_o_da_fixa_no_whatsapp_sem_link(sessao, conversa, politica):
+def test_o_texto_redigido_troca_o_da_fixa_do_golpe_no_whatsapp(sessao, conversa, politica):
     chatwoot = ChatwootFalso()
     conversa.chatwoot_conversa_id = 555
 
@@ -240,7 +199,7 @@ def test_o_texto_redigido_troca_o_da_fixa_no_whatsapp_sem_link(sessao, conversa,
     assert (mensagem.origem, mensagem.texto) == (OrigemMensagem.FIXA, TEXTO_REDIGIDO)
 
 
-def test_o_texto_redigido_abre_o_do_canal_externo_com_a_frase_da_d19_e_o_botao(
+def test_o_texto_redigido_abre_o_do_canal_externo_com_a_frase_fixa_sem_botao(
     sessao, conversa, politica
 ):
     chatwoot = ChatwootFalso()
@@ -249,8 +208,7 @@ def test_o_texto_redigido_abre_o_do_canal_externo_com_a_frase_da_d19_e_o_botao(
     _handoff_com_texto(sessao, conversa, politica, chatwoot, TEXTO_REDIGIDO)
 
     assert chatwoot.enviadas(555) == [f"{TEXTO_REDIGIDO}\n\n{TEXTO_CANAL_EXTERNO}"]
-    [botao] = chatwoot.chamadas[-1][3]
-    assert botao.valor == politica.link_canal_externo
+    assert chatwoot.chamadas[-1][3] == []
 
 
 def test_sem_texto_o_handoff_e_igual_ao_de_hoje(sessao, conversa, politica):

@@ -214,24 +214,6 @@ def _avisar_esgotado(
     )
 
 
-def _resolver_webchat(
-    sessao: Session, deps: DependenciasConcluir, pagamento: Pagamento, agora: datetime
-) -> None:
-    """A cobrança foi paga: a conversa do webchat amarrada a ela é resolvida no Chatwoot.
-
-    "Fechada" hoje significa "paga": o encerramento sem pagamento é dúvida aberta (G7). A nota vai
-    antes, para o atendente que a vê sumir saber o porquê.
-    """
-    webchat_id = pagamento.cobranca.webchat_conversa_id
-    if webchat_id is not None:
-        deps.chatwoot.nota_privada(
-            webchat_id,
-            f"Pagamento confirmado: referência {pagamento.referencia} ({pagamento.forma.value}), "
-            f"{formatar_reais(pagamento.valor_centavos)}. A conversa foi resolvida pelo robô.",
-        )
-        deps.chatwoot.mudar_status(webchat_id, "resolved")
-
-
 def _avisar_concluido(
     sessao: Session, deps: DependenciasConcluir, pagamento: Pagamento, agora: datetime
 ) -> None:
@@ -258,7 +240,6 @@ _PASSOS: dict[Pendencia, Callable[[Session, DependenciasConcluir, Pagamento, dat
     Pendencia.AVISO_HUMANO: _avisar_humano,
     Pendencia.AVISO_ESGOTADO: _avisar_esgotado,
     Pendencia.AVISO_CONCLUIDO: _avisar_concluido,
-    Pendencia.RESOLVER_WEBCHAT: _resolver_webchat,
 }
 
 

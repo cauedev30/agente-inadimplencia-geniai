@@ -113,7 +113,7 @@ class Pendencia(StrEnum):
     AVISO_ESGOTADO = "AVISO_ESGOTADO"
     # A conclusão saiu depois do aviso de esgotado: nota para o atendente saber que não falta nada.
     AVISO_CONCLUIDO = "AVISO_CONCLUIDO"
-    # A cobrança foi paga e tem conversa do webchat amarrada: resolve a conversa no Chatwoot.
+    # Sem uso desde que o webchat saiu (D60); fica porque uma linha antiga pode trazê-la (padrão D).
     RESOLVER_WEBCHAT = "RESOLVER_WEBCHAT"
 
 

@@ -28,7 +28,6 @@ from agente.logs import configurar_logging
 from agente.politica import Politica, carregar_politica
 from agente.teste.casos import exigir_piloto_fora_da_carteira
 from agente.turno.orquestrador import Dependencias, criar_processador
-from agente.webchat.link import ConfigWebchat
 
 log = logging.getLogger(__name__)
 
@@ -96,19 +95,6 @@ def _transcritor(config: Config, politica: Politica) -> Transcritor | None:
     return None
 
 
-def _webchat(config: Config) -> ConfigWebchat | None:
-    """O link do webchat só sai se a página estiver ligada: senão o cliente cai num 503."""
-    if not config.webchat_url_base:
-        return None
-    if not config.webchat_ligado:
-        log.warning(
-            "AGENTE_WEBCHAT_URL_BASE sem o resto da configuração do webchat (segredo, chave da "
-            "identidade, token do site e AGENTE_CHATWOOT_URL): a 6ª mensagem leva o link provisório"
-        )
-        return None
-    return ConfigWebchat(config.webchat_url_base, config.webchat_segredo)
-
-
 def montar_dependencias(config: Config) -> Dependencias:
     if not config.chatwoot_real_ligado:
         raise ValueError("o serviço exige o Chatwoot configurado (T3)")
@@ -128,7 +114,6 @@ def montar_dependencias(config: Config) -> Dependencias:
         disparador=DisparadorFalso(),
         time_humano=config.chatwoot_time_humano,
         transcritor=_transcritor(config, politica),
-        webchat=_webchat(config),
         llm_turno=llm_turno,
         ctn=ctn,
         # Só o CTN real tem os lançamentos para conferir; o falso daria "sem meses" a todos. No modo

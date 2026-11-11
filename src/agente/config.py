@@ -10,8 +10,6 @@ from agente.integracoes.ctn_eficaz import UNIDADE_PADRAO, URL_EFICAZ
 from agente.integracoes.llm_turno import URL_OPENAI
 from agente.integracoes.transcritor import MODELO_TRANSCRICAO
 
-_SEGREDO_WEBCHAT_MINIMO = 32
-
 
 def mensagem_llm_sem_liberacao(fontes: Sequence[str], destinos: Sequence[str]) -> str:
     """Por que o serviço não sobe com dado real de cliente indo à OpenAI sem a liberação (M2).
@@ -105,13 +103,6 @@ class Config(ConfigRedator, ConfigCTN):
     pix_webhook_segredo: str | None = None
     ctn_webhook_segredo: str | None = None
 
-    # Webchat (7.1, 7.2): sem o segredo do token ou a chave da identidade, a página fica desligada.
-    webchat_segredo: str | None = None
-    webchat_identidade_hmac: str | None = None  # o token HMAC da inbox Website do Chatwoot
-    webchat_website_token: str | None = None  # o token público da inbox Website (vai ao navegador)
-    webchat_inbox: int | None = None  # a inbox Website, para reconhecer a conversa do webchat (7.3)
-    webchat_url_base: str | None = None  # o domínio do link da 6ª mensagem (G7)
-
     @field_validator(
         "webhook_segredo",
         "transcricao_url",
@@ -119,10 +110,6 @@ class Config(ConfigRedator, ConfigCTN):
         "transcricao_modelo",
         "pix_webhook_segredo",
         "ctn_webhook_segredo",
-        "webchat_segredo",
-        "webchat_identidade_hmac",
-        "webchat_website_token",
-        "webchat_url_base",
     )
     @classmethod
     def _segredo_vazio_e_desligado(cls, valor: str | None) -> str | None:
@@ -130,24 +117,11 @@ class Config(ConfigRedator, ConfigCTN):
         # por qualquer um, então o vazio vale como sem segredo.
         return valor if valor and valor.strip() else None
 
-    @field_validator(
-        "chatwoot_conta", "chatwoot_inbox", "chatwoot_time_humano", "webchat_inbox", mode="before"
-    )
+    @field_validator("chatwoot_conta", "chatwoot_inbox", "chatwoot_time_humano", mode="before")
     @classmethod
     def _numero_vazio_e_ausente(cls, valor):
         # O .env copiado do .env.example traz o número vazio: sem isto o serviço nem sobe.
         return None if isinstance(valor, str) and not valor.strip() else valor
-
-    @field_validator("webchat_segredo")
-    @classmethod
-    def _segredo_do_webchat_longo(cls, valor: str | None) -> str | None:
-        # Com um token na mão, um segredo curto se quebra offline e deixa forjar o de qualquer
-        # cobrança.
-        if valor is not None and len(valor) < _SEGREDO_WEBCHAT_MINIMO:
-            raise ValueError(
-                f"o segredo do webchat precisa de ao menos {_SEGREDO_WEBCHAT_MINIMO} caracteres"
-            )
-        return valor
 
     @model_validator(mode="after")
     def _transcricao_inteira_ou_nenhuma(self):
@@ -199,16 +173,6 @@ class Config(ConfigRedator, ConfigCTN):
     @property
     def transcricao_modelo_usado(self) -> str:
         return self.transcricao_modelo or MODELO_TRANSCRICAO
-
-    @property
-    def webchat_ligado(self) -> bool:
-        """A página /atendimento e o link da 6ª mensagem só valem com tudo isto presente."""
-        return bool(
-            self.webchat_segredo
-            and self.webchat_identidade_hmac
-            and self.webchat_website_token
-            and self.chatwoot_url
-        )
 
 
 def carregar_config(**kwargs) -> Config:

@@ -378,7 +378,7 @@ class TestAvaliarEnvioDoPedidoPendente:
 
 class TestOCatalogo:
     def test_a_fixa_leva_o_texto_da_politica(self, politica):
-        dados = DadosFixa("Ana", None, None, "", texto=politica.pedir_texto_audio_longo)
+        dados = DadosFixa("Ana", None, None, texto=politica.pedir_texto_audio_longo)
 
         mensagem = mensagem_fixa(TipoFixa.PEDIR_TEXTO, dados)
 
@@ -386,7 +386,7 @@ class TestOCatalogo:
 
     def test_sem_o_texto_e_um_erro(self):
         with pytest.raises(ValueError, match="texto"):
-            mensagem_fixa(TipoFixa.PEDIR_TEXTO, DadosFixa("Ana", None, None, ""))
+            mensagem_fixa(TipoFixa.PEDIR_TEXTO, DadosFixa("Ana", None, None))
 
     def test_os_textos_padrao_da_politica(self, politica):
         assert politica.pedir_texto_audio_longo == LONGO

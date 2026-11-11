@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from agente.dominio.telefone import normalizar_telefone
-from agente.tipos import FormaHistorico, MotivoHumano
+from agente.tipos import FormaHistorico
 
 
 class Regua(StrEnum):
@@ -222,21 +222,11 @@ class Politica(_Imutavel):
     erro_interno_tentativas: int = Field(ge=1)
     integracao_espera_segundos: int = Field(ge=1)
     integracao_espera_maxima_segundos: int = Field(ge=1)
-    link_canal_externo: str
-    # Os motivos de saída que ficam no WhatsApp, sem o link do webchat (D44), e o texto da fixa.
-    motivos_humano_no_whatsapp: frozenset[MotivoHumano]
+    # O texto da fixa da saída por DESCONFIANCA (D44), que fica no WhatsApp.
     texto_humano_no_whatsapp: str = Field(min_length=1)
     # O recebedor do Pix (D44): vazio desliga a frase; o texto traz `{recebedor}`.
     pix_recebedor: str
     texto_pix_recebedor: str = Field(min_length=1)
-    webchat_token_validade_horas: int = Field(ge=1)
-    webchat_cpf_digitos: int = Field(ge=1, le=11)
-    webchat_cpf_tentativas: int = Field(ge=1)
-    # O bloqueio depois dos erros no CPF dura isto; então as tentativas zeram.
-    webchat_cpf_bloqueio_horas: int = Field(ge=1)
-    # A amarração só vale para a cobrança que passou pelo CPF há menos que isto (defesa contra o
-    # `identifier` forjado no widget).
-    webchat_verificacao_validade_minutos: int = Field(ge=1)
     template_abertura: str = Field(min_length=1)
     template_confirmacao: str = Field(min_length=1)
     # O aviso único quando o cliente quitou por fora e a baixa chegou pelo CTN (spec do CTN real,
@@ -260,13 +250,6 @@ class Politica(_Imutavel):
     teste: ModoTeste | None = None
 
     _normalizar_equipe = field_validator("telefones_equipe")(_em_e164)
-
-    @field_validator("motivos_humano_no_whatsapp")
-    @classmethod
-    def _sem_o_teto_no_whatsapp(cls, valor: frozenset[MotivoHumano]):
-        if MotivoHumano.TETO in valor:
-            raise ValueError("TETO não pode ficar no WhatsApp: a 6ª mensagem leva o link (D33)")
-        return valor
 
     @field_validator("texto_pix_recebedor")
     @classmethod

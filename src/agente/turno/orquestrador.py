@@ -68,7 +68,6 @@ from agente.turno.gates import (
 )
 from agente.turno.handoff import (
     fazer_handoff,
-    ja_desconfiou,
     ja_saiu_pelo_teto,
     ja_saiu_por_conciliacao,
 )
@@ -77,7 +76,6 @@ from agente.turno.redacao import RedacaoInvalida, anexar_recebedor, interpolar
 from agente.turno.sinais import (
     NAO_EXECUTADA,
     Avaliacao,
-    LeituraJev1,
     rotulo_humano,
 )
 from agente.turno.transcricao import (
@@ -96,7 +94,6 @@ from agente.turno.uma_chamada import (
     resolver_turno,
     sem_efeito,
 )
-from agente.webchat.link import ConfigWebchat
 
 log = logging.getLogger(__name__)
 
@@ -142,8 +139,6 @@ class Dependencias:
     # O áudio do cliente vira texto antes do Luna (D43). None: a transcrição está desligada (sem a
     # chave) e o áudio cai no pedido de texto.
     transcritor: Transcritor | None = None
-    # O domínio e o segredo do link do webchat (G7); sem eles, a 6ª mensagem leva o link provisório.
-    webchat: ConfigWebchat | None = None
     # Com o CTN real, o 1º turno do dia da cobrança a confere antes de tudo (spec do CTN real). O
     # CTN falso não tem os lançamentos: conferir nele daria "sem meses em aberto" para todo mundo.
     conferir_no_contato: bool = False
@@ -319,19 +314,11 @@ def _handoff(
     laudos: list[Laudo] | None = None,
     laudo_id: int | None = None,
     *,
-    leitura: LeituraJev1 | None = None,
     enviar_mensagem: bool = True,
     texto: str | None = None,
 ) -> None:
-    """A saída para o humano. A mensagem sai sem link (D44) se o motivo é da lista, se a conversa já
-    saiu por um motivo da lista, ou se a leitura deste turno deu `desconfia_golpe` sim, seja qual
-    for o motivo que venceu: quem desconfia de golpe não recebe link. O `texto` (D47) troca o texto
-    fixo da mensagem ao cliente."""
-    sem_link = (
-        motivo in deps.politica.motivos_humano_no_whatsapp
-        or ja_desconfiou(sessao, conversa, deps.politica)
-        or (leitura is not None and leitura.sim("desconfia_golpe"))
-    )
+    """A saída para o humano: o atendente segue na mesma conversa (D60). O `texto` (D47) é o
+    redigido pelo LLM, que abre a mensagem ao cliente."""
     fazer_handoff(
         sessao,
         deps.chatwoot,
@@ -342,8 +329,6 @@ def _handoff(
         deps.time_humano,
         agora,
         laudo_id=laudo_id,
-        webchat=deps.webchat,
-        sem_link=sem_link,
         enviar_mensagem=enviar_mensagem,
         texto=texto,
     )
@@ -541,7 +526,6 @@ def _nada_passou(
     avaliacao: Avaliacao,
     resolucao: ResolucaoTurno,
     rotulo: str,
-    leitura: LeituraJev1 | None,
     deps: Dependencias,
     agora: datetime,
     interpolacao: list[str] | None = None,
@@ -556,7 +540,7 @@ def _nada_passou(
         saida, resultado = "RESPOSTA_SEGURA", ResultadoTurno.ENVIADO
     else:
         texto = None
-        _handoff(sessao, conversa, MotivoHumano.VALIDACAO, deps, agora, leitura=leitura)
+        _handoff(sessao, conversa, MotivoHumano.VALIDACAO, deps, agora)
         saida, resultado = "HANDOFF", ResultadoTurno.HANDOFF
     redacao = resolucao.como_dict(saida)
     if interpolacao:
@@ -603,14 +587,11 @@ def _seguir(
         lambda acoes: previa_numeros(acoes, conversa, cobranca, deps.politica, agora),
         cobranca,
     )
-    # O golpe pela palavra-chave vale como `desconfia_golpe` sim: nada de link (D44).
+    # O golpe pela palavra-chave vale como `desconfia_golpe` sim (D44).
     golpe_pela_guarda = guarda is not None and guarda[0] is MotivoHumano.DESCONFIANCA
     ids, jev1 = _gravar_laudos_uma_chamada(sessao, turno.id, resolucao, guarda, golpe_pela_guarda)
     avaliacao = _avaliacao_uma_chamada(resolucao)
     rotulo = _rotulo_uma_chamada(resolucao)
-    leitura = (
-        resolucao.saida.leitura(golpe_pela_guarda=golpe_pela_guarda) if resolucao.saida else None
-    )
     if _cobranca_fechou_no_meio(sessao, conversa):
         return _fechar_ignorado(sessao, turno, avaliacao, agora, rotulo=rotulo)
     if resolucao.motivo is not None:
@@ -623,7 +604,6 @@ def _seguir(
             agora,
             laudos,
             laudo_id,
-            leitura=leitura,
             texto=resolucao.texto_handoff,
         )
         return _fechar(
@@ -637,9 +617,7 @@ def _seguir(
             rotulo=rotulo,
         )
     if not _passou(resolucao):
-        return _nada_passou(
-            sessao, conversa, turno, avaliacao, resolucao, rotulo, leitura, deps, agora
-        )
+        return _nada_passou(sessao, conversa, turno, avaliacao, resolucao, rotulo, deps, agora)
     veredito = resolucao.veredito
     laudo_da_acao = ids.get((BatchJev.JEV2, "acao"))
     if veredito.acao is Acao.NONE and resolucao.reply is None:
@@ -686,7 +664,6 @@ def _seguir(
             avaliacao,
             resolucao,
             nao_executada,
-            leitura,
             deps,
             agora,
             interpolacao,
@@ -768,7 +745,6 @@ def _pedir_texto(
             nome=conversa.cobranca.cliente.nome,
             valor_centavos=None,
             link_cartao=None,
-            link_canal_externo="",
             texto=(
                 politica.pedir_texto_audio_longo
                 if pedido == LONGO_DEMAIS

@@ -3,7 +3,7 @@ from datetime import date, time, timedelta
 import pytest
 
 from agente.politica import PoliticaInvalida, Regua, carregar_politica
-from agente.tipos import FormaHistorico, MotivoHumano
+from agente.tipos import FormaHistorico
 
 from .conftest import RAIZ
 
@@ -137,30 +137,11 @@ def test_o_pix_a_menos_de_uma_hora_de_vencer_nao_e_reaproveitado_por_padrao(poli
     assert politica.pix_reaproveitar_minimo_minutos == 60
 
 
-def test_parametros_do_webchat_tem_padrao(politica):
-    assert politica.webchat_token_validade_horas == 720
-    assert politica.webchat_cpf_digitos == 3
-    assert politica.webchat_cpf_tentativas == 3
-    assert politica.webchat_cpf_bloqueio_horas == 1
-    assert politica.webchat_verificacao_validade_minutos == 120
-
-
 def test_a_saida_no_whatsapp_tem_padrao(politica):
-    assert politica.motivos_humano_no_whatsapp == {MotivoHumano.DESCONFIANCA}
     assert politica.texto_humano_no_whatsapp == (
         "Entendo a sua preocupação. Um atendente da unidade vai continuar com você aqui mesmo, "
         "nesta conversa."
     )
-
-
-def test_motivo_desconhecido_na_saida_no_whatsapp_e_recusado(tmp_path):
-    caminho = _arquivo_com(
-        tmp_path,
-        'motivos_humano_no_whatsapp = ["DESCONFIANCA"]',
-        'motivos_humano_no_whatsapp = ["DESCONFIANCA", "NAO_EXISTE"]',
-    )
-    with pytest.raises(PoliticaInvalida, match="motivos_humano_no_whatsapp"):
-        carregar_politica(caminho)
 
 
 def test_o_recebedor_do_pix_vem_desligado_e_o_texto_traz_o_marcador(politica):
@@ -182,16 +163,6 @@ def test_o_texto_do_recebedor_sem_o_marcador_e_recusado(tmp_path):
         "confira o recebedor.",
     )
     with pytest.raises(PoliticaInvalida, match="texto_pix_recebedor"):
-        carregar_politica(caminho)
-
-
-def test_o_teto_no_whatsapp_e_recusado(tmp_path):
-    caminho = _arquivo_com(
-        tmp_path,
-        'motivos_humano_no_whatsapp = ["DESCONFIANCA"]',
-        'motivos_humano_no_whatsapp = ["DESCONFIANCA", "TETO"]',
-    )
-    with pytest.raises(PoliticaInvalida, match="motivos_humano_no_whatsapp.*TETO"):
         carregar_politica(caminho)
 
 

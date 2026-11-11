@@ -75,10 +75,10 @@ def test_mensagens_do_agente_so_devolve_as_da_conversa_pedida(falso, cliente):
 
 def test_etiquetar_soma_as_etiquetas_e_registra_a_lista_inteira(falso, cliente):
     cliente.etiquetar(CONVERSA, ["desconfianca"])
-    cliente.etiquetar(CONVERSA, ["webchat", "desconfianca"])
+    cliente.etiquetar(CONVERSA, ["teto", "desconfianca"])
     registros = [r for r in falso.registros if r.tipo == "etiquetas"]
-    assert [r.conteudo for r in registros] == [["desconfianca"], ["desconfianca", "webchat"]]
-    assert falso.etiquetas(CONVERSA) == ["desconfianca", "webchat"]
+    assert [r.conteudo for r in registros] == [["desconfianca"], ["desconfianca", "teto"]]
+    assert falso.etiquetas(CONVERSA) == ["desconfianca", "teto"]
     assert falso.etiquetas(CONVERSA + 1) == []
 
 
