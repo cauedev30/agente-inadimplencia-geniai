@@ -147,3 +147,9 @@ com a correção quando a hora chegar (texto completo na fonte).
   turno é ignorado) e mensagem de atendente fora do piloto marca `human_owned`; D38 diverge do código (vale a D47); resquícios
   de nome do Jev (`PERGUNTAS_JEV1`, `LeituraJev1`, `BatchJev`, comentário do webhook, `ConfigPolitica` cita `agente simular`);
   (o `/saude` já enxerga o laço parado desde a 2.1).
+- **O token do Agent Bot não lê mensagens (401 no Chatwoot real, achado do 1º teste no `dev2`, 2026-11-11; corrigido em `6379d91`):**
+  `ChatwootHttp.mensagens_do_agente` devolve `[]` em 401/403 e o envio segue ("não consegui conferir, manda"). Sem leitura, a
+  conferência de duplicata fica sem lastro: (a) no reenvio (`orquestrador.py` `_despachar` ~402), se a mensagem chegou ao cliente e
+  a resposta do Chatwoot se perdeu (timeout depois da entrega), ela sai de novo; (b) em `_resolver_pendente` (~813) a mensagem
+  pendente é descartada sem conferência e o teto pode contar uma a menos. Janelas raras. A saída é o token do bot passar a ler as
+  mensagens (Chatwoot, T3) ou guardar o id da resposta do envio. O ensaio não pega (o Chatwoot falso não tem essa permissão).
