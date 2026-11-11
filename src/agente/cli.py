@@ -46,7 +46,7 @@ from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.jev import JevComPrazo
 from agente.integracoes.jev_typesafe import JevTypeSafe
 from agente.integracoes.redator import RedatorOpenAI
-from agente.politica import carregar_politica
+from agente.politica import LiberacaoPiloto, carregar_politica
 from agente.reproducao.carteira_estimada import (
     conversas_da_pasta,
     conversas_do_chatwoot,
@@ -113,6 +113,19 @@ def _mascarar(matricula: str) -> str:
 def _disparar(argumentos: argparse.Namespace) -> int:
     config = carregar_config()
     politica = carregar_politica(config.politica_path)
+    if config.modo != "ativo":
+        print(
+            f"AGENTE_MODO é '{config.modo}': em sombra nada é disparado. Defina AGENTE_MODO=ativo "
+            "(e a liberacao do politica.toml) para disparar as aberturas."
+        )
+        return 2
+    if politica.teste is not None and argumentos.campanha == politica.teste.campanha:
+        # A matrícula `SIM-` iria à API real: o disparo abre a CTNEficaz direto, sem o roteador.
+        print(
+            f"A campanha '{argumentos.campanha}' é a do modo teste: os testadores abrem a conversa "
+            "pelo WhatsApp (1º contato), e o disparo não vale para ela."
+        )
+        return 2
     # Até a T4, não há disparador real: as aberturas só ficam gravadas.
     print("Disparador falso: nenhuma mensagem sai de verdade (T4).")
     # ocultar_parametros: o SQL de um erro não pode levar nome nem telefone para a tela.
@@ -132,6 +145,7 @@ def _disparar(argumentos: argparse.Namespace) -> int:
         return 1
     print(f"enviadas: {relatorio.enviadas}")
     print(f"puladas: {relatorio.puladas}")
+    print(f"fora da liberação (sem abertura): {relatorio.fora_da_liberacao}")
     print(f"quitadas no CTN (sem abertura): {relatorio.quitadas_no_ctn}")
     print(f"sem lançamentos no CTN (sem abertura): {relatorio.sem_lancamentos}")
     print(f"dados suspeitos do CTN (sem abertura): {relatorio.dados_suspeitos}")
@@ -367,6 +381,16 @@ def _importar_ctn(argumentos: argparse.Namespace) -> int:
     politica = carregar_politica(config.politica_path)
     # O retrato sai uma vez por dia, de manhã: "hoje" é o dia do negócio, não o do servidor.
     data_ref = argumentos.data or _agora().astimezone(politica.janela.zona).date()
+    if argumentos.meses_minimos < 1:
+        print("--meses-minimos precisa ser ao menos 1.")
+        return 2
+    # No modo teste, os testadores do piloto trocam a carteira pelos casos inventados: a pessoa
+    # real que usa o mesmo telefone não entra. Sem `[teste]`, o piloto é de gente real e entra.
+    excluidos = (
+        politica.liberacao.telefones
+        if politica.teste is not None and isinstance(politica.liberacao, LiberacaoPiloto)
+        else frozenset()
+    )
     print(
         f"Retrato de {data_ref.isoformat()}"
         + (" (simulação: nada é gravado)" if argumentos.simular else "")
@@ -378,7 +402,15 @@ def _importar_ctn(argumentos: argparse.Namespace) -> int:
         _abrir_ctn(config) as ctn,
     ):
         resumo = importar_do_ctn(
-            sessao, ctn, politica, data_ref, argumentos.campanha, argumentos.simular, _agora()
+            sessao,
+            ctn,
+            politica,
+            data_ref,
+            argumentos.campanha,
+            argumentos.simular,
+            _agora(),
+            argumentos.meses_minimos,
+            excluidos,
         )
     print(f"criadas: {resumo.criadas}")
     print(f"atualizadas: {resumo.atualizadas}")
@@ -386,6 +418,9 @@ def _importar_ctn(argumentos: argparse.Namespace) -> int:
     print(f"encerradas: {resumo.encerradas}")
     print(f"inadimplentes distintos (1 mês ou mais): {resumo.inadimplentes}")
     print(f"ignoradas Energisa: {resumo.ignoradas_energisa}")
+    print(f"abaixo do mínimo de meses: {resumo.abaixo_do_minimo}")
+    print(f"ignoradas simuladas (SIM-): {resumo.ignoradas_simuladas}")
+    print(f"ignoradas do piloto (telefone de testador): {resumo.ignoradas_piloto}")
     print(f"sem telefone: {resumo.sem_telefone}")
     print(f"telefones compartilhados por mais de uma matrícula: {resumo.telefones_compartilhados}")
     print(f"linhas inválidas: {resumo.linhas_invalidas}")
@@ -501,6 +536,12 @@ def main(argv: list[str] | None = None) -> int:
         help="dia do retrato, AAAA-MM-DD (padrão: hoje, no fuso da janela)",
     )
     importar_ctn.add_argument("--campanha", default="ctn", help="nome da campanha (ctn)")
+    importar_ctn.add_argument(
+        "--meses-minimos",
+        type=int,
+        default=1,
+        help="só entra quem tem este nº de meses de atraso ou mais (1; no dev2, 3: R3 a R6)",
+    )
     importar_ctn.add_argument(
         "--simular", action="store_true", help="mostra os totais sem gravar nada"
     )

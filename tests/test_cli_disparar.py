@@ -6,15 +6,16 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from alembic import command
+from sqlalchemy import select
 
 from agente.cli import main
-from agente.db.modelos import Cliente, Cobranca
+from agente.db.modelos import Cliente, Cobranca, Conversa
 from agente.db.sessao import criar_sessao
 from agente.integracoes.ctn import CTNFalso, MensalidadeAberta
 from agente.integracoes.disparador import FalhaNoEnvio
 from agente.politica import Regua
 
-from .conftest import alembic_config
+from .conftest import alembic_config, escrever_politica_de_teste, ligar_o_disparo
 
 SEGUNDA_10H = datetime(2026, 10, 26, 10, tzinfo=ZoneInfo("America/Fortaleza"))
 MATRICULA = "MAT-123456"
@@ -29,6 +30,7 @@ def banco(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTE_DATABASE_URL", url)
     monkeypatch.setenv("AGENTE_CTN_API_KEY", "chave-ficticia")
     monkeypatch.setattr("agente.cli._agora", lambda: SEGUNDA_10H)
+    ligar_o_disparo(tmp_path, monkeypatch)
     with criar_sessao(url)() as sessao:
         cliente = Cliente(matricula_ctn=MATRICULA, nome=NOME, telefone=TELEFONE)
         sessao.add(
@@ -76,6 +78,7 @@ def test_disparar_imprime_os_contadores_novos(banco, monkeypatch, capsys):
     assert "enviadas: 1" in saida
     for contador in (
         "puladas: 0",
+        "fora da liberação (sem abertura): 0",
         "quitadas no CTN (sem abertura): 0",
         "sem lançamentos no CTN (sem abertura): 0",
         "dados suspeitos do CTN (sem abertura): 0",
@@ -173,3 +176,55 @@ def test_a_sessao_do_disparo_oculta_os_parametros_do_sql(banco, monkeypatch):
     main(["disparar", "--campanha", "nov"])
 
     assert visto.get("ocultar_parametros") is True
+
+
+def test_disparar_em_sombra_nao_dispara_e_diz_por_que(banco, monkeypatch, capsys):
+    monkeypatch.setenv("AGENTE_MODO", "sombra")
+    _usar_ctn(monkeypatch, _ctn_devendo())
+
+    codigo = main(["disparar", "--campanha", "nov"])
+
+    saida = capsys.readouterr().out
+    assert codigo == 2
+    assert "AGENTE_MODO" in saida and "sombra" in saida
+    assert "enviadas" not in saida
+    with criar_sessao(banco)() as sessao:
+        assert sessao.scalars(select(Conversa)).all() == []
+
+
+def test_disparar_conta_quem_esta_fora_da_liberacao(banco, tmp_path, monkeypatch, capsys):
+    texto = (tmp_path / "politica-liberada.toml").read_text(encoding="utf-8")
+    sem_ninguem = texto.replace(
+        'liberacao = { modo = "percentual", percentual = 100 }',
+        'liberacao = { modo = "piloto", telefones = ["+5583900000000"] }',
+    )
+    (tmp_path / "politica-liberada.toml").write_text(sem_ninguem, encoding="utf-8")
+    _usar_ctn(monkeypatch, _ctn_devendo())
+
+    codigo = main(["disparar", "--campanha", "nov"])
+
+    saida = capsys.readouterr().out
+    assert codigo == 0
+    assert "enviadas: 0" in saida
+    assert "fora da liberação (sem abertura): 1" in saida
+    _sem_dado_de_cliente(saida)
+
+
+def test_disparar_recusa_a_campanha_do_modo_teste(tmp_path, banco, monkeypatch, capsys):
+    escrever_politica_de_teste(tmp_path)
+    monkeypatch.setenv("AGENTE_POLITICA_PATH", str(tmp_path / "politica.toml"))
+    chamou_o_ctn = []
+
+    @contextmanager
+    def abrir(config):
+        chamou_o_ctn.append(True)
+        yield _ctn_devendo()
+
+    monkeypatch.setattr("agente.cli._abrir_ctn", abrir)
+
+    codigo = main(["disparar", "--campanha", "teste"])
+
+    saida = capsys.readouterr().out
+    assert codigo == 2
+    assert "modo teste" in saida
+    assert chamou_o_ctn == []

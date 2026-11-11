@@ -3,6 +3,7 @@
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 from sqlalchemy import select, update
 
 from agente.abertura.disparar import (
@@ -13,13 +14,20 @@ from agente.db.modelos import Cliente, Cobranca, Conversa
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.ctn import MensalidadeAberta
 from agente.integracoes.disparador import DisparadorFalso
-from agente.politica import Regua
+from agente.politica import LiberacaoPiloto, Regua
 from agente.tipos import StatusCobranca
+from agente.turno.liberacao import liberar_tudo
 
 from ..turno.test_orquestrador_conferencia import CTNEspiao, _Escritas
 
 JP = ZoneInfo("America/Fortaleza")
 SEGUNDA_10H = datetime(2026, 10, 26, 10, tzinfo=JP)
+
+
+@pytest.fixture
+def politica(politica):
+    """O disparo só abre as cobranças liberadas: estes testes valem com a carteira toda no ativo."""
+    return liberar_tudo(politica)
 
 
 def _cobranca(sessao, matricula, divida=10020, meses=3, telefone=None):
@@ -332,3 +340,24 @@ def test_fora_da_janela_nao_chama_o_ctn(sessao, politica):
 
     assert relatorio.fora_da_janela is True
     assert ctn.chamadas == []
+
+
+def test_a_cobranca_fora_da_liberacao_nao_chama_o_ctn_nem_e_marcada(sessao, politica):
+    do_piloto = _cobranca(sessao, "F-1")
+    fora = _cobranca(sessao, "F-2")
+    ctn = _ctn(**{"F-1": [("2026/09", 3340), ("2026/10", 3340)], "F-2": [("2026/10", 3340)]})
+    piloto = politica.model_copy(
+        update={
+            "liberacao": LiberacaoPiloto(
+                modo="piloto", telefones=frozenset({do_piloto.cliente.telefone})
+            )
+        }
+    )
+
+    relatorio = disparar_aberturas(sessao, piloto, DisparadorFalso(), "outubro", SEGUNDA_10H, ctn)
+
+    assert (relatorio.enviadas, relatorio.fora_da_liberacao) == (1, 1)
+    # O CTN só foi lido para a cobrança do piloto (2 chamadas); a de fora nunca foi conferida.
+    assert ctn.chamadas == ["mensalidades", "historico"]
+    assert fora.conferida_em is None and fora.status is StatusCobranca.ATIVA
+    assert fora.conversas == []

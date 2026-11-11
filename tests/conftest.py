@@ -107,6 +107,20 @@ def escrever_politica_de_teste(pasta: Path) -> Path:
     return caminho
 
 
+def ligar_o_disparo(pasta: Path, monkeypatch) -> Path:
+    """O ambiente do `agente disparar`: AGENTE_MODO=ativo e uma política com a carteira toda
+    liberada (o disparo só abre as cobranças liberadas), numa cópia na `pasta`."""
+    texto = (RAIZ / "politica.toml").read_text(encoding="utf-8")
+    texto = texto.replace(
+        'liberacao = "sombra"', 'liberacao = { modo = "percentual", percentual = 100 }', 1
+    )
+    caminho = pasta / "politica-liberada.toml"
+    caminho.write_text(texto, encoding="utf-8")
+    monkeypatch.setenv("AGENTE_MODO", "ativo")
+    monkeypatch.setenv("AGENTE_POLITICA_PATH", str(caminho))
+    return caminho
+
+
 @pytest.fixture
 def politica_de_teste(tmp_path):
     return carregar_politica(escrever_politica_de_teste(tmp_path))

@@ -15,7 +15,7 @@ from agente.integracoes.ctn import CTNFalso, CTNIndisponivel, InadimplenteCTN
 from agente.politica import Regua
 from agente.tipos import FormaPagamento, StatusCobranca, StatusPagamento
 
-from ..conftest import alembic_config
+from ..conftest import TESTADOR_1, alembic_config, escrever_politica_de_teste
 
 DIA = date(2026, 11, 9)
 # 12h em Fortaleza (a janela da política): o dia do negócio é 09/11.
@@ -820,3 +820,177 @@ def test_comando_sem_data_usa_o_dia_de_hoje_no_fuso_da_janela(banco, monkeypatch
 
     # 01:00 UTC de 10/11 ainda é 22:00 de 09/11 em Fortaleza.
     assert pedidos == [date(2026, 11, 9)]
+
+
+# ---- a versão de teste: mínimo de meses, matrícula SIM- e telefone de testador ----
+
+
+def _importar_com(sessao, politica, ctn, **opcoes):
+    return importar_do_ctn(sessao, ctn, politica, DIA, "nov", agora=AGORA, **opcoes)
+
+
+def test_o_minimo_de_meses_deixa_r1_e_r2_de_fora_e_conta(sessao, politica):
+    ctn = _ctn(
+        _linha("M-1", 1, "+5583900000001"),
+        _linha("M-2", 2, "+5583900000002"),
+        _linha("M-3", 3, "+5583900000003"),
+        _linha("M-6", 6, "+5583900000006"),
+    )
+
+    resumo = _importar_com(sessao, politica, ctn, meses_minimos=3)
+
+    assert (resumo.criadas, resumo.abaixo_do_minimo, resumo.inadimplentes) == (2, 2, 2)
+    assert [c.cliente.matricula_ctn for c in _cobrancas(sessao)] == ["M-3", "M-6"]
+    assert resumo.total_retrato == 4
+
+
+def test_sem_o_minimo_tudo_segue_como_antes(sessao, politica):
+    ctn = _ctn(_linha("M-1", 1), _linha("M-2", 2, "+5583900000002"))
+
+    resumo = _importar_com(sessao, politica, ctn)
+
+    assert (resumo.criadas, resumo.abaixo_do_minimo) == (2, 0)
+    assert (resumo.ignoradas_simuladas, resumo.ignoradas_piloto) == (0, 0)
+
+
+def test_quem_ficou_abaixo_do_minimo_e_encerrado_como_quem_saiu_do_retrato(sessao, politica):
+    _importar_com(sessao, politica, _ctn(_linha("M-1", 1), _linha("M-3", 3, "+5583900000003")))
+    ctn = _ctn(_linha("M-1", 1), _linha("M-3", 3, "+5583900000003"))
+
+    resumo = _importar_com(sessao, politica, ctn, meses_minimos=3)
+
+    assert (resumo.encerradas, resumo.atualizadas) == (1, 1)
+    status = {c.cliente.matricula_ctn: c.status for c in _cobrancas(sessao)}
+    assert status == {"M-1": StatusCobranca.ENCERRADA, "M-3": StatusCobranca.ATIVA}
+
+
+def test_o_teto_de_25_por_cento_vale_para_o_que_o_minimo_deixa_de_fora(sessao, politica):
+    linhas = [_linha(f"M-{n}", 1, f"+55839000{n:05d}") for n in range(1, 21)]
+    linhas += [_linha(f"R-{n}", 3, f"+55839001{n:05d}") for n in range(1, 21)]
+    _importar_com(sessao, politica, _ctn(*linhas))
+
+    resumo = _importar_com(sessao, politica, _ctn(*linhas), meses_minimos=3)
+
+    assert resumo.motivo_sem_encerrar == "encerramento_excessivo"
+    assert resumo.encerradas == 0
+    assert all(c.status is StatusCobranca.ATIVA for c in _cobrancas(sessao))
+
+
+def test_matricula_simulada_nunca_entra_e_conta(sessao, politica):
+    ctn = _ctn(_linha("SIM-1-7777", 3, "+5583900000009"), _linha("M-1", 3))
+
+    resumo = _importar_com(sessao, politica, ctn, meses_minimos=3)
+
+    assert (resumo.criadas, resumo.ignoradas_simuladas) == (1, 1)
+    assert [c.cliente.matricula_ctn for c in _cobrancas(sessao)] == ["M-1"]
+
+
+@pytest.mark.parametrize("no_retrato", ["+5583988887777", "+558388887777"])
+def test_telefone_de_testador_com_e_sem_o_9_nao_entra_e_a_ativa_dele_sai(
+    sessao, politica, no_retrato
+):
+    _importar_com(sessao, politica, _ctn(_linha("M-9", 3, "+5583988887777"), _linha("M-1", 3)))
+    ctn = _ctn(_linha("M-9", 3, no_retrato), _linha("M-1", 3))
+
+    resumo = _importar_com(
+        sessao, politica, ctn, meses_minimos=3, telefones_excluidos=frozenset({TESTADOR_1})
+    )
+
+    assert (resumo.ignoradas_piloto, resumo.encerradas, resumo.atualizadas) == (1, 1, 1)
+    status = {c.cliente.matricula_ctn: c.status for c in _cobrancas(sessao)}
+    assert status == {"M-9": StatusCobranca.ENCERRADA, "M-1": StatusCobranca.ATIVA}
+
+
+def test_telefone_de_testador_novo_nao_cria_cobranca(sessao, politica):
+    ctn = _ctn(_linha("M-9", 3, "+558388887777"))
+
+    resumo = _importar_com(sessao, politica, ctn, telefones_excluidos=frozenset({TESTADOR_1}))
+
+    assert (resumo.criadas, resumo.ignoradas_piloto) == (0, 1)
+    assert _cobrancas(sessao) == []
+
+
+def test_o_minimo_precisa_ser_ao_menos_1(sessao, politica):
+    with pytest.raises(ValueError):
+        _importar_com(sessao, politica, _ctn(_linha("M-1")), meses_minimos=0)
+
+
+def test_comando_com_minimo_de_meses_imprime_os_contadores_novos(banco, monkeypatch, capsys):
+    _usar_ctn(
+        monkeypatch,
+        _ctn(
+            _linha("M-1", 1),
+            _linha("M-3", 3, "+5583900000003"),
+            _linha("SIM-1-7777", 3, "+5583900000009"),
+        ),
+    )
+
+    codigo = main(
+        ["importar-ctn", "--data", "2026-11-09", "--campanha", "nov", "--meses-minimos", "3"]
+    )
+
+    saida = capsys.readouterr().out
+    assert codigo == 0
+    assert "criadas: 1" in saida
+    assert "abaixo do mínimo de meses: 1" in saida
+    assert "ignoradas simuladas (SIM-): 1" in saida
+    assert "ignoradas do piloto (telefone de testador): 0" in saida
+
+
+def test_comando_simular_mostra_os_contadores_novos_sem_gravar(banco, monkeypatch, capsys):
+    _usar_ctn(monkeypatch, _ctn(_linha("M-1", 1), _linha("M-3", 3, "+5583900000003")))
+
+    main(
+        [
+            "importar-ctn",
+            "--data",
+            "2026-11-09",
+            "--campanha",
+            "nov",
+            "--meses-minimos",
+            "3",
+            "--simular",
+        ]
+    )
+
+    saida = capsys.readouterr().out
+    assert "simulação" in saida and "abaixo do mínimo de meses: 1" in saida
+    with criar_sessao(banco)() as sessao:
+        assert sessao.scalars(select(Cobranca)).all() == []
+
+
+def test_comando_no_modo_teste_exclui_os_telefones_do_piloto(banco, tmp_path, monkeypatch, capsys):
+    escrever_politica_de_teste(tmp_path)
+    monkeypatch.setenv("AGENTE_POLITICA_PATH", str(tmp_path / "politica.toml"))
+    _usar_ctn(monkeypatch, _ctn(_linha("M-9", 3, TESTADOR_1), _linha("M-1", 3)))
+
+    codigo = main(["importar-ctn", "--data", "2026-11-09", "--campanha", "nov"])
+
+    saida = capsys.readouterr().out
+    assert codigo == 0
+    assert "criadas: 1" in saida
+    assert "ignoradas do piloto (telefone de testador): 1" in saida
+    assert TESTADOR_1 not in saida
+
+
+def test_comando_sem_o_modo_teste_nao_exclui_o_piloto(banco, tmp_path, monkeypatch, capsys):
+    original = escrever_politica_de_teste(tmp_path).read_text(encoding="utf-8")
+    sem_teste = tmp_path / "politica-piloto.toml"
+    sem_teste.write_text(original.split("\n[teste]")[0], encoding="utf-8")
+    monkeypatch.setenv("AGENTE_POLITICA_PATH", str(sem_teste))
+    _usar_ctn(monkeypatch, _ctn(_linha("M-9", 3, TESTADOR_1)))
+
+    main(["importar-ctn", "--data", "2026-11-09", "--campanha", "nov"])
+
+    saida = capsys.readouterr().out
+    assert "criadas: 1" in saida
+    assert "ignoradas do piloto (telefone de testador): 0" in saida
+
+
+def test_comando_recusa_minimo_de_meses_invalido(banco, monkeypatch, capsys):
+    _usar_ctn(monkeypatch, _ctn(_linha("M-1")))
+
+    codigo = main(["importar-ctn", "--campanha", "nov", "--meses-minimos", "0"])
+
+    assert codigo == 2
+    assert "--meses-minimos" in capsys.readouterr().out

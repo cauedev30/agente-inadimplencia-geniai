@@ -3,6 +3,10 @@
 A abertura é template e não conta no teto (D33). Cada cobrança recebe uma só: a que já tem conversa
 é pulada, e a que falhou fica sem conversa para a próxima rodada.
 
+Só as cobranças liberadas (`modo_da_conversa` ATIVO: o piloto, a parte ou a carteira toda da
+`liberacao` do politica.toml) recebem a abertura; as demais são puladas ANTES da conferência, sem
+chamar o CTN, e contam em `fora_da_liberacao`. Em sombra, nada é disparado.
+
 Com o CTN (`ctn`), a cobrança é conferida antes da abertura, uma vez por dia (spec do CTN real,
 seção 4): o valor do template é o conferido, e só ele. A que o CTN mostra quitada, a que não tem
 lançamentos, a de dado suspeito e a que não foi conferida (CTN fora do ar) NÃO recebem a abertura
@@ -41,7 +45,8 @@ from agente.dominio.telefone import variantes_telefone
 from agente.integracoes.ctn import CTN
 from agente.integracoes.disparador import Disparador
 from agente.politica import Politica
-from agente.tipos import Botao, OrigemMensagem, StatusCobranca
+from agente.tipos import Botao, Modo, OrigemMensagem, StatusCobranca
+from agente.turno.liberacao import modo_da_conversa
 
 log = logging.getLogger(__name__)
 
@@ -77,6 +82,9 @@ class RelatorioDisparo:
     nao_conferidas: int = 0
     # O telefone é de mais de uma cobrança ativa: vai à revisão humana.
     telefone_compartilhado: int = 0
+    # A cobrança não está liberada para o modo ativo (fora do piloto ou da parte liberada): não
+    # recebe a abertura, e o CTN nem é consultado.
+    fora_da_liberacao: int = 0
     # A rodada parou porque quitadas + sem lançamentos passaram do limite das conferências.
     alarme_conferencia: bool = False
     falhas: list[tuple[str, str]] = field(default_factory=list)
@@ -135,6 +143,9 @@ def disparar_aberturas(
     for cobranca in cobrancas:
         if cobranca.conversas:
             relatorio.puladas += 1
+            continue
+        if modo_da_conversa(cobranca, politica) is not Modo.ATIVO:
+            relatorio.fora_da_liberacao += 1
             continue
         if cobranca.id in compartilhadas:
             log.warning(

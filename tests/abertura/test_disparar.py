@@ -12,14 +12,21 @@ from agente.db.modelos import Cliente, Cobranca, Conversa, Mensagem
 from agente.db.sessao import criar_sessao
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.disparador import DisparadorFalso
-from agente.politica import Regua
+from agente.politica import LiberacaoPiloto, Regua
 from agente.tipos import Botao, OrigemMensagem, StatusCobranca
+from agente.turno.liberacao import liberar_tudo
 
-from ..conftest import alembic_config
+from ..conftest import alembic_config, ligar_o_disparo
 
 JP = ZoneInfo("America/Fortaleza")
 SEGUNDA_10H = datetime(2026, 10, 26, 10, tzinfo=JP)
 DOMINGO = datetime(2026, 11, 1, 10, tzinfo=JP)
+
+
+@pytest.fixture
+def politica(politica):
+    """O disparo só abre as cobranças liberadas: estes testes valem com a carteira toda no ativo."""
+    return liberar_tudo(politica)
 
 
 def _cobranca(sessao, matricula, campanha="outubro", status=StatusCobranca.ATIVA):
@@ -118,6 +125,7 @@ def test_comando_disparar(tmp_path, monkeypatch, capsys):
     url = f"sqlite:///{(tmp_path / 'cli.db').as_posix()}"
     command.upgrade(alembic_config(url), "head")
     monkeypatch.setenv("AGENTE_DATABASE_URL", url)
+    ligar_o_disparo(tmp_path, monkeypatch)
     with criar_sessao(url)() as sessao:
         _cobranca(sessao, "F-1")
 
@@ -130,3 +138,39 @@ def test_comando_disparar(tmp_path, monkeypatch, capsys):
 
     assert agente.cli.main(["disparar", "--campanha", "outubro"]) == 0
     assert "enviadas: 1" in capsys.readouterr().out
+
+
+def test_em_sombra_nada_e_disparado_e_o_ctn_nao_e_consultado(sessao, politica):
+    from agente.integracoes.ctn import CTNFalso
+    from agente.politica import LiberacaoSombra
+
+    _cobranca(sessao, "F-1")
+    disparador = DisparadorFalso()
+    em_sombra = politica.model_copy(update={"liberacao": LiberacaoSombra()})
+
+    relatorio = disparar_aberturas(
+        sessao, em_sombra, disparador, "outubro", SEGUNDA_10H, CTNFalso()
+    )
+
+    assert (relatorio.enviadas, relatorio.fora_da_liberacao) == (0, 1)
+    assert disparador.envios == []
+    assert sessao.scalars(select(Conversa)).all() == []
+
+
+def test_com_piloto_so_o_telefone_do_piloto_recebe_a_abertura(sessao, politica):
+    do_piloto = _cobranca(sessao, "F-1")
+    fora = _cobranca(sessao, "F-2")
+    disparador = DisparadorFalso()
+    piloto = politica.model_copy(
+        update={
+            "liberacao": LiberacaoPiloto(
+                modo="piloto", telefones=frozenset({do_piloto.cliente.telefone})
+            )
+        }
+    )
+
+    relatorio = disparar_aberturas(sessao, piloto, disparador, "outubro", SEGUNDA_10H)
+
+    assert (relatorio.enviadas, relatorio.fora_da_liberacao) == (1, 1)
+    assert [envio.telefone for envio in disparador.envios] == [do_piloto.cliente.telefone]
+    assert fora.conversas == [] and fora.status is StatusCobranca.ATIVA

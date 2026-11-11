@@ -11,6 +11,12 @@ com UPDATE pendente); se a leitura falhar no meio, nada é gravado nem encerrado
 lotes de `PAGINA` com commit por lote, e por fim encerra. O retrato é suspeito (não encerra) quando
 traz linha com `data_ref` diferente da pedida, ou nenhuma linha com ela; e o encerramento que
 atingiria mais de `TETO_DO_ENCERRAMENTO` das ativas da campanha também não roda.
+
+Versão de teste (D56, P6): `meses_minimos` deixa de fora quem tem menos meses de atraso (a
+importação diária do `dev2` usa 3: só R3 a R6), a matrícula simulada `SIM-` nunca entra, e o
+telefone de `telefones_excluidos` (os testadores do piloto, com e sem o 9) também não. Tudo o que
+fica de fora conta como fora do retrato: a ATIVA dessa pessoa é encerrada pelas regras de sempre
+(o teto de 25% vale) e nenhuma é criada nem atualizada.
 """
 
 from dataclasses import dataclass
@@ -26,7 +32,9 @@ from agente.carteira.importar import (
     _Linha,
 )
 from agente.db.modelos import Cliente, Cobranca, Pagamento
+from agente.dominio.telefone import variantes_telefone
 from agente.integracoes.ctn import CTN, CTNIndisponivel, InadimplenteCTN
+from agente.integracoes.ctn_teste import PREFIXO_SIMULADO
 from agente.politica import Politica
 from agente.tipos import StatusCobranca, StatusPagamento
 
@@ -63,6 +71,9 @@ class ResumoImportacao:
     `reativadas` voltaram ao retrato até `DIAS_PARA_REATIVAR` dias depois de encerradas.
     `linhas_invalidas` são as malformadas do retrato; `data_ref_divergente`, as de outro dia;
     `telefones_compartilhados`, os telefones que aparecem em mais de uma matrícula inadimplente.
+    `abaixo_do_minimo` (menos meses que `meses_minimos`), `ignoradas_simuladas` (matrícula `SIM-`)
+    e `ignoradas_piloto` (telefone de testador) são as que a versão de teste deixa de fora;
+    `inadimplentes` conta só as que entram.
     """
 
     criadas: int = 0
@@ -77,6 +88,9 @@ class ResumoImportacao:
     linhas_invalidas: int = 0
     data_ref_divergente: int = 0
     telefones_compartilhados: int = 0
+    abaixo_do_minimo: int = 0
+    ignoradas_simuladas: int = 0
+    ignoradas_piloto: int = 0
     motivo_sem_encerrar: str | None = None
 
     @property
@@ -92,7 +106,13 @@ class _Retrato:
     vistas: set[str]
 
 
-def _ler_o_retrato(ctn: CTN, data_ref: date, resumo: ResumoImportacao) -> _Retrato:
+def _ler_o_retrato(
+    ctn: CTN,
+    data_ref: date,
+    resumo: ResumoImportacao,
+    meses_minimos: int,
+    excluidos: frozenset[str],
+) -> _Retrato:
     """Lê o retrato inteiro (levanta CTNIndisponivel se cair no meio) e o classifica."""
     invalidas: list[str | None] = []
     linhas = list(ctn.inadimplentes(data_ref, invalidas))
@@ -111,6 +131,15 @@ def _ler_o_retrato(ctn: CTN, data_ref: date, resumo: ResumoImportacao) -> _Retra
         com_a_data_pedida += 1
         if linha.meses_atraso < 1:
             resumo.ignoradas_energisa += 1
+            continue
+        if linha.matricula.startswith(PREFIXO_SIMULADO):
+            resumo.ignoradas_simuladas += 1
+            continue
+        if excluidos and not excluidos.isdisjoint(variantes_telefone(linha.telefone or "")):
+            resumo.ignoradas_piloto += 1
+            continue
+        if linha.meses_atraso < meses_minimos:
+            resumo.abaixo_do_minimo += 1
             continue
         if linha.matricula in gravadas:
             continue
@@ -194,13 +223,21 @@ def importar_do_ctn(
     campanha: str,
     simular: bool = False,
     agora: datetime | None = None,
+    meses_minimos: int = 1,
+    telefones_excluidos: frozenset[str] = frozenset(),
 ) -> ResumoImportacao:
     """Importa o retrato de `data_ref`. Com `simular`, faz tudo e desfaz: devolve os totais que a
-    execução real teria e não deixa nada gravado."""
+    execução real teria e não deixa nada gravado. `meses_minimos` e `telefones_excluidos` são da
+    versão de teste (ver o alto do módulo)."""
+    if meses_minimos < 1:
+        raise ValueError("meses_minimos precisa ser ao menos 1")
     agora = agora or datetime.now(UTC)
+    excluidos = frozenset(
+        variante for telefone in telefones_excluidos for variante in variantes_telefone(telefone)
+    )
     resumo = ResumoImportacao()
     try:
-        retrato = _ler_o_retrato(ctn, data_ref, resumo)
+        retrato = _ler_o_retrato(ctn, data_ref, resumo, meses_minimos, excluidos)
     except CTNIndisponivel:
         # Leitura incompleta: nada foi escrito (a leitura vem antes de qualquer UPDATE).
         return ResumoImportacao(motivo_sem_encerrar=SEM_ENCERRAR_INCOMPLETO)
