@@ -157,3 +157,12 @@ com a correção quando a hora chegar (texto completo na fonte).
   sem resposta (o Luna devolve `NONE`). Implementar: (1) tratar o texto-padrão do gateway com anexo como "sem texto" e mandar ao humano
   (`CONCILIACAO`, o desenho original do AUD-07), e (2) ler o comprovante (imagem ou PDF) com um modelo de visão, confirmando valor e data antes de
   conciliar. Os anexos já guardam o tipo e o endereço (`mensagem.anexos`); o token do Agent Bot baixa a mídia? *a conferir* (o áudio já usa `baixar_anexo`).
+- **Achados (B) da revisão Opus da Etapa 2 (PARADA 2, 2026-11-11), nada bloqueia o teste:** (1) `deploy/dev2/agente.env.exemplo` traz
+  `AGENTE_LLM_DADOS_REAIS_LIBERADOS=false` e o comentário "token novo, depois da rotação", que contradizem a decisão de 2026-11-11
+  (`true` no teste): quem copiar o exemplo sobe um serviço que não arranca. (2) LEIAME: o comando dos testes do Postgres põe a senha na
+  linha de comando (aparece no `ps` e no histórico); "Subir" não avisa que, sem o `politica-teste.toml`, o Docker cria uma pasta root no
+  lugar; "Atualizar o código" não apaga o que saiu do repositório. (3) `compose.yaml`: log `json-file` sem limite e sem `healthcheck`
+  (o 503 do `/saude` não aciona nada). (4) O túnel rápido que reinicia sozinho para o webhook em silêncio: o Cauê confere uma vez por dia
+  durante o teste. (5) `Dockerfile`: o `chown -R /app` duplica a camada do `.venv` (`COPY --chown`). (6) `configurar_chatwoot.py`: `KeyError`
+  sem `bot_id` no JSON; aspas no valor do `agente.env` iriam para a URL. (7) Aviso: quem está no grupo `docker` do `dev2` lê o `agente.env`
+  por `docker inspect`, apesar do `chmod 600`.

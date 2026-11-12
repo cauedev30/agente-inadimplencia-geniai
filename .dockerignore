@@ -1,10 +1,10 @@
 .venv
 .git
-.env
-*.db
+**/.env
+**/*.db
 __pycache__
 .pytest_cache
 .ruff_cache
 pre-sombra/
-*.local.json
+**/*.local.json
 secrets/
