@@ -57,6 +57,47 @@ docker compose -f deploy/dev2/compose.yaml logs tunel | grep trycloudflare
 O túnel rápido **muda de URL toda vez que o contêiner `tunel` recomeça**; depois de reiniciá-lo,
 leia a URL de novo e atualize o webhook no Chatwoot.
 
+## Apontar o Chatwoot para o túnel (`configurar_chatwoot.py`)
+
+Em vez de editar o webhook à mão, rode na máquina de desenvolvimento, de dentro de `repo/`:
+
+```
+python -m uv run python ferramentas/teste/configurar_chatwoot.py            # só mostra (dry-run)
+python -m uv run python ferramentas/teste/configurar_chatwoot.py --aplicar  # escreve
+```
+
+O script lê do `dev2`, por SSH, a URL atual do túnel e o `AGENTE_WEBHOOK_SEGREDO`; do Chatwoot lê o que
+já está cadastrado; os tokens vêm de `secrets/chatwoot-teste.local.json`. Com `--aplicar` ele troca a URL
+do **webhook 14** e o `outgoing_url` do **bot 69** da conta 91. Não mexe no bot 67 (do Tiago) nem no
+`webhook_url` da inbox 280 (do gateway da GeniAI). Nada secreto é impresso. **Rode de novo toda vez que o
+contêiner `tunel` recomeçar.**
+
+Dois fatos da conta 91: ela **não tem time**, então `AGENTE_CHATWOOT_TIME_HUMANO` fica vazio (o handoff
+abre a conversa, etiqueta e põe a nota, sem atribuir); e o webhook 14 é da **conta toda**, então o
+agente grava a mensagem de quem está fora do piloto, sem responder (registrado em `docs/depois.md`).
+
+## Particularidades do teste no dev2
+
+- **Janela aberta 24 h, sem feriado.** Só a cópia do servidor (`politica-teste.toml`) tem a janela
+  `[janela.dias]` de segunda a domingo, `00:00` a `23:59`, e `feriados = []`; o `repo/politica.toml`
+  real não mudou (seg-sex 8h-18h, sáb 8h-12h, D11/D16). Sem isso o agente não responde depois das 18h,
+  de propósito. Antes do piloto real, volte a janela ao padrão (a cópia `politica-teste.toml.bak-janela`
+  guarda a versão anterior). Um "Oi" que chegou fora da janela fica pendente e **não volta sozinho**:
+  mande `/reset` e depois "Oi" de novo.
+- **A política é `chmod 644`**, porque o contêiner roda como uid 1000 e precisa lê-la. O arquivo só tem
+  telefones do piloto; o `agente.env` segue `chmod 600`.
+- **Foto e figurinha chegam do gateway como texto `[Image]`/`[Sticker]` mais o anexo**, e o agente não
+  responde (D62: ignorados no teste; a leitura de imagem está em `docs/depois.md`). Avise os testadores.
+- **O token do Agent Bot dá 401 em `GET /messages`.** O agente usa essa leitura para conferir se a
+  mensagem já saiu; com o 401, a conferência vira "não sei" e a confirmação do pagamento sai mesmo assim
+  (`6379d91`; o risco, uma confirmação repetida, está em `docs/depois.md`). Se a confirmação voltar a
+  travar, procure `401` no log.
+- **Rede com firewall (Fortinet).** Numa rede assim o TLS é interceptado e a porta 22 fica fechada: o
+  `ssh dev2` e o Chatwoot não respondem, e o `configurar_chatwoot.py` falha. Troque de rede; não tente
+  contornar o firewall.
+- **Imagem do túnel:** `cloudflared:latest`. Se o `up` puxar uma versão nova, o formato do log da URL pode
+  mudar (o script procura `https://*.trycloudflare.com`).
+
 ## Atualizar o código
 
 Na máquina de desenvolvimento, de dentro de `repo/`: `git archive --format=tar.gz -o agente.tar.gz HEAD`.
@@ -94,7 +135,7 @@ a cada teste**: nunca aponte a variável para o banco `agente`. (Um volume criad
 
 O compose não publica a porta do Postgres, e a imagem do agente não tem o `pytest` (é `--no-dev`).
 Por isso o teste roda num contêiner descartável na rede do compose, com o código montado, que instala as
-dependências de dev e acessa o banco pelo nome `postgres` (**a confirmar no dev2**: nunca rodou lá).
+dependências de dev e acessa o banco pelo nome `postgres` (rodou no dev2 em 2026-11-11: 8 passaram).
 De dentro de `/opt/agente-inadimplencia/app`, com o usuário e a senha do `deploy/dev2/.env` (a senha
 sem `%`, que o Alembic lê como interpolação):
 
