@@ -25,7 +25,7 @@ com a correção quando a hora chegar (texto completo na fonte).
 | AUD-04 | Mensagem de sábado 13h passa de 24h na segunda; `Retomar` manda o template ao `DisparadorFalso` e consome a rajada | Handoff com nota enquanto o disparador for falso | AGORA, 1.6 (motivo `FORA_DAS_24H`) |
 | AUD-05 | `travar_conversas_e_cobranca` não relê a cobrança: baixa e confirmação em dobro (precisa prova no Postgres) | `.all()` na consulta ou `refresh(with_for_update)` | ANTES DO PILOTO REAL |
 | AUD-06 | Linha de baixa malformada (valor negativo) trava a rotina das baixas por 24h | `_baixas_validas` em `_baixas_da_pessoa`; parar só em falha de transporte | ANTES DO PILOTO REAL |
-| AUD-07 | Comprovante em foto/PDF sem legenda chega vazio ao LLM; cliente que pagou fica sem resposta | Gate para rajada só com anexo → `CONCILIACAO`; rótulos `[imagem enviada]` | AGORA, 1.7 |
+| AUD-07 | Comprovante em foto/PDF sem legenda chega vazio ao LLM; cliente que pagou fica sem resposta | Gate para rajada só com anexo → `CONCILIACAO`; rótulos `[imagem enviada]` | AGORA, 1.7; **no canal real a foto vem como texto `[Image]` e o gate não pega (D62): sem resposta, aceito no teste** |
 | AUD-08 | Fixa e notas do handoff saem dentro da transação que pode ser repetida (fixa paga até 3 vezes) | Gravar PENDENTE e despachar depois do commit | ANTES DO PILOTO REAL |
 | AUD-09 | Telefone casa com 2 cobranças ativas: vence a de menor id (expõe dívida a terceiro) | Nenhuma ligada; handoff com nota | ANTES DO PILOTO REAL |
 | AUD-10 | `uma_chamada`: sem conferência de promessa ("pode pagar em duas vezes"), `OFFER_DISCOUNT` sem objeção, `contar_objecao` nunca chamado | (1) desconto só após INFORM_DEBT; (2) `objecao_valor`; (3) conferir `reply` com perguntas de segurança | TESTE MEDE (se a Lohanny vir desconto cedo ou promessa falsa, voltam as 3 partes) |
@@ -153,3 +153,7 @@ com a correção quando a hora chegar (texto completo na fonte).
   a resposta do Chatwoot se perdeu (timeout depois da entrega), ela sai de novo; (b) em `_resolver_pendente` (~813) a mensagem
   pendente é descartada sem conferência e o teto pode contar uma a menos. Janelas raras. A saída é o token do bot passar a ler as
   mensagens (Chatwoot, T3) ou guardar o id da resposta do envio. O ensaio não pega (o Chatwoot falso não tem essa permissão).
+- **Leitura de imagem (futuro, importante; D62, 2026-11-11):** hoje a foto e a figurinha chegam ao agente como `[Image]` ou `[Sticker]` + anexo e ficam
+  sem resposta (o Luna devolve `NONE`). Implementar: (1) tratar o texto-padrão do gateway com anexo como "sem texto" e mandar ao humano
+  (`CONCILIACAO`, o desenho original do AUD-07), e (2) ler o comprovante (imagem ou PDF) com um modelo de visão, confirmando valor e data antes de
+  conciliar. Os anexos já guardam o tipo e o endereço (`mensagem.anexos`); o token do Agent Bot baixa a mídia? *a conferir* (o áudio já usa `baixar_anexo`).
