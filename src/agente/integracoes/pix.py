@@ -94,7 +94,7 @@ class PixFalso:
 
 class PixDeTeste(PixFalso):
     """O Pix do modo teste (D56): o txid e o resto são os do falso, mas o "copia e cola" é um texto
-    `[TESTE]` que diz o valor e como simular o pagamento. Nada vai a um banco."""
+    `[TESTE]` que diz o valor. Nada vai a um banco."""
 
     def criar_cobranca(
         self, txid: str, valor_centavos: int, validade: timedelta, devedor_nome: str
@@ -102,10 +102,7 @@ class PixDeTeste(PixFalso):
         cobranca = super().criar_cobranca(txid, valor_centavos, validade, devedor_nome)
         cobranca = replace(
             cobranca,
-            br_code=(
-                f"[TESTE] aqui viria o código Pix de {formatar_reais(valor_centavos)}. "
-                "Para simular o pagamento, mande /paguei"
-            ),
+            br_code=f"[TESTE] aqui viria o código Pix de {formatar_reais(valor_centavos)}.",
         )
         self.cobrancas[txid] = cobranca
         return cobranca

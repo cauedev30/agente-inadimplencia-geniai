@@ -496,9 +496,7 @@ def test_o_pix_de_teste_mantem_o_txid_e_troca_o_br_code():
     pix = PixDeTeste()
     cobranca = pix.criar_cobranca("txid-1", 10020, timedelta(hours=24), "Ana")
     assert cobranca.txid == "txid-1"
-    assert cobranca.br_code == (
-        "[TESTE] aqui viria o código Pix de R$ 100,20. Para simular o pagamento, mande /paguei"
-    )
+    assert cobranca.br_code == ("[TESTE] aqui viria o código Pix de R$ 100,20.")
     assert pix.cobrancas["txid-1"] == cobranca
     assert pix.consultar("txid-1") is StatusPix.PENDENTE
     pix.simular_pagamento("txid-1")

@@ -179,8 +179,7 @@ def _tratar_caso(rajada: _Rajada, comando: Comando) -> Cobranca | None:
         return None
     _responder(
         rajada,
-        f"[TESTE] Agora você é o caso {caso.numero}: {caso.titulo}. CPF fictício: {caso.cpf}. "
-        "Mande qualquer mensagem para o agente começar.",
+        f"[TESTE] Agora você é o caso {caso.numero}: {caso.titulo}. CPF fictício: {caso.cpf}.",
     )
     return cobranca
 
@@ -510,7 +509,7 @@ def _ja_abriu(sessao: Session, cobranca: Cobranca) -> bool:
 def _abrir_no_primeiro_contato(
     sessao: Session, conversa: Conversa, agora: datetime, deps: "Dependencias"
 ) -> ResultadoTurno | None:
-    """O 1º contato do testador com a cobrança: a identificação do caso e o texto da abertura (P2),
+    """O 1º contato do testador com a cobrança: só o texto da abertura (P2), sem instrução do teste,
     no lugar do turno. Só dentro da janela (P8; fora dela o turno normal adia, D16), sem humano na
     conversa e com a conferência de hoje (o valor do texto é o do CTN, nunca o do retrato). Com
     qualquer dessas faltando, `None`: o turno normal trata. A rajada que provocou a abertura é
@@ -530,13 +529,6 @@ def _abrir_no_primeiro_contato(
     turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens])
     turno.humano_na_conversa = False
     rajada = _Rajada(sessao, conversa, turno, deps, agora)
-    numero = _caso_atual(conversa, politica)
-    caso = next((c for c in politica.teste.casos if c.numero == numero), None)
-    titulo = caso.titulo if caso is not None else ""
-    _responder(
-        rajada,
-        f"[TESTE] Você é o caso {numero}: {titulo}. Mande /caso para ver os outros.",
-    )
     _responder(rajada, texto_da_abertura(cobranca, politica), OrigemMensagem.ABERTURA)
     return _fechar_e_confirmar(sessao, conversa, turno, "TESTE:ABERTURA", agora)
 

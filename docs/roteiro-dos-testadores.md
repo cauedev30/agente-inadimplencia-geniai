@@ -16,9 +16,9 @@ com mensalidades em atraso. O agente lê, responde, informa a dívida e oferece 
 
 ## Como usar
 
-Mande **`Oi`** para o número do teste. A primeira resposta diz quem você é (o caso 1), a dívida e um CPF
-fictício, que você usa se o agente pedir. A partir daí, converse como um cliente de verdade: do jeito mais
-difícil que você já viu na operação.
+Mande **`Oi`** para o número do teste. Você começa como o caso 1 (Ana) e o agente abre a conversa
+citando a dívida. A partir daí, converse como um cliente de verdade: do jeito mais difícil que você já viu
+na operação. Se o agente pedir o CPF, use o da tabela abaixo.
 
 Para pedir o Pix, escreva **`Pagar com Pix`** ou peça com as suas palavras.
 
@@ -39,13 +39,13 @@ Se ficar mais de 2 minutos sem resposta, avise o Cauê.
 
 **Passe pelos 5 casos pelo menos uma vez**, cada um do seu jeito. O resto é livre.
 
-| Caso | Cliente | Atraso | Dívida |
-|---|---|---|---|
-| 1 | Ana, pagava no cartão | 3 meses | R$ 100,20 |
-| 2 | Bruno, paga Pix todo mês (tende ao cartão: o link do cartão vem antes do Pix) | 3 meses | R$ 100,20 |
-| 3 | Carla, pagava boleto | 4 meses | R$ 133,60 |
-| 4 | Daniel, histórico misto | 5 meses | R$ 167,00 |
-| 5 | Elisa, último mês antes do corte | 6 meses | R$ 200,40 |
+| Caso | Cliente | Atraso | Dívida | CPF fictício |
+|---|---|---|---|---|
+| 1 | Ana, pagava no cartão | 3 meses | R$ 100,20 | 10123456711 |
+| 2 | Bruno, paga Pix todo mês (tende ao cartão: o link do cartão vem antes do Pix) | 3 meses | R$ 100,20 | 20234567800 |
+| 3 | Carla, pagava boleto | 4 meses | R$ 133,60 | 30345678900 |
+| 4 | Daniel, histórico misto | 5 meses | R$ 167,00 | 40456789000 |
+| 5 | Elisa, último mês antes do corte | 6 meses | R$ 200,40 | 50567890100 |
 
 Cada mensalidade é R$ 33,40; o valor que o agente cita tem de bater com a coluna "Dívida".
 

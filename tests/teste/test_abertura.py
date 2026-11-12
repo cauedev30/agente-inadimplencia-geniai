@@ -1,10 +1,9 @@
-"""A abertura no 1º contato do testador (D56, P2, P8): o 1º "Oi" recebe a identificação do caso e
-o texto de abertura, sem o LLM; a partir da 2ª mensagem o turno é o de sempre."""
+"""A abertura no 1º contato do testador (D56, P2, P8): o 1º "Oi" recebe só o
+texto de abertura, sem o LLM; a partir da 2ª mensagem o turno é o de sempre."""
 
 import json
 from datetime import timedelta
 
-import pytest
 from sqlalchemy import select
 
 from agente.db.modelos import Conversa, Mensagem, Turno
@@ -19,7 +18,6 @@ from agente.turno.orquestrador import processar_turno
 from tests.teste.auxiliares import CHATWOOT_ID, Mandante, montar_deps
 from tests.turno.test_orquestrador_gates import SEGUNDA_10H
 
-TEXTO_DO_CASO_1 = "[TESTE] Você é o caso 1: R3, pagava no cartão. Mande /caso para ver os outros."
 TEXTO_DA_ABERTURA_1 = "Oi, Ana! Há 3 mensalidades em aberto, R$ 100,20."
 
 
@@ -70,17 +68,14 @@ def test_o_texto_da_abertura_sem_mensalidades_no_modelo_e_sem_chaves_soltas(
     )
 
 
-def test_o_oi_do_1o_contato_recebe_a_identificacao_e_a_abertura_sem_o_llm(
-    sessao, testador, conversa_de_teste, deps
-):
+def test_o_oi_do_1o_contato_recebe_a_abertura_sem_o_llm(sessao, testador, conversa_de_teste, deps):
     testador.manda("Oi")
 
     assert testador.roda(deps) is ResultadoTurno.FIXA
 
-    assert deps.chatwoot.enviadas(CHATWOOT_ID) == [TEXTO_DO_CASO_1, TEXTO_DA_ABERTURA_1]
-    oi, identificacao, abertura = _mensagens(sessao, conversa_de_teste)
+    assert deps.chatwoot.enviadas(CHATWOOT_ID) == [TEXTO_DA_ABERTURA_1]
+    oi, abertura = _mensagens(sessao, conversa_de_teste)
     assert (oi.origem, oi.texto) == (OrigemMensagem.CLIENTE, "Oi")
-    assert (identificacao.origem, identificacao.conta_no_teto) == (OrigemMensagem.TESTE, False)
     assert (abertura.origem, abertura.conta_no_teto) == (OrigemMensagem.ABERTURA, False)
     turno = _ultimo_turno(sessao)
     assert (turno.acao_principal, turno.resultado) == ("TESTE:ABERTURA", ResultadoTurno.FIXA)
@@ -128,7 +123,7 @@ def test_a_cobranca_que_ja_abriu_em_outra_conversa_nao_abre_de_novo(
 
     testador.roda(deps)
 
-    assert "[TESTE] Você é o caso" not in " ".join(deps.chatwoot.enviadas(CHATWOOT_ID))
+    assert TEXTO_DA_ABERTURA_1 not in deps.chatwoot.enviadas(CHATWOOT_ID)
     assert deps.llm_turno.pedidos, "sem a abertura, o turno é o normal"
 
 
@@ -147,7 +142,6 @@ def test_o_caso_novo_abre_de_novo_no_proximo_oi(sessao, testador, conversa_de_te
     depois.roda(deps)
 
     enviadas = deps.chatwoot.enviadas(CHATWOOT_ID)
-    assert enviadas[-2].startswith("[TESTE] Você é o caso 2:")
     assert enviadas[-1].startswith("Oi, Bruno!")
     assert deps.llm_turno.pedidos == []
 
@@ -169,7 +163,7 @@ def test_fora_da_janela_o_turno_adia_e_a_abertura_sai_na_abertura_da_janela(
     resultado = processar_turno(sessao, conversa_de_teste.id, abertura_da_janela, deps)
 
     assert resultado is ResultadoTurno.FIXA
-    assert deps.chatwoot.enviadas(CHATWOOT_ID) == [TEXTO_DO_CASO_1, TEXTO_DA_ABERTURA_1]
+    assert deps.chatwoot.enviadas(CHATWOOT_ID) == [TEXTO_DA_ABERTURA_1]
 
 
 def test_com_humano_na_conversa_nao_abre(sessao, testador, conversa_de_teste, deps):
@@ -206,11 +200,10 @@ def test_a_conferencia_que_falha_nao_abre(sessao, politica_de_teste, conversa_de
     assert [m.texto for m in mensagens_pendentes(sessao, conversa_de_teste.id)] == ["Oi"]
 
 
-@pytest.mark.parametrize("falha_no_envio", [1, 2])
 def test_o_chatwoot_que_falha_desfaz_a_abertura_e_o_oi_continua_pendente(
-    sessao, politica_de_teste, casos, conversa_de_teste, testador, falha_no_envio
+    sessao, politica_de_teste, casos, conversa_de_teste, testador
 ):
-    deps = montar_deps(politica_de_teste, casos, ChatwootQueFalhaNoEnvio(falha_no_envio))
+    deps = montar_deps(politica_de_teste, casos, ChatwootQueFalhaNoEnvio(1))
     testador.manda("Oi")
 
     assert testador.roda(deps) is ResultadoTurno.ERRO

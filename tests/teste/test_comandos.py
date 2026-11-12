@@ -143,8 +143,7 @@ def test_caso_n_troca_o_caso_e_leva_a_conversa_do_chatwoot_para_a_nova(
     caso3 = politica_de_teste.teste.casos[2]
     [resposta] = deps.chatwoot.enviadas(CHATWOOT_ID)
     assert resposta == (
-        f"[TESTE] Agora você é o caso 3: {caso3.titulo}. CPF fictício: {caso3.cpf}. "
-        "Mande qualquer mensagem para o agente começar."
+        f"[TESTE] Agora você é o caso 3: {caso3.titulo}. CPF fictício: {caso3.cpf}."
     )
     assert _ultimo_turno(sessao).acao_principal == "TESTE:CASO"
     _nao_chamou_o_llm(deps)

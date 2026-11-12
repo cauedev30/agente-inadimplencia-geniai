@@ -18,7 +18,7 @@
     - cliente: "Oi"
       espera:
         acao: "TESTE:ABERTURA"
-        mensagem_tem: ["Você é o caso 1", "100,20", "[TESTE]"]
+        mensagem_tem: ["Oi, Ana", "100,20"]
     - cliente: "Quanto eu estou devendo?"
       espera:
         acao: INFORM_DEBT
