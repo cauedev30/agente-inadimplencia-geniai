@@ -95,16 +95,14 @@ def fazer_handoff(
     laudo_id: int | None = None,
     *,
     enviar_mensagem: bool = True,
-    texto: str | None = None,
 ) -> None:
     """Nota com o laudo, etiqueta, atribuição, status aberta, estado e a mensagem do canal.
 
     O atendente segue na mesma conversa do WhatsApp (D60): a mensagem é a `CANAL_EXTERNO`, sem botão
     e sem link; por DESCONFIANCA (golpe, D44), a fixa `HUMANO_NO_WHATSAPP`. Sem `enviar_mensagem`,
     o cliente não recebe nada: é a volta ao humano de quem já recebeu a 6ª, ou de quem já recebeu a
-    mensagem da cobrança quitada (CONCILIACAO).
-    Com `texto` (o turno de uma chamada, D47), ele troca o texto da fixa do golpe (D44) ou abre a
-    mensagem `CANAL_EXTERNO`, que fecha com a frase fixa.
+    mensagem da cobrança quitada (CONCILIACAO). O texto ao cliente é sempre fixo: o Luna não
+    redige o handoff.
     """
     if conversa.chatwoot_conversa_id is None:
         raise ValueError(f"a conversa {conversa.id} não está ligada a uma conversa do Chatwoot")
@@ -127,11 +125,11 @@ def fazer_handoff(
             nome=nome,
             valor_centavos=None,
             link_cartao=None,
-            texto=texto or politica.texto_humano_no_whatsapp,
+            texto=politica.texto_humano_no_whatsapp,
         )
         enviar_fixa(sessao, chatwoot, conversa, TipoFixa.HUMANO_NO_WHATSAPP, dados, agora)
         return
-    dados = DadosFixa(nome=nome, valor_centavos=None, link_cartao=None, texto=texto)
+    dados = DadosFixa(nome=nome, valor_centavos=None, link_cartao=None)
     enviar_fixa(sessao, chatwoot, conversa, TipoFixa.CANAL_EXTERNO, dados, agora)
 
 

@@ -279,16 +279,13 @@ def test_as_novas_ficam_separadas_da_conversa(conversa, politica):
 # o prompt
 
 
-@pytest.mark.parametrize(
-    "campo", [*SINAIS, "tom", "acao", "reply", "handoff_reply", *TONS_UMA_CHAMADA]
-)
+@pytest.mark.parametrize("campo", [*SINAIS, "tom", "acao", "reply", *TONS_UMA_CHAMADA])
 def test_cada_campo_da_saida_aparece_no_sistema(campo):
     assert campo in SISTEMA
 
 
 def test_o_sistema_traz_as_regras_de_redacao_e_as_proibicoes():
     texto = " ".join(SISTEMA.split())
-    assert "nunca repita" in texto.lower()
     assert "marcador" in texto and "R$" in texto
     assert "terceiro" in texto
     assert "[áudio transcrito:" in texto
@@ -303,43 +300,6 @@ def test_o_sistema_diz_que_desabafo_sem_aspereza_nao_e_irritado():
     assert "Só raiva, aspereza, xingamento ou ameaça" in texto
 
 
-def test_o_sistema_nao_promete_onde_a_equipe_fala_com_o_cliente():
-    # A frase do canal é fixa e vem depois do handoff_reply, posta pelo código (D47, D60). A regra
-    # do handoff_reply não diz "por aqui"; o "por aqui" das regras do reply (assunto não tratado,
-    # sem parcelamento) é outra coisa.
-    trecho = SISTEMA.split("- handoff_reply:")[1].split("Como escrever o reply")[0]
-    assert "por aqui" not in " ".join(trecho.split())
-    assert "continua com você" not in " ".join(trecho.split())
-
-
-def test_o_sistema_explica_o_handoff_reply():
-    texto = " ".join(SISTEMA.split())
-    assert "300" in texto
-    assert "sem prometer prazo" in texto
-    assert "vazio" in texto
-
-
-def test_o_sistema_deixa_o_none_acolher_sem_marcador_nem_oferecer_o_humano():
-    # D47, decisão 18: o NONE tem dois usos, o silêncio e o acolhimento.
-    reply = " ".join(SISTEMA.split("- reply:")[1].split("- handoff_reply:")[0].split())
-    assert "Com a ação NONE" in reply
-    assert "acolhem e perguntam o que houve" in reply
-    assert "sem marcador, sem valor, sem link, sem Pix" in reply
-    assert "não ofereça o humano por conta própria" in reply
-    assert "sem repetir os exemplos" in reply
-    assert "por aqui" not in reply
-
-
-def test_o_sistema_manda_pergunta_fora_do_escopo_ao_out_of_scope_e_nao_ao_none():
-    # A19 (2026-11-05): "quais meses estão em aberto?" saiu NONE com uma recusa de escopo.
-    reply = " ".join(SISTEMA.split("- reply:")[1].split("- handoff_reply:")[0].split())
-    regra = (
-        "O NONE acolhe só desabafo. Pergunta fora do escopo (ex.: quais meses estão em aberto) "
-        "é OUT_OF_SCOPE, nunca NONE."
-    )
-    assert regra in reply
-
-
 def test_o_sistema_nao_deixa_repetir_o_valor_que_o_cliente_citou():
     # A21 (2026-11-05): "75 reais", "60,00" e "sessenta reais" reprovavam o texto.
     texto = " ".join(SISTEMA.split("Como escrever o reply")[1].split())
@@ -348,34 +308,6 @@ def test_o_sistema_nao_deixa_repetir_o_valor_que_o_cliente_citou():
         'você citou".'
     )
     assert regra in texto
-
-
-def test_o_formato_do_json_nao_convida_o_handoff_reply_vazio():
-    # No ensaio de 2026-11-05 o Luna deixou o handoff_reply vazio em 6 de 6 handoffs: o formato
-    # dizia só "ou vazio". Agora ele diz quando é obrigatório e quando fica vazio (D47, decisão 18).
-    texto = " ".join(SISTEMA.split())
-    assert (
-        '"handoff_reply": "<o texto do encaminhamento: obrigatório se algum sinal de saída' in texto
-    )
-    assert "senão, vazio>" in texto
-    assert "o acolhimento não vale: o texto vai no handoff_reply" in texto
-
-
-def test_o_sistema_exige_o_handoff_reply_em_todo_sinal_de_humano_com_o_reply_vazio():
-    trecho = " ".join(
-        SISTEMA.split("- handoff_reply:")[1].split("Como escrever o reply")[0].split()
-    )
-    assert trecho.startswith("é obrigatório sempre que algum sinal de saída, o quer_humano")
-    assert "mesmo que uma ação da lista pareça servir" in trecho
-    assert "deixe o reply vazio" in trecho
-
-
-def test_a_descricao_da_acao_none_traz_os_dois_usos(conversa, politica):
-    acoes = json.loads(_entrada(conversa, politica).como_json())["acoes"]
-    none = next(a for a in acoes if a["acao"] == "NONE")
-    assert "fica vazio" in none["faz"] and "acolhem" in none["faz"]
-    assert "sem marcador, valor, link nem Pix" in none["faz"]
-    assert "O NONE acolhe só desabafo" in none["faz"] and "OUT_OF_SCOPE, nunca NONE" in none["faz"]
 
 
 def test_montar_mensagens_devolve_o_sistema_e_o_usuario(conversa, politica):

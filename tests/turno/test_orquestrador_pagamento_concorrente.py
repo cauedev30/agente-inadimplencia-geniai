@@ -22,7 +22,7 @@ from agente.tipos import (
 )
 from agente.turno.orquestrador import processar_turno
 
-from .auxiliares import HANDOFF, _bruto, _deps
+from .auxiliares import _bruto, _deps
 from .test_orquestrador_gates import SEGUNDA_10H
 
 
@@ -101,7 +101,7 @@ def test_o_pagamento_no_meio_do_luna_nao_manda_o_canal_externo_depois_da_confirm
     sessao, ligada, politica
 ):
     # O Luna lê "já paguei": o turno sairia para o humano (CONCILIACAO), mas o pagamento chegou.
-    saida = _bruto(alega_pagamento=True, acao="NONE", reply="", handoff_reply=HANDOFF)
+    saida = _bruto(alega_pagamento=True, acao="NONE", reply="")
     llm = LLMQueEspera(respostas=[saida], registrar=True)
     llm.ao_chamar = lambda: _pagar_por_fora(sessao, ligada)
     deps = _deps(politica, llm=llm)

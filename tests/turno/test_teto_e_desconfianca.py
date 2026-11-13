@@ -15,7 +15,7 @@ from agente.turno.handoff import NOTA_TETO_REPETIDO, devolver_ao_robo
 
 from .auxiliares import SEGUNDA_10H, Cliente, _bruto, _deps
 
-# O Luna lê os sinais; sem handoff_reply, a mensagem ao cliente é a fixa do catálogo.
+# O Luna lê os sinais; a mensagem ao cliente é a fixa do catálogo.
 DESCONFIA = _bruto(desconfia_golpe=True, acao="NONE", reply="")
 
 

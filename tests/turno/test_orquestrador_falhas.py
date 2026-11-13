@@ -206,12 +206,7 @@ def test_a_integracao_que_volta_fecha_o_turno_e_zera_a_conta(sessao, ligada, pol
 def test_o_chatwoot_fora_no_handoff_espera_mais_a_cada_vez_e_sai_um_so_quando_volta(
     sessao, ligada, politica
 ):
-    retencao = _bruto(
-        quer_retencao=True,
-        acao="NONE",
-        reply="",
-        handoff_reply="Entendi, você quer cancelar. Passei a conversa para a nossa equipe.",
-    )
+    retencao = _bruto(quer_retencao=True, acao="NONE", reply="")
     deps = _deps(politica, [retencao] * 10)
     quebra = {"ativa": True}
     nota = deps.chatwoot.nota_privada

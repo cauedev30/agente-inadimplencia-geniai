@@ -85,10 +85,7 @@ DESCRICAO_ACOES = {
         "mandar o Pix copia e cola do valor integral; se o histórico já tem uma oferta com "
         "desconto, dizer que no Pix vale o valor integral e que o desconto só vale pelo link"
     ),
-    "OUT_OF_SCOPE": (
-        "dizer, com gentileza e numa frase completa, que esse assunto não é tratado por aqui e que "
-        "esta conversa é sobre a mensalidade em aberto, sem afirmar nada sobre o assunto"
-    ),
+    "OUT_OF_SCOPE": "o sistema responde com uma frase pronta; o reply fica vazio",
 }
 
 # O prefixo da ação principal do turno cujo texto não saiu: nada do que ela fez ficou valendo.
@@ -107,7 +104,6 @@ class Avaliacao:
     acao: Acao | None
     anexos: list[Acao]
     motivo: MotivoHumano | None
-    erro: str | None = None
 
     @property
     def rotulo(self) -> str:

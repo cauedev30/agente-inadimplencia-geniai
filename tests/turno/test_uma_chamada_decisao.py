@@ -1,4 +1,4 @@
-"""A saída do turno de uma chamada, a guarda por palavra-chave e a decisão (D47, E1.3)."""
+"""A saída do turno de uma chamada, a palavra-chave e a decisão."""
 
 import pytest
 
@@ -6,7 +6,6 @@ from agente.tipos import Laudo, MotivoHumano
 from agente.turno.acoes import Acao
 from agente.turno.sinais import GATILHOS
 from agente.turno.uma_chamada import (
-    MAX_HANDOFF_REPLY,
     MOTIVO_DO_SINAL,
     ORIGEM_UMA_CHAMADA,
     PALAVRAS_CHAVE,
@@ -17,7 +16,6 @@ from agente.turno.uma_chamada import (
     decidir,
     ler_saida,
     palavra_chave,
-    texto_de_handoff,
 )
 
 PERMITIDAS = (
@@ -37,7 +35,6 @@ def _bruto(**mudancas) -> dict:
         "tom": "neutro",
         "acao": "INFORM_DEBT",
         "reply": "Oi! O valor é {divida}.",
-        "handoff_reply": "",
     }
     return bruto | mudancas
 
@@ -46,8 +43,8 @@ def _saida(**mudancas) -> SaidaTurno:
     return ler_saida(_bruto(**mudancas))
 
 
-def _decidir(cobranca, permitidas=PERMITIDAS, guarda=None, **mudancas) -> Veredito:
-    return decidir(_saida(**mudancas), permitidas, guarda, cobranca)
+def _decidir(cobranca, permitidas=PERMITIDAS, **mudancas) -> Veredito:
+    return decidir(_saida(**mudancas), permitidas, cobranca)
 
 
 # ler_saida e SaidaTurno
@@ -55,7 +52,6 @@ def _decidir(cobranca, permitidas=PERMITIDAS, guarda=None, **mudancas) -> Veredi
 
 def test_as_constantes_e_o_inverso_do_gatilhos():
     assert ORIGEM_UMA_CHAMADA == "luna:uma-chamada"
-    assert MAX_HANDOFF_REPLY == 300
     assert MOTIVO_DO_SINAL == {
         **{sinal: motivo for motivo, sinal in GATILHOS.items()},
         "quer_humano": MotivoHumano.PEDIU_HUMANO,
@@ -64,13 +60,12 @@ def test_as_constantes_e_o_inverso_do_gatilhos():
 
 
 def test_a_saida_valida_e_lida():
-    saida = _saida(desconfia_golpe=True, tom="impaciente", handoff_reply="Entendi.")
+    saida = _saida(desconfia_golpe=True, tom="impaciente")
     assert saida.desconfia_golpe is True and saida.risco_juridico is False
-    assert (saida.tom, saida.acao, saida.reply, saida.handoff_reply) == (
+    assert (saida.tom, saida.acao, saida.reply) == (
         "impaciente",
         "INFORM_DEBT",
         "Oi! O valor é {divida}.",
-        "Entendi.",
     )
 
 
@@ -84,12 +79,6 @@ def test_campo_faltando_levanta_erro(campo):
     del bruto[campo]
     with pytest.raises(ValueError):
         ler_saida(bruto)
-
-
-def test_handoff_reply_faltando_e_aceito():
-    bruto = _bruto()
-    del bruto["handoff_reply"]
-    assert ler_saida(bruto).handoff_reply is None
 
 
 def test_tom_cordial_levanta_erro():
@@ -111,11 +100,6 @@ def test_acao_que_nao_e_texto_ou_reply_grande_demais_levanta_erro():
     assert ler_saida(_bruto(reply="x" * 1000)).reply == "x" * 1000
 
 
-def test_handoff_reply_como_lista_e_aceito_mas_nao_vira_texto():
-    saida = _saida(handoff_reply=["a", "b"])
-    assert texto_de_handoff(saida) is None
-
-
 def _laudo(leitura, pergunta):
     [laudo] = [laudo for laudo in leitura.laudos if laudo.pergunta == pergunta]
     return laudo
@@ -131,20 +115,13 @@ def test_a_leitura_traz_os_sinais_e_o_tom_como_laudos():
     assert {(laudo.probabilidade, laudo.confianca) for laudo in leitura.laudos} == {(1.0, 1.0)}
 
 
-def test_a_leitura_com_a_guarda_do_golpe_vale_sim_mesmo_com_o_sinal_falso():
-    saida = _saida()
-    assert _laudo(saida.leitura(), "desconfia_golpe").valor is False
-    assert _laudo(saida.leitura(golpe_pela_guarda=True), "desconfia_golpe").valor is True
-    assert _laudo(_saida(desconfia_golpe=True).leitura(), "desconfia_golpe").valor is True
-
-
 def test_o_laudo_da_acao():
     assert _saida(acao="OFFER_DISCOUNT").laudo_da_acao() == Laudo(
         "acao", "OFFER_DISCOUNT", 1.0, 1.0
     )
 
 
-# a guarda
+# a palavra-chave
 
 
 def test_a_ordem_das_palavras_chave():
@@ -192,19 +169,6 @@ def test_a_palavra_chave_olha_todos_os_textos_e_a_lista_vazia_nao_acha():
 
 
 # a decisão
-
-
-def test_a_guarda_vence_a_acao(conversa):
-    guarda = palavra_chave(["Isso é golpe?"])
-    veredito = _decidir(conversa.cobranca, guarda=guarda, acao="INFORM_DEBT")
-    assert veredito == Veredito(MotivoHumano.DESCONFIANCA, None, (), False, "palavra_chave:golpe")
-
-
-def test_a_guarda_vence_o_sinal(conversa):
-    guarda = palavra_chave(["vou no procon"])
-    veredito = _decidir(conversa.cobranca, guarda=guarda, quer_retencao=True)
-    assert veredito.motivo is MotivoHumano.JURIDICO
-    assert veredito.causa == "palavra_chave:procon"
 
 
 @pytest.mark.parametrize("sinal, motivo", [(s, m) for m, s in GATILHOS.items()])
@@ -264,38 +228,6 @@ def test_offer_discount_leva_o_link_e_none_vai_sem_anexos(conversa):
     veredito = _decidir(cobranca, acao="NONE")
     assert (veredito.acao, veredito.anexos, veredito.motivo) == (Acao.NONE, (), None)
     assert _decidir(cobranca, acao="GENERATE_PIX").anexos == ()
-
-
-# texto_de_handoff
-
-
-def test_o_texto_de_handoff_valido_passa_sem_os_espacos_das_pontas():
-    texto = "  Entendi, o Procon. Passei a conversa para a nossa equipe, que segue por aqui.\n"
-    assert texto_de_handoff(_saida(handoff_reply=texto)) == texto.strip()
-
-
-@pytest.mark.parametrize(
-    "texto",
-    [
-        "Passei para a equipe em 2 minutos.",
-        "Veja www.exemplo.com",
-        "Veja https://x.invalid",
-        "Fica {divida} pela equipe.",
-        "Fica R$ pela equipe.",
-        "x" * 301,
-        "",
-        "   ",
-        None,
-        42,
-    ],
-)
-def test_o_texto_de_handoff_invalido_da_none(texto):
-    assert texto_de_handoff(_saida(handoff_reply=texto)) is None
-
-
-def test_o_texto_de_handoff_de_300_caracteres_passa_e_sem_saida_da_none():
-    assert texto_de_handoff(_saida(handoff_reply="x" * 300)) == "x" * 300
-    assert texto_de_handoff(None) is None
 
 
 @pytest.mark.parametrize("campo", ["acao", "reply"])

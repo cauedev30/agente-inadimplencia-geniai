@@ -81,18 +81,3 @@ def test_humano_no_whatsapp_usa_o_texto_da_politica_e_nao_tem_botao():
 def test_humano_no_whatsapp_sem_o_texto_e_erro():
     with pytest.raises(ValueError, match="texto"):
         mensagem_fixa(TipoFixa.HUMANO_NO_WHATSAPP, DadosFixa("Maria", None, None))
-
-
-def test_canal_externo_com_texto_redigido_leva_o_texto_e_depois_a_frase_fixa_sem_botao():
-    dados = DadosFixa("Maria", None, None, texto="Passei a conversa.")
-
-    mensagem = mensagem_fixa(TipoFixa.CANAL_EXTERNO, dados)
-
-    assert mensagem.texto == f"Passei a conversa.\n\n{TEXTO_CANAL_EXTERNO}"
-    assert mensagem.botoes == []
-
-
-def test_canal_externo_sem_texto_redigido_leva_so_a_frase_fixa():
-    dados = DadosFixa("Maria", None, None, texto="")
-
-    assert mensagem_fixa(TipoFixa.CANAL_EXTERNO, dados).texto == TEXTO_CANAL_EXTERNO

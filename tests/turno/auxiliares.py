@@ -27,14 +27,12 @@ REPLY_PIX = "Seu valor em aberto é {divida}. Para pagar no Pix, use o código: 
 REPLY_LINK = "Seu valor com desconto é {valor_final}. Pague e cadastre o cartão: {link_ctn}"
 REPLY_LINK_FINAL = "Fechado! Segue o link com o valor final de {valor_final}: {link_ctn}"
 REPLY_NONE = ""
-REPLY_TERCEIRO = "Oi! Acho que você não é a pessoa com quem eu queria falar. Obrigado pela atenção."
-HANDOFF = "Entendi, você falou do desemprego. Passei a conversa para a nossa equipe."
 
 
 def _bruto(**mudancas) -> dict:
     """O JSON que o Luna devolve: nenhum sinal, tom neutro, INFORM_DEBT com o Pix."""
     bruto = {sinal: False for sinal in SINAIS}
-    bruto |= {"tom": "neutro", "acao": "INFORM_DEBT", "reply": REPLY_PIX, "handoff_reply": ""}
+    bruto |= {"tom": "neutro", "acao": "INFORM_DEBT", "reply": REPLY_PIX}
     return bruto | mudancas
 
 

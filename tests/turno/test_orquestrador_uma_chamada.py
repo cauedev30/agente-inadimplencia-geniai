@@ -20,16 +20,14 @@ from agente.tipos import (
     ResultadoTurno,
 )
 from agente.turno import orquestrador
-from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
+from agente.turno.catalogo import POLITICAS, TEXTO_CANAL_EXTERNO, Situacao
 from agente.turno.orquestrador import processar_turno
 from agente.turno.uma_chamada import ORIGEM_UMA_CHAMADA, SINAIS
 
 from .auxiliares import (
-    HANDOFF,
     REPLY_LINK,
     REPLY_LINK_FINAL,
     REPLY_NONE,
-    REPLY_TERCEIRO,
     Cliente,
     _bruto,
     _deps,
@@ -232,46 +230,18 @@ def test_o_desconto_sobe_o_degrau_e_manda_o_link_com_o_valor_final(
     assert turno.numeros["degrau"] == 1
 
 
-# O texto do handoff
-
-
-def test_o_texto_valido_do_handoff_e_a_mensagem_ao_cliente_sem_botao(
-    sessao, ligada, cliente, politica
-):
-    deps = _deps(politica, [_bruto(vulnerabilidade=True, handoff_reply=HANDOFF)])
-
-    assert cliente("perdi o emprego", deps) is ResultadoTurno.HANDOFF
-
-    assert deps.chatwoot.enviadas(555) == [f"{HANDOFF}\n\n{TEXTO_CANAL_EXTERNO}"]
-    assert deps.chatwoot.chamadas[-1][3] == []
-    assert ligada.motivo_humano is MotivoHumano.CAUTELA
-    turno = _turno(sessao)
-    assert (turno.resultado, turno.acao_principal) == (ResultadoTurno.HANDOFF, "HUMAN:CAUTELA")
-    assert turno.redacao["saida"] == "HANDOFF" and turno.redacao["causa"] == "sinal:vulnerabilidade"
-    assert turno.numeros == {}
-    assert _do_agente(sessao) == []
-
-
-def test_o_texto_invalido_do_handoff_leva_a_fixa_de_hoje(sessao, ligada, cliente, politica):
-    deps = _deps(
-        politica,
-        [_bruto(vulnerabilidade=True, handoff_reply="Ligue para 0800 123 e fale conosco.")],
-    )
-
-    cliente("perdi o emprego", deps)
-
-    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+# O handoff
 
 
 def test_o_pedido_de_humano_vai_ao_canal_externo_com_o_motivo_novo(
     sessao, ligada, cliente, politica
 ):
-    deps = _deps(politica, [_bruto(quer_humano=True, handoff_reply=HANDOFF)])
+    deps = _deps(politica, [_bruto(quer_humano=True)])
 
     cliente("quero falar com uma pessoa", deps)
 
     assert ligada.motivo_humano is MotivoHumano.PEDIU_HUMANO
-    assert deps.chatwoot.enviadas(555) == [f"{HANDOFF}\n\n{TEXTO_CANAL_EXTERNO}"]
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
     assert next(c[2] for c in deps.chatwoot.chamadas if c[0] == "etiquetar") == ["pediu_humano"]
     assert _turno(sessao).acao_principal == "HUMAN:PEDIU_HUMANO"
 
@@ -280,12 +250,12 @@ def test_o_pedido_de_humano_vai_ao_canal_externo_com_o_motivo_novo(
 
 
 def test_desconfia_golpe_fica_no_whatsapp_com_a_fixa_do_golpe(sessao, ligada, cliente, politica):
-    deps = _deps(politica, [_bruto(desconfia_golpe=True, handoff_reply=HANDOFF)])
+    deps = _deps(politica, [_bruto(desconfia_golpe=True)])
 
-    assert cliente("isso parece golpe, como sei que é de vocês?", deps) is ResultadoTurno.HANDOFF
+    assert cliente("como sei que é mesmo de vocês?", deps) is ResultadoTurno.HANDOFF
 
     assert ligada.motivo_humano is MotivoHumano.DESCONFIANCA
-    assert deps.chatwoot.enviadas(555) == [HANDOFF]
+    assert deps.chatwoot.enviadas(555) == [deps.politica.texto_humano_no_whatsapp]
     assert deps.chatwoot.chamadas[-1][3] == []
     assert deps.ctn.links == {} and deps.pix.cobrancas == {}
 
@@ -302,44 +272,23 @@ def test_quer_retencao_com_desconfia_golpe_leva_retencao_e_o_canal_externo_sem_b
     assert deps.chatwoot.chamadas[-1][3] == []
 
 
-def test_golpe_na_mensagem_com_o_llm_dizendo_nao_leva_a_fixa_do_golpe(
-    sessao, ligada, cliente, politica
-):
+def test_a_palavra_chave_vai_ao_atendente_sem_chamar_o_luna(sessao, ligada, cliente, politica):
     deps = _deps(politica, [_bruto()])
 
     assert cliente("isso é golpe?", deps) is ResultadoTurno.HANDOFF
 
+    assert deps.llm_turno.pedidos == []
     assert ligada.motivo_humano is MotivoHumano.DESCONFIANCA
     assert deps.chatwoot.enviadas(555) == [deps.politica.texto_humano_no_whatsapp]
     assert deps.chatwoot.chamadas[-1][3] == []
-    assert len(deps.llm_turno.pedidos) == 1
-
-
-def test_procon_e_golpe_com_o_llm_fora_leva_a_fixa_do_golpe(sessao, ligada, cliente, politica):
-    deps = _deps(politica, [LLMTurnoIndisponivel("fora do ar")])
-
-    assert cliente("vou no Procon, isso é golpe", deps) is ResultadoTurno.HANDOFF
-
-    assert ligada.motivo_humano is MotivoHumano.DESCONFIANCA
-    assert deps.chatwoot.enviadas(555) == [deps.politica.texto_humano_no_whatsapp]
-    assert deps.chatwoot.chamadas[-1][3] == []
-    turno = _turno(sessao)
-    assert turno.redacao["causa"] == "palavra_chave:golpe" and "erro" in turno.redacao
+    golpe = next(
+        laudo for laudo in _laudos(sessao, BatchJev.JEV1) if laudo.pergunta != "palavra_chave"
+    )
+    assert (golpe.pergunta, golpe.valor) == ("desconfia_golpe", True)
+    assert _turno(sessao).redacao["causa"] == "palavra_chave:golpe"
 
 
 # As falhas
-
-
-def test_a_palavra_chave_com_o_llm_fora_leva_o_handoff_com_a_fixa(
-    sessao, ligada, cliente, politica
-):
-    deps = _deps(politica, [LLMTurnoIndisponivel("fora do ar")])
-
-    assert cliente("vou chamar meu advogado", deps) is ResultadoTurno.HANDOFF
-
-    assert ligada.motivo_humano is MotivoHumano.JURIDICO
-    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
-    assert _turno(sessao).acao_principal == "HUMAN:JURIDICO"
 
 
 def test_o_llm_fora_sem_palavra_chave_espera_e_tenta_de_novo_sem_handoff(
@@ -430,76 +379,29 @@ def test_none_vazio_fora_da_cortesia_vai_ao_atendente_sem_resposta(
     assert _turno(sessao).acao_principal == "HUMAN:SEM_RESPOSTA"
 
 
-def test_o_terceiro_recebe_o_texto_sem_valor_nem_link_nem_pix(sessao, ligada, cliente, politica):
-    deps = _deps(politica, [_bruto(terceiro=True, reply=REPLY_TERCEIRO)])
-
-    assert cliente("não sou a Maria, é outra pessoa", deps) is ResultadoTurno.ENVIADO
-
-    assert deps.chatwoot.enviadas(555) == [REPLY_TERCEIRO]
-    turno = _turno(sessao)
-    assert turno.acao_principal == "TERCEIRO" and turno.acoes_anexadas == []
-    assert turno.redacao["causa"] == "sinal:terceiro"
-    assert deps.pix.cobrancas == {} and deps.ctn.links == {}
-    assert sessao.scalars(select(Pagamento)).all() == []
-    assert ligada.estado is EstadoConversa.ENGAJADO
-
-
-def test_o_terceiro_com_o_reply_vazio_nao_envia(sessao, ligada, cliente, politica):
-    deps = _deps(politica, [_bruto(terceiro=True, reply="")])
-
-    assert cliente("não sou a Maria", deps) is ResultadoTurno.SEM_ENVIO
-
-    assert deps.chatwoot.enviadas(555) == []
-    assert _turno(sessao).acao_principal == "TERCEIRO"
-
-
-# O acolhimento do NONE (D47, decisão 18)
-
-ACOLHIMENTO = "Poxa, sinto muito que esteja assim. O que aconteceu? Me conta como posso ajudar."
-
-
-def test_none_com_texto_acolhe_e_fecha_enviado_com_o_rotulo_none(sessao, ligada, cliente, politica):
-    deps = _deps(politica, [_bruto(tom="impaciente", acao="NONE", reply=ACOLHIMENTO)])
-
-    assert cliente("to chateado", deps) is ResultadoTurno.ENVIADO
-
-    assert deps.chatwoot.enviadas(555) == [ACOLHIMENTO]
-    turno = _turno(sessao)
-    assert (turno.acao_principal, turno.texto_enviado) == ("NONE", ACOLHIMENTO)
-    assert turno.redacao["saida"] == "LLM" and turno.acoes_anexadas == []
-    assert [m.texto for m in _do_agente(sessao)] == [ACOLHIMENTO]
-
-
-def test_o_acolhimento_nao_grava_pagamento_degrau_forma_nem_link(sessao, ligada, cliente, politica):
-    deps = _deps(politica, [_bruto(acao="NONE", reply=ACOLHIMENTO)])
-
-    cliente("to chateado", deps)
-
-    assert sessao.scalars(select(Pagamento)).all() == []
-    assert deps.pix.cobrancas == {} and deps.ctn.links == {}
-    assert (ligada.degrau_atual, ligada.forma_enviada) == (0, None)
-    assert "R$" not in _turno(sessao).texto_enviado and "http" not in _turno(sessao).texto_enviado
-
-
-def test_o_acolhimento_leva_o_iniciado_a_engajado(sessao, ligada, cliente, politica):
-    deps = _deps(politica, [_bruto(acao="NONE", reply=ACOLHIMENTO)])
-
-    cliente("to chateado", deps)
-
-    assert ligada.estado is EstadoConversa.ENGAJADO
-
-
-def test_o_pagamento_durante_a_chamada_do_acolhimento_leva_a_ignorado(
-    sessao, ligada, cliente, politica
+@pytest.mark.parametrize(
+    ("saida", "situacao", "rotulo"),
+    [
+        ({"terceiro": True}, Situacao.TERCEIRO, "TERCEIRO"),
+        ({"acao": "OUT_OF_SCOPE"}, Situacao.FORA_DO_ASSUNTO, "OUT_OF_SCOPE"),
+    ],
+)
+def test_o_terceiro_e_o_fora_do_assunto_recebem_a_frase_fixa_sem_o_texto_do_luna(
+    sessao, ligada, cliente, politica, saida, situacao, rotulo
 ):
-    llm = LLMQueEspera(respostas=[_bruto(acao="NONE", reply=ACOLHIMENTO)], registrar=True)
-    llm.ao_chamar = lambda: _pagar_por_fora(sessao, ligada)
-    deps = _deps(politica, llm=llm)
+    deps = _deps(politica, [_bruto(reply="Texto do Luna que não pode sair.", **saida)])
 
-    assert cliente("to chateado", deps) is ResultadoTurno.IGNORADO
+    assert cliente("qual o horário da clínica?", deps) is ResultadoTurno.ENVIADO
 
-    assert deps.chatwoot.chamadas == [] and _do_agente(sessao) == []
-    assert _turno(sessao).texto_enviado is None
+    frase = POLITICAS[situacao].texto
+    assert deps.chatwoot.enviadas(555) == [frase]
+    [mensagem] = _do_agente(sessao)
+    assert (mensagem.texto, mensagem.conta_no_teto) == (frase, True)
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.texto_enviado) == (rotulo, frase)
+    assert turno.redacao["saida"] == "FRASE_FIXA" and turno.numeros == {}
+    assert deps.pix.cobrancas == {} and deps.ctn.links == {}
+    assert sessao.scalars(select(Pagamento)).all() == []
 
 
 # O estado

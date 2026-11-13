@@ -13,7 +13,6 @@ from agente.turno.uma_chamada import (
     ResolucaoTurno,
     TentativaUmaChamada,
     montar_entrada,
-    palavra_chave,
     previa_numeros,
     resolver_turno,
 )
@@ -21,12 +20,11 @@ from agente.turno.uma_chamada import (
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 REPLY_PIX = "Seu valor em aberto é {divida}. Para pagar no Pix, use o código: {pix_copia_e_cola}"
 REPLY_LINK = "Seu valor com desconto é {valor_final}. Pague e cadastre o cartão: {link_ctn}"
-HANDOFF = "Entendi a sua preocupação com o golpe. Passei a conversa para a nossa equipe."
 
 
 def _bruto(**mudancas) -> dict:
     bruto = {sinal: False for sinal in SINAIS}
-    bruto |= {"tom": "neutro", "acao": "INFORM_DEBT", "reply": REPLY_PIX, "handoff_reply": ""}
+    bruto |= {"tom": "neutro", "acao": "INFORM_DEBT", "reply": REPLY_PIX}
     return bruto | mudancas
 
 
@@ -42,12 +40,12 @@ class _Previa:
         return previa_numeros(acoes, self._conversa, self._conversa.cobranca, self._politica, AGORA)
 
 
-def _resolver(conversa, politica, respostas, guarda=None):
+def _resolver(conversa, politica, respostas):
     cobranca = conversa.cobranca
     entrada = montar_entrada(conversa, cobranca, politica, [("CLIENTE", "oi")], ["oi"], 1, AGORA)
     llm = LLMTurnoFalso(respostas=respostas, registrar=True)
     previa = _Previa(conversa, politica)
-    resolucao = resolver_turno(llm, entrada, guarda, previa, cobranca)
+    resolucao = resolver_turno(llm, entrada, previa, cobranca)
     return resolucao, llm, previa
 
 
@@ -56,7 +54,7 @@ def test_a_valida_com_inform_debt_sai_aprovada_em_uma_chamada(conversa, politica
 
     assert isinstance(resolucao, ResolucaoTurno)
     assert resolucao.reply == REPLY_PIX
-    assert resolucao.motivo is None and resolucao.erro is None
+    assert resolucao.motivo is None
     assert resolucao.veredito.acao is Acao.INFORM_DEBT
     assert resolucao.veredito.anexos == (Acao.GENERATE_PIX,)
     assert resolucao.saida.acao == "INFORM_DEBT"
@@ -93,7 +91,7 @@ def test_texto_com_digito_e_reprovado_e_reprovado_de_novo_sai_sem_texto_nem_moti
 
     resolucao, llm, _ = _resolver(conversa, politica, [ruim, ruim])
 
-    assert resolucao.reply is None and resolucao.motivo is None and resolucao.erro is None
+    assert resolucao.reply is None and resolucao.motivo is None
     assert len(llm.pedidos) == 2
     assert "valor_em_digitos" in llm.pedidos[1][1]
     assert [t.reprovadas for t in resolucao.tentativas] == [("valor_em_digitos",)] * 2
@@ -141,77 +139,13 @@ def test_llm_fora_na_segunda_tentativa_tambem_levanta(conversa, politica):
         _resolver(conversa, politica, [ruim, LLMTurnoIndisponivel("prazo")])
 
 
-def test_llm_fora_com_a_guarda_sai_o_motivo_da_guarda_sem_texto(conversa, politica):
-    guarda = palavra_chave(["isso é golpe?"])
-
-    resolucao, llm, _ = _resolver(conversa, politica, [LLMTurnoIndisponivel("fora")], guarda=guarda)
-
-    assert resolucao.motivo is MotivoHumano.DESCONFIANCA
-    assert resolucao.texto_handoff is None and resolucao.reply is None
-    assert resolucao.veredito.causa == "palavra_chave:golpe"
-    assert resolucao.erro == "fora"
-    assert len(llm.pedidos) == 1
-
-
-def test_guarda_com_o_json_invalido_sai_o_motivo_da_guarda_em_uma_chamada(conversa, politica):
-    guarda = palavra_chave(["vou no procon"])
-
-    resolucao, llm, _ = _resolver(conversa, politica, ["lixo"], guarda=guarda)
-
-    assert resolucao.motivo is MotivoHumano.JURIDICO
-    assert resolucao.texto_handoff is None
-    assert len(llm.pedidos) == 1
-
-
-def test_o_handoff_grava_o_handoff_reply_bruto_na_redacao_do_turno(conversa, politica):
-    guarda = palavra_chave(["isso é golpe?"])
-    saida = _bruto(acao="NONE", reply="", handoff_reply="  ")
-
-    resolucao, _, _ = _resolver(conversa, politica, [saida], guarda=guarda)
-
-    # Vazio ou descartado, o que o LLM deu fica gravado: sem isso não se sabe por que a fixa saiu.
-    assert resolucao.texto_handoff is None
-    assert resolucao.como_dict("HANDOFF")["tentativas"][0]["handoff_reply"] == "  "
-
-
-def test_sem_handoff_o_turno_nao_grava_a_chave_handoff_reply(conversa, politica):
-    resolucao, _, _ = _resolver(conversa, politica, [_bruto()])
-
-    assert "handoff_reply" not in resolucao.como_dict("LLM")["tentativas"][0]
-
-
-def test_guarda_com_o_llm_no_ar_leva_o_texto_do_handoff_mesmo_com_a_acao_invalida(
-    conversa, politica
-):
-    guarda = palavra_chave(["isso é golpe?"])
-    saida = _bruto(acao="HUMAN", reply="", handoff_reply=f"  {HANDOFF}  ")
-
-    resolucao, llm, previa = _resolver(conversa, politica, [saida, _bruto()], guarda=guarda)
-
-    assert resolucao.motivo is MotivoHumano.DESCONFIANCA
-    assert resolucao.texto_handoff == HANDOFF
-    assert resolucao.reply is None
-    assert len(llm.pedidos) == 1
-    assert previa.chamadas == []
-
-
-def test_handoff_com_texto_invalido_vai_sem_texto(conversa, politica):
-    saida = _bruto(risco_juridico=True, handoff_reply="Passei para a equipe em 2 dias.")
-
-    resolucao, _, _ = _resolver(conversa, politica, [saida])
-
-    assert resolucao.motivo is MotivoHumano.JURIDICO
-    assert resolucao.texto_handoff is None
-
-
 def test_o_sinal_que_aparece_so_na_segunda_tentativa_leva_ao_humano(conversa, politica):
     fora = _bruto(acao="XYZ")
-    sinal = _bruto(vulnerabilidade=True, handoff_reply=HANDOFF)
+    sinal = _bruto(vulnerabilidade=True)
 
     resolucao, llm, _ = _resolver(conversa, politica, [fora, sinal])
 
     assert resolucao.motivo is MotivoHumano.CAUTELA
-    assert resolucao.texto_handoff == HANDOFF
     assert resolucao.veredito.causa == "sinal:vulnerabilidade"
     assert len(llm.pedidos) == 2
     assert resolucao.tentativas[0].reprovadas == ("acao_nao_permitida:XYZ",)
@@ -224,101 +158,13 @@ def test_o_humano_da_primeira_tentativa_nao_chama_de_novo(conversa, politica):
     assert len(llm.pedidos) == 1
 
 
-def test_terceiro_sem_marcador_sai_aprovado(conversa, politica):
-    reply = "Oi! Esta conversa é com outra pessoa, então não posso ajudar por aqui."
-
-    resolucao, llm, previa = _resolver(
-        conversa, politica, [_bruto(terceiro=True, acao="NONE", reply=reply)]
-    )
-
-    assert resolucao.reply == reply and resolucao.motivo is None
-    assert resolucao.veredito.terceiro is True
-    assert len(llm.pedidos) == 1
-    assert previa.chamadas == [()]
-
-
-def test_terceiro_com_marcador_e_reprovado(conversa, politica):
-    com_marcador = _bruto(terceiro=True, reply="Oi! A dívida de {divida} é do titular.")
-
-    resolucao, llm, _ = _resolver(conversa, politica, [com_marcador, com_marcador])
-
-    assert resolucao.reply is None and resolucao.motivo is None
-    assert resolucao.tentativas[0].reprovadas == ("marcador_com_terceiro",)
-    assert "marcador_com_terceiro" in llm.pedidos[1][1]
-    assert resolucao.veredito.terceiro is True
-
-
-def test_terceiro_com_valor_no_texto_e_reprovado_pela_previa(conversa, politica):
-    com_valor = _bruto(terceiro=True, reply="Oi! São R$ 100 para o titular.")
-
-    resolucao, _, _ = _resolver(conversa, politica, [com_valor, com_valor])
-
-    assert resolucao.reply is None
-    assert resolucao.tentativas[0].reprovadas == ("valor_em_digitos",)
-
-
-def test_terceiro_com_reply_vazio_retorna_como_none(conversa, politica):
-    resolucao, llm, previa = _resolver(conversa, politica, [_bruto(terceiro=True, reply=" ")])
-
-    assert resolucao.reply is None and resolucao.motivo is None
-    assert resolucao.veredito.terceiro is True and resolucao.veredito.acao is Acao.NONE
-    assert len(llm.pedidos) == 1 and previa.chamadas == []
-
-
 def test_none_sai_sem_reply_nem_motivo_e_sem_chamar_a_previa(conversa, politica):
     resolucao, llm, previa = _resolver(conversa, politica, [_bruto(acao="NONE", reply="")])
 
-    assert resolucao.reply is None and resolucao.motivo is None and resolucao.erro is None
+    assert resolucao.reply is None and resolucao.motivo is None
     assert resolucao.veredito.acao is Acao.NONE
     assert len(llm.pedidos) == 1 and previa.chamadas == []
     assert resolucao.tentativas == [TentativaUmaChamada("NONE", "", ())]
-
-
-ACOLHIMENTO = "Poxa, sinto muito que esteja assim. O que aconteceu? Me conta como posso ajudar."
-
-
-def test_none_com_texto_sem_marcador_sai_aprovado_sem_motivo(conversa, politica):
-    resolucao, llm, previa = _resolver(conversa, politica, [_bruto(acao="NONE", reply=ACOLHIMENTO)])
-
-    assert resolucao.reply == ACOLHIMENTO and resolucao.motivo is None
-    assert resolucao.veredito.acao is Acao.NONE and resolucao.veredito.terceiro is False
-    assert resolucao.tentativas == [TentativaUmaChamada("NONE", ACOLHIMENTO, ())]
-    assert len(llm.pedidos) == 1
-    # A prévia roda sem nenhuma ação: não há número nem link para o texto usar.
-    assert previa.chamadas == [()]
-
-
-@pytest.mark.parametrize(
-    ("texto", "motivo"),
-    [
-        ("Sinto muito. Sua dívida é {divida}. O que houve?", "marcador_com_none"),
-        ("Sinto muito. Qual é o problema? Pague aqui: {link_ctn}", "marcador_com_none"),
-        ("Sinto muito. Faz 3 dias que você sumiu?", "valor_em_digitos"),
-        ("Sinto muito. Veja https://exemplo.com.br/x e me conte.", "link_nao_autorizado"),
-    ],
-)
-def test_none_com_marcador_digito_ou_link_e_reprovado_e_vai_a_segunda_tentativa(
-    conversa, politica, texto, motivo
-):
-    reprovada = _bruto(acao="NONE", reply=texto)
-    aprovada = _bruto(acao="NONE", reply=ACOLHIMENTO)
-
-    resolucao, llm, _ = _resolver(conversa, politica, [reprovada, aprovada])
-
-    assert len(llm.pedidos) == 2
-    assert resolucao.tentativas[0].reprovadas[0] == motivo
-    assert motivo in llm.pedidos[1][1]
-    assert resolucao.reply == ACOLHIMENTO and resolucao.tentativas[1].reprovadas == ()
-
-
-def test_none_reprovado_duas_vezes_sai_sem_texto_nem_motivo(conversa, politica):
-    reprovada = _bruto(acao="NONE", reply="Sinto muito. Sua dívida é {divida}.")
-
-    resolucao, _, _ = _resolver(conversa, politica, [reprovada, reprovada])
-
-    assert resolucao.reply is None and resolucao.motivo is None
-    assert resolucao.veredito.acao is Acao.NONE
-    assert all(t.reprovadas for t in resolucao.tentativas)
 
 
 def test_none_vazio_depois_de_json_invalido_ou_acao_fora_segue_como_silencio(conversa, politica):
@@ -341,12 +187,12 @@ def test_none_com_texto_so_de_espacos_sai_como_o_none_vazio(conversa, politica):
     assert len(llm.pedidos) == 1 and previa.chamadas == []
 
 
-def test_o_tom_impaciente_com_none_e_texto_nao_vai_ao_humano(conversa, politica):
+def test_o_tom_impaciente_com_none_nao_vai_ao_humano(conversa, politica):
     resolucao, _, _ = _resolver(
-        conversa, politica, [_bruto(tom="impaciente", acao="NONE", reply=ACOLHIMENTO)]
+        conversa, politica, [_bruto(tom="impaciente", acao="NONE", reply="")]
     )
 
-    assert resolucao.motivo is None and resolucao.reply == ACOLHIMENTO
+    assert resolucao.motivo is None
 
 
 @pytest.mark.parametrize("vazio", ["", "   \n"])
@@ -392,25 +238,6 @@ def test_o_como_dict_traz_as_tentativas_a_causa_e_o_caminho(conversa, politica):
         {"texto": REPLY_PIX, "acao": "INFORM_DEBT", "reprovadas": []},
     ]
     assert "erro" not in dados
-
-
-def test_o_como_dict_com_erro_e_sem_veredito(conversa, politica):
-    guarda = palavra_chave(["isso é golpe?"])
-    resolucao, _, _ = _resolver(conversa, politica, [LLMTurnoIndisponivel("fora")], guarda=guarda)
-
-    dados = resolucao.como_dict("HUMAN:DESCONFIANCA")
-
-    assert dados["erro"] == "fora" and dados["tentativas"] == []
-    assert dados["causa"] == "palavra_chave:golpe" and dados["caminho"] == "uma_chamada"
-
-
-def test_guarda_com_o_json_invalido_anexa_a_tentativa_e_o_motivo(conversa, politica):
-    guarda = palavra_chave(["vou no procon"])
-
-    resolucao, _, _ = _resolver(conversa, politica, ["lixo"], guarda=guarda)
-
-    assert resolucao.motivo is MotivoHumano.JURIDICO
-    assert resolucao.tentativas == [TentativaUmaChamada(None, None, ("json_invalido",))]
 
 
 def test_alega_pagamento_com_reply_nulo_vai_a_conciliacao_e_nao_ao_json_invalido(

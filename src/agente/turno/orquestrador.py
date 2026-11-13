@@ -52,6 +52,7 @@ from agente.turno.catalogo import (
     TEXTO_DO_PIX,
     Atendente,
     DadosFixa,
+    Frase,
     Situacao,
     e_cortesia,
     mensagem_fixa,
@@ -102,13 +103,14 @@ from agente.turno.uma_chamada import (
     previa_numeros,
     resolver_turno,
     sem_efeito,
+    veredito_da_palavra_chave,
 )
 
 log = logging.getLogger(__name__)
 
 # O que o turno grava como ação principal quando pede o texto do áudio que não foi lido (D43).
 ROTULO_PEDIR_TEXTO = f"FIXA:{TipoFixa.PEDIR_TEXTO.value}"
-# O que o turno de uma chamada grava como ação principal quando o cliente não é o devedor (D47).
+# O que o turno de uma chamada grava como ação principal quando o cliente não é o devedor.
 ROTULO_TERCEIRO = "TERCEIRO"
 # A conferência que não vale para citar valor: o turno ativo espera.
 _SEM_CONFERENCIA_DE_HOJE = (
@@ -272,9 +274,6 @@ def _fechar(
     rotulo: str | None = None,
 ) -> ResultadoTurno:
     rotulo = rotulo or avaliacao.rotulo
-    if avaliacao.erro:
-        # O erro do Luna é texto, não número: fica na redação, que já guarda os erros do turno.
-        redacao = {**(redacao or {}), "erro": avaliacao.erro}
     fechar_turno(
         sessao,
         turno.id,
@@ -325,10 +324,8 @@ def _handoff(
     laudo_id: int | None = None,
     *,
     enviar_mensagem: bool = True,
-    texto: str | None = None,
 ) -> None:
-    """A saída para o humano: o atendente segue na mesma conversa (D60). O `texto` (D47) é o
-    redigido pelo LLM, que abre a mensagem ao cliente."""
+    """A saída para o humano: o atendente segue na mesma conversa (D60), com a frase fixa."""
     fazer_handoff(
         sessao,
         deps.chatwoot,
@@ -340,7 +337,6 @@ def _handoff(
         agora,
         laudo_id=laudo_id,
         enviar_mensagem=enviar_mensagem,
-        texto=texto,
     )
 
 
@@ -421,6 +417,14 @@ def _motivo_da_politica(situacao: Situacao) -> MotivoHumano:
     return saida.motivo
 
 
+def _frase_da_politica(situacao: Situacao) -> str:
+    """A frase pronta que a tabela de políticas dá à situação."""
+    saida = POLITICAS[situacao]
+    if not isinstance(saida, Frase):
+        raise TypeError(f"a política de {situacao} não é uma frase")
+    return saida.texto
+
+
 def _mudar_estado(
     sessao: Session, conversa: Conversa, para: EstadoConversa, laudo_id: int | None, agora: datetime
 ) -> None:
@@ -450,26 +454,20 @@ def _avaliacao_uma_chamada(resolucao: ResolucaoTurno) -> Avaliacao:
     rótulo vai explícito (`_rotulo_uma_chamada`).
     """
     if resolucao.motivo is not None:
-        return Avaliacao(None, [], resolucao.motivo, resolucao.erro)
+        return Avaliacao(None, [], resolucao.motivo)
     veredito = resolucao.veredito
     if _passou(resolucao) and not veredito.terceiro:
-        return Avaliacao(veredito.acao, list(veredito.anexos), None, resolucao.erro)
-    return Avaliacao(None, [], None, resolucao.erro)
+        return Avaliacao(veredito.acao, list(veredito.anexos), None)
+    return Avaliacao(None, [], None)
 
 
 def _passou(resolucao: ResolucaoTurno) -> bool:
-    """O turno tem o que fazer: um texto aprovado, ou a ação que não envia nada (`NONE`).
-
-    O `NONE` cujo texto reprovou nas duas tentativas não passou: o último resultado dele é a
-    reprovação, e quem chama manda ao atendente.
-    """
+    """O turno tem o que fazer: um texto aprovado, ou a saída da tabela de políticas (o `NONE`,
+    o `OUT_OF_SCOPE` e o terceiro, cujo texto não é usado)."""
     veredito = resolucao.veredito
     if veredito is None:
         return False
-    if resolucao.reply is not None:
-        return True
-    reprovou = bool(resolucao.tentativas) and bool(resolucao.tentativas[-1].reprovadas)
-    return veredito.acao is Acao.NONE and not reprovou
+    return resolucao.reply is not None or sem_efeito(veredito)
 
 
 def _rotulo_uma_chamada(resolucao: ResolucaoTurno) -> str:
@@ -489,16 +487,19 @@ def _gravar_laudos_uma_chamada(
     turno_id: int,
     resolucao: ResolucaoTurno,
     guarda: tuple[MotivoHumano, str] | None,
-    golpe_pela_guarda: bool,
 ) -> tuple[dict[tuple[BatchJev, str], int], list[Laudo]]:
-    """Os sinais e o tom em JEV1 (mais a palavra-chave que bateu) e a ação em JEV2 (decisão 8).
+    """Os sinais e o tom em JEV1 (ou a palavra-chave que bateu) e a ação em JEV2 (decisão 8).
 
     Devolve o id de cada laudo por (batch, pergunta) e os laudos do JEV1, para achar a causa.
     """
     saida = resolucao.saida
-    jev1 = list(saida.leitura(golpe_pela_guarda=golpe_pela_guarda).laudos) if saida else []
+    jev1 = list(saida.leitura().laudos) if saida else []
     if guarda is not None:
-        jev1.append(Laudo("palavra_chave", guarda[1], 1.0, 1.0))
+        motivo, palavra = guarda
+        if motivo is MotivoHumano.DESCONFIANCA:
+            # O golpe pela palavra-chave vale como `desconfia_golpe` sim, sem o Luna ler.
+            jev1.append(Laudo("desconfia_golpe", True, 1.0, 1.0))
+        jev1.append(Laudo("palavra_chave", palavra, 1.0, 1.0))
     lotes = [(BatchJev.JEV1, jev1)]
     if saida is not None:
         lotes.append((BatchJev.JEV2, [saida.laudo_da_acao()]))
@@ -514,7 +515,7 @@ def _causa_uma_chamada(
     resolucao: ResolucaoTurno, jev1: list[Laudo], ids: dict[tuple[BatchJev, str], int]
 ) -> tuple[list[Laudo], int | None]:
     """O laudo do JEV1 que levou ao humano (a palavra-chave, o sinal ou o tom), para a nota e a
-    transição. Sem veredito (o LLM fora e sem palavra-chave), não há causa."""
+    transição. Sem veredito, não há causa."""
     if resolucao.veredito is None:
         return [], None
     tipo, _, nome = resolucao.veredito.causa.partition(":")
@@ -559,51 +560,43 @@ def _nada_passou(
 def _seguir(
     sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
-    """O turno de uma chamada ao Luna (D47): o LLM lê, decide e redige; o backend executa e envia.
+    """O turno de uma chamada ao Luna: o LLM lê, decide e redige; o backend executa e envia.
 
-    A ordem: os laudos, a releitura da cobrança, o humano, o `NONE`, e o savepoint da
-    ação, que só vale se o texto aprovado sair. O texto já foi aprovado
-    numa prévia (`resolver_turno`), então a ação só roda depois dele. O estado nunca vai a
-    `EM_RISCO`.
+    A ordem: a palavra-chave (o atendente, sem o Luna), os laudos, a releitura da cobrança, o
+    humano, a frase pronta do fora do assunto e do terceiro, o `NONE` (silêncio só na cortesia) e
+    o savepoint da ação, que só vale se o texto aprovado sair. O texto já foi aprovado numa prévia
+    (`resolver_turno`), então a ação só roda depois dele. O estado nunca vai a `EM_RISCO`.
     """
     cobranca = conversa.cobranca
     historico, novas = _historico_e_novas(sessao, conversa.id, turno.mensagens_ids)
     guarda = palavra_chave(novas)
-    entrada = montar_entrada(
-        conversa,
-        cobranca,
-        deps.politica,
-        historico,
-        novas,
-        mensagens_no_teto(sessao, conversa.id),
-        agora,
-    )
-    resolucao = resolver_turno(
-        deps.llm_turno,
-        entrada,
-        guarda,
-        lambda acoes: previa_numeros(acoes, conversa, cobranca, deps.politica, agora),
-        cobranca,
-    )
-    # O golpe pela palavra-chave vale como `desconfia_golpe` sim (D44).
-    golpe_pela_guarda = guarda is not None and guarda[0] is MotivoHumano.DESCONFIANCA
-    ids, jev1 = _gravar_laudos_uma_chamada(sessao, turno.id, resolucao, guarda, golpe_pela_guarda)
+    if guarda is not None:
+        # A palavra-chave já decide o atendente: a leitura do Luna não mudaria nada.
+        resolucao = ResolucaoTurno(veredito=veredito_da_palavra_chave(guarda), motivo=guarda[0])
+    else:
+        entrada = montar_entrada(
+            conversa,
+            cobranca,
+            deps.politica,
+            historico,
+            novas,
+            mensagens_no_teto(sessao, conversa.id),
+            agora,
+        )
+        resolucao = resolver_turno(
+            deps.llm_turno,
+            entrada,
+            lambda acoes: previa_numeros(acoes, conversa, cobranca, deps.politica, agora),
+            cobranca,
+        )
+    ids, jev1 = _gravar_laudos_uma_chamada(sessao, turno.id, resolucao, guarda)
     avaliacao = _avaliacao_uma_chamada(resolucao)
     rotulo = _rotulo_uma_chamada(resolucao)
     if _cobranca_fechou_no_meio(sessao, conversa):
         return _fechar_ignorado(sessao, turno, avaliacao, agora, rotulo=rotulo)
     if resolucao.motivo is not None:
         laudos, laudo_id = _causa_uma_chamada(resolucao, jev1, ids)
-        _handoff(
-            sessao,
-            conversa,
-            resolucao.motivo,
-            deps,
-            agora,
-            laudos,
-            laudo_id,
-            texto=resolucao.texto_handoff,
-        )
+        _handoff(sessao, conversa, resolucao.motivo, deps, agora, laudos, laudo_id)
         return _fechar(
             sessao,
             turno,
@@ -618,8 +611,26 @@ def _seguir(
         return _nada_passou(sessao, conversa, turno, avaliacao, resolucao, rotulo, deps, agora)
     veredito = resolucao.veredito
     laudo_da_acao = ids.get((BatchJev.JEV2, "acao"))
-    if veredito.acao is Acao.NONE and resolucao.reply is None:
-        if not veredito.terceiro and not e_cortesia(novas):
+    if veredito.terceiro or veredito.acao is Acao.OUT_OF_SCOPE:
+        # Fora da cobrança, a frase pronta da tabela: o Luna não redige, e nada é executado.
+        situacao = Situacao.TERCEIRO if veredito.terceiro else Situacao.FORA_DO_ASSUNTO
+        texto = _frase_da_politica(situacao)
+        _gravar_envio(sessao, conversa, texto, agora)
+        destino = proximo_estado(conversa.estado, None, False)
+        _mudar_estado(sessao, conversa, destino, laudo_da_acao, agora)
+        return _fechar(
+            sessao,
+            turno,
+            ResultadoTurno.ENVIADO,
+            avaliacao,
+            {},
+            agora,
+            texto_enviado=texto,
+            redacao=resolucao.como_dict("FRASE_FIXA"),
+            rotulo=rotulo,
+        )
+    if veredito.acao is Acao.NONE:
+        if not e_cortesia(novas):
             # O Luna não tem o que mandar, e a mensagem pedia resposta: o atendente segue, para o
             # cliente não ficar sem resposta. Só a cortesia (ok, obrigado, emoji) fica em silêncio.
             motivo = _motivo_da_politica(Situacao.SEM_RESPOSTA)
@@ -634,8 +645,7 @@ def _seguir(
                 redacao=resolucao.como_dict("HANDOFF"),
                 rotulo=rotulo_humano(motivo),
             )
-        # A cortesia (ou o terceiro sem texto): nada é enviado. O `NONE` com texto aprovado segue
-        # abaixo, como o terceiro.
+        # A cortesia (ok, obrigado, emoji) não pede resposta: nada é enviado.
         destino = proximo_estado(conversa.estado, None, False)
         _mudar_estado(sessao, conversa, destino, laudo_da_acao, agora)
         return _fechar(
@@ -651,8 +661,7 @@ def _seguir(
     # A trava da cobrança já foi tomada acima, antes do savepoint (o rollback dele a soltaria). A
     # releitura depois do `executar` confere se o pagamento chegou nesse meio tempo.
     ponto = sessao.begin_nested()
-    acoes = [] if sem_efeito(veredito) else [veredito.acao, *veredito.anexos]
-    numeros = executar(acoes, cobranca, conversa, deps, agora)
+    numeros = executar([veredito.acao, *veredito.anexos], cobranca, conversa, deps, agora)
     interpolacao: list[str] | None = None
     try:
         final = interpolar(resolucao.reply, numeros)

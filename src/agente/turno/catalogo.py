@@ -12,7 +12,7 @@ from agente.dominio.dinheiro import formatar_reais
 from agente.tipos import Botao, MotivoHumano, TipoFixa
 
 # A 6ª mensagem e a saída padrão para o humano (D33, D60): sem botão e sem link, o atendente segue
-# na mesma conversa. O texto redigido pelo LLM, quando há, vem antes.
+# na mesma conversa.
 TEXTO_CANAL_EXTERNO = (
     "Para resolver da melhor forma, um atendente da unidade vai continuar com você aqui mesmo, "
     "nesta conversa."
@@ -42,6 +42,8 @@ class Situacao(StrEnum):
     TEXTO_REPROVADO = "TEXTO_REPROVADO"
     SEM_RESPOSTA = "SEM_RESPOSTA"
     FOTO_SEM_TEXTO = "FOTO_SEM_TEXTO"
+    FORA_DO_ASSUNTO = "FORA_DO_ASSUNTO"
+    TERCEIRO = "TERCEIRO"
 
 
 POLITICAS: dict[Situacao, Frase | Atendente] = {
@@ -51,6 +53,15 @@ POLITICAS: dict[Situacao, Frase | Atendente] = {
     Situacao.SEM_RESPOSTA: Atendente(MotivoHumano.SEM_RESPOSTA),
     # O Luna não lê imagem; foto ou arquivo sem texto em geral é comprovante: alguém confere.
     Situacao.FOTO_SEM_TEXTO: Atendente(MotivoHumano.CONCILIACAO),
+    # O agente só trata da mensalidade: o resto ganha uma frase pronta, sem o Luna afirmar nada.
+    Situacao.FORA_DO_ASSUNTO: Frase(
+        "Esse assunto não é tratado por aqui. Esta conversa é sobre a sua mensalidade em aberto."
+    ),
+    # Com quem não é o devedor não se fala da dívida: a frase pronta não deixa escapar nada.
+    Situacao.TERCEIRO: Frase(
+        "Obrigado pelo retorno. Este contato é para o titular do cadastro. Quando ele puder, é só "
+        "falar com a gente por aqui."
+    ),
 }
 
 
@@ -119,8 +130,6 @@ class DadosFixa:
     valor_centavos: int | None
     link_cartao: str | None
     # O texto que a política dá à fixa que não tem texto próprio (PEDIR_TEXTO e HUMANO_NO_WHATSAPP).
-    # No CANAL_EXTERNO, o texto redigido pelo LLM no turno de uma chamada (D47), seguido da frase
-    # fixa; sem ele, só a fixa.
     texto: str | None = None
 
 
@@ -142,10 +151,7 @@ def _confirmacao(dados: DadosFixa) -> str:
 
 def mensagem_fixa(tipo: TipoFixa, dados: DadosFixa) -> MensagemPronta:
     if tipo is TipoFixa.CANAL_EXTERNO:
-        # O texto redigido pelo LLM abre a mensagem e a frase fixa fecha: é ela que diz ao cliente
-        # que o atendente segue na conversa (D47, D60).
-        texto = f"{dados.texto}\n\n{TEXTO_CANAL_EXTERNO}" if dados.texto else TEXTO_CANAL_EXTERNO
-        return MensagemPronta(texto)
+        return MensagemPronta(TEXTO_CANAL_EXTERNO)
     if tipo is TipoFixa.PEDIR_TEXTO:
         if not dados.texto:
             raise ValueError("o pedido de texto precisa do texto da política")
