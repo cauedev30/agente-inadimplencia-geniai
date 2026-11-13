@@ -166,3 +166,9 @@ com a correção quando a hora chegar (texto completo na fonte).
   durante o teste. (5) `Dockerfile`: o `chown -R /app` duplica a camada do `.venv` (`COPY --chown`). (6) `configurar_chatwoot.py`: `KeyError`
   sem `bot_id` no JSON; aspas no valor do `agente.env` iriam para a URL. (7) Aviso: quem está no grupo `docker` do `dev2` lê o `agente.env`
   por `docker inspect`, apesar do `chmod 600`.
+
+## Do lote "fechar o agente" (2026-11-13)
+
+- **Cortesia com pergunta de confirmação:** a lista descarta a pontuação, então "certo?", "ok, certo?" e "entendi, certo?"
+  ficam em silêncio quando o Luna devolve `NONE`. Pode ser uma pergunta que fica sem resposta. Medir no teste; se
+  aparecer, a mensagem com "?" sai da cortesia. (Conferência curta da PARADA.)
