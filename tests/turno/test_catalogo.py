@@ -24,6 +24,13 @@ DADOS = DadosFixa(
         (["ok", "quanto fica?"], False),
         (["oi"], False),
         ([], False),
+        (["Ok, obrigado!"], True),
+        (["beleza, valeu 🙏"], True),
+        (["ta bom obrigada"], True),
+        (["obrigado", "[Sticker] [imagem enviada]"], True),
+        (["muito obrigada"], False),
+        (["bom dia"], False),
+        (["?"], False),
     ],
 )
 def test_cortesia_so_quando_todas_as_mensagens_estao_na_lista(textos, cortesia):

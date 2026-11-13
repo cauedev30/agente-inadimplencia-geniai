@@ -35,9 +35,11 @@ Todo o resto tem uma saída fixa, decidida no código: uma frase pronta ou o ate
 | Qualquer handoff | só a frase fixa: *"Para resolver da melhor forma, um atendente da unidade vai continuar com você aqui mesmo, nesta conversa."* O golpe tem a dele (`texto_humano_no_whatsapp`) |
 
 **Lista de cortesia** (fechada; comparada sem acento, sem pontuação e em minúsculas): ok, okay, blz, beleza, ta bom,
-certo, entendi, combinado, obrigado, obrigada, obg, valeu, vlw, e a mensagem só de emoji. Vale só se **todas** as
-mensagens novas do turno estão nela: "ok, mas quanto fica?" vai ao Luna como qualquer pergunta. "Oi" não está na
-lista: no meio da conversa, ele é `INFORM_DEBT`.
+certo, entendi, combinado, obrigado, obrigada, obg, valeu, vlw, e a mensagem só de emoji. A mensagem pode juntar
+termos da lista ("Ok, obrigado!", "beleza, valeu"), e a figurinha junto de uma cortesia vale como emoji; uma palavra
+de fora ("muito obrigada", "bom dia") tira a mensagem da lista. Vale só se **todas** as mensagens novas do turno são
+cortesia: "ok, mas quanto fica?" vai ao Luna como qualquer pergunta. "Oi" não está na lista: no meio da conversa, ele
+é `INFORM_DEBT`.
 
 Uma linha nova na tabela muda só a **saída**. Uma situação nova ainda precisa de código que a detecte (um sinal, um
 gate ou uma ação); no prompt fica só a linha que faz o Luna reconhecê-la. Diante de uma exceção nova, a 1ª pergunta é

@@ -104,15 +104,40 @@ def _simplificar(texto: str) -> tuple[str, bool]:
     return " ".join("".join(letras).split()), tem_emoji
 
 
-def e_cortesia(textos: Sequence[str]) -> bool:
-    """Todas as mensagens novas estão na lista de cortesia ou são só emoji; sem mensagem, não."""
-    if not textos:
-        return False
-    for texto in textos:
-        simples, tem_emoji = _simplificar(texto)
-        if simples not in CORTESIA and not (simples == "" and tem_emoji):
+# A figurinha chega como o rótulo do gateway e, no histórico, o rótulo da imagem. Junto de uma
+# cortesia ("obrigado" e uma figurinha), ela vale como um emoji.
+_FIGURINHA = "[Sticker]"
+_ROTULO_DA_IMAGEM = "[imagem enviada]"
+
+
+def _so_termos_da_lista(simples: str) -> bool:
+    """O texto é uma sequência de termos da lista, como "ok obrigado"; nenhuma palavra de fora."""
+    palavras = simples.split()
+    i = 0
+    while i < len(palavras):
+        if " ".join(palavras[i : i + 2]) in CORTESIA and i + 1 < len(palavras):
+            i += 2
+        elif palavras[i] in CORTESIA:
+            i += 1
+        else:
             return False
-    return True
+    return bool(palavras)
+
+
+def _e_mensagem_de_cortesia(texto: str) -> bool:
+    limpo = texto.strip()
+    if (
+        limpo.startswith(_FIGURINHA)
+        and not limpo.removeprefix(_FIGURINHA).replace(_ROTULO_DA_IMAGEM, "").strip()
+    ):
+        return True
+    simples, tem_emoji = _simplificar(limpo)
+    return _so_termos_da_lista(simples) or (simples == "" and tem_emoji)
+
+
+def e_cortesia(textos: Sequence[str]) -> bool:
+    """Todas as mensagens novas são só termos da lista, emoji ou figurinha; sem mensagem, não."""
+    return bool(textos) and all(_e_mensagem_de_cortesia(texto) for texto in textos)
 
 
 # A resposta ao toque em "Pagar com Pix" (D26, D59): fixa, com os marcadores que o `interpolar`
