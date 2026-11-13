@@ -4,9 +4,10 @@ Os textos de confirmação são provisórios: o projeto desenha os finais (D28).
 """
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 from agente.dominio.dinheiro import formatar_reais
-from agente.tipos import Botao, TipoFixa
+from agente.tipos import Botao, MotivoHumano, TipoFixa
 
 # A 6ª mensagem e a saída padrão para o humano (D33, D60): sem botão e sem link, o atendente segue
 # na mesma conversa. O texto redigido pelo LLM, quando há, vem antes.
@@ -16,11 +17,33 @@ TEXTO_CANAL_EXTERNO = (
 )
 
 
-# A resposta segura do turno em que o Jev 3 reprovou o LLM duas vezes (seção 6). Sem número nem
-# promessa: provisória, como as confirmações (D28).
-TEXTO_RESPOSTA_SEGURA = (
-    "Desculpe, não consegui te responder direito agora. Pode me contar de novo o que você precisa?"
-)
+# A tabela de políticas: o que o agente faz em cada situação fora do caminho do pagamento. Uma
+# linha nova muda só a saída; detectar a situação continua sendo trabalho de um sinal, gate ou ação.
+# A página `docs/politicas.md` é a versão que uma pessoa lê.
+
+
+@dataclass(frozen=True)
+class Frase:
+    """A saída é esta frase pronta, sem o Luna; conta no teto como as outras mensagens."""
+
+    texto: str
+
+
+@dataclass(frozen=True)
+class Atendente:
+    """A saída é o atendente, com este motivo, e a frase fixa do handoff."""
+
+    motivo: MotivoHumano
+
+
+class Situacao(StrEnum):
+    TEXTO_REPROVADO = "TEXTO_REPROVADO"
+
+
+POLITICAS: dict[Situacao, Frase | Atendente] = {
+    # Um texto que não passou duas vezes não vira outra tentativa de texto: o atendente segue.
+    Situacao.TEXTO_REPROVADO: Atendente(MotivoHumano.VALIDACAO),
+}
 
 # A resposta ao toque em "Pagar com Pix" (D26, D59): fixa, com os marcadores que o `interpolar`
 # preenche com o Pix do backend. Conta no teto como qualquer mensagem (D40). A frase do recebedor

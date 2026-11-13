@@ -548,7 +548,7 @@ class TentativaUmaChamada:
 @dataclass
 class ResolucaoTurno:
     """O resultado do laço: o texto aprovado na prévia, ou o motivo de ir ao humano, ou nenhum dos
-    dois (as tentativas acabaram sem texto: quem chama manda a resposta segura ou `VALIDACAO`)."""
+    dois (as tentativas acabaram sem texto: quem chama manda ao atendente)."""
 
     # A última saída válida e o veredito dela.
     saida: SaidaTurno | None = None
@@ -654,8 +654,8 @@ def resolver_turno(
             reprovadas = [f"acao_nao_permitida:{saida.acao}"]
         elif sem_efeito(veredito) and not saida.reply.strip() and texto_reprovado:
             # M-a: o texto da tentativa anterior reprovou e esta devolve `NONE` vazio. O cliente não
-            # pode ficar sem resposta: conta como reprovada, e o fim das tentativas leva à resposta
-            # segura.
+            # pode ficar sem resposta: conta como reprovada, e o fim das tentativas leva ao
+            # atendente.
             reprovadas = ["texto_vazio"]
         elif sem_efeito(veredito) and not saida.reply.strip():
             # Nada a enviar. O terceiro sem texto segue como `NONE`, com o rótulo do terceiro. O

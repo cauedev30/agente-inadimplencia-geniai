@@ -47,7 +47,14 @@ from agente.tipos import (
     TipoFixa,
 )
 from agente.turno.acoes import Acao
-from agente.turno.catalogo import TEXTO_DO_PIX, TEXTO_RESPOSTA_SEGURA, DadosFixa, mensagem_fixa
+from agente.turno.catalogo import (
+    POLITICAS,
+    TEXTO_DO_PIX,
+    Atendente,
+    DadosFixa,
+    Situacao,
+    mensagem_fixa,
+)
 from agente.turno.entrega import confirmar_envio, entregue
 from agente.turno.executar import executar, proximo_estado
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
@@ -405,16 +412,12 @@ def _despachar(
     confirmar_envio(sessao, mensagem, chatwoot_id)
 
 
-def _ja_saiu_resposta_segura(sessao: Session, conversa_id: int) -> bool:
-    consulta = select(
-        exists().where(
-            Mensagem.conversa_id == conversa_id,
-            Mensagem.origem == OrigemMensagem.AGENTE,
-            Mensagem.texto == TEXTO_RESPOSTA_SEGURA,
-            Mensagem.envio != EstadoEnvio.DESCARTADA,
-        )
-    )
-    return bool(sessao.scalar(consulta))
+def _motivo_da_politica(situacao: Situacao) -> MotivoHumano:
+    """O motivo do atendente que a tabela de políticas dá à situação."""
+    saida = POLITICAS[situacao]
+    if not isinstance(saida, Atendente):
+        raise TypeError(f"a política de {situacao} não manda ao atendente")
+    return saida.motivo
 
 
 def _mudar_estado(
@@ -456,8 +459,8 @@ def _avaliacao_uma_chamada(resolucao: ResolucaoTurno) -> Avaliacao:
 def _passou(resolucao: ResolucaoTurno) -> bool:
     """O turno tem o que fazer: um texto aprovado, ou a ação que não envia nada (`NONE`).
 
-    O `NONE` cujo texto reprovou nas duas tentativas não passou (D47, decisão 18): o último
-    resultado dele é a reprovação, e quem chama manda a resposta segura ou `VALIDACAO`.
+    O `NONE` cujo texto reprovou nas duas tentativas não passou: o último resultado dele é a
+    reprovação, e quem chama manda ao atendente.
     """
     veredito = resolucao.veredito
     if veredito is None:
@@ -532,29 +535,21 @@ def _nada_passou(
     agora: datetime,
     interpolacao: list[str] | None = None,
 ) -> ResultadoTurno:
-    """Nenhum texto passou: a resposta segura, uma vez por conversa, e depois o humano (VALIDACAO).
+    """Nenhum texto passou: o atendente, com o motivo que a tabela de políticas dá.
 
     O backend não executou nada, ou desfez o que executou: o turno grava `{"executado": False}`.
     """
-    if not _ja_saiu_resposta_segura(sessao, conversa.id):
-        texto = TEXTO_RESPOSTA_SEGURA
-        _gravar_envio(sessao, conversa, texto, agora)
-        saida, resultado = "RESPOSTA_SEGURA", ResultadoTurno.ENVIADO
-    else:
-        texto = None
-        _handoff(sessao, conversa, MotivoHumano.VALIDACAO, deps, agora)
-        saida, resultado = "HANDOFF", ResultadoTurno.HANDOFF
-    redacao = resolucao.como_dict(saida)
+    _handoff(sessao, conversa, _motivo_da_politica(Situacao.TEXTO_REPROVADO), deps, agora)
+    redacao = resolucao.como_dict("HANDOFF")
     if interpolacao:
         redacao["interpolacao_reprovada"] = interpolacao
     return _fechar(
         sessao,
         turno,
-        resultado,
+        ResultadoTurno.HANDOFF,
         avaliacao,
         {"executado": False},
         agora,
-        texto_enviado=texto,
         redacao=redacao,
         rotulo=rotulo,
     )

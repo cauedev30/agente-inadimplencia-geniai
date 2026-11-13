@@ -20,7 +20,7 @@ from agente.tipos import (
     ResultadoTurno,
 )
 from agente.turno import orquestrador
-from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, TEXTO_RESPOSTA_SEGURA
+from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.orquestrador import processar_turno
 from agente.turno.uma_chamada import ORIGEM_UMA_CHAMADA, SINAIS
 
@@ -363,34 +363,23 @@ def _reprovada(acao="INFORM_DEBT"):
     return _bruto(acao=acao, reply="Fica R$ 70 no Pix {pix_copia_e_cola}")
 
 
-def test_duas_reprovadas_dao_a_resposta_segura_e_depois_o_humano_sem_nada_gravado(
+def test_duas_reprovadas_levam_ao_atendente_por_validacao_sem_nada_gravado(
     sessao, ligada, cliente, politica
 ):
-    deps = _deps(politica, [_reprovada(), _reprovada(), _reprovada(), _reprovada()])
+    deps = _deps(politica, [_reprovada(), _reprovada()])
 
-    assert cliente("quanto eu devo?", deps) is ResultadoTurno.ENVIADO
+    assert cliente("quanto eu devo?", deps) is ResultadoTurno.HANDOFF
 
-    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
+    assert ligada.motivo_humano is MotivoHumano.VALIDACAO
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
     turno = _turno(sessao)
-    assert turno.texto_enviado == TEXTO_RESPOSTA_SEGURA
-    assert turno.redacao["saida"] == "RESPOSTA_SEGURA" and len(turno.redacao["tentativas"]) == 2
+    assert turno.redacao["saida"] == "HANDOFF" and len(turno.redacao["tentativas"]) == 2
     assert turno.acao_principal == "NAO_EXECUTADA:INFORM_DEBT"
     assert turno.numeros == {"executado": False}
     assert sessao.scalars(select(Pagamento)).all() == []
     assert deps.pix.cobrancas == {} and deps.ctn.links == {}
-    assert (ligada.degrau_atual, ligada.forma_enviada, ligada.estado) == (
-        0,
-        None,
-        EstadoConversa.INICIADO,
-    )
-    [mensagem] = _do_agente(sessao)
-    assert (mensagem.texto, mensagem.conta_no_teto) == (TEXTO_RESPOSTA_SEGURA, True)
-
-    assert cliente("e aí?", deps) is ResultadoTurno.HANDOFF
-
-    assert ligada.motivo_humano is MotivoHumano.VALIDACAO
-    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA, TEXTO_CANAL_EXTERNO]
-    assert _turno(sessao).numeros == {"executado": False}
+    assert (ligada.degrau_atual, ligada.forma_enviada) == (0, None)
+    assert _do_agente(sessao) == []
 
 
 def test_o_desconto_reprovado_nao_gasta_o_degrau(sessao, ligada, cliente, politica):
@@ -399,7 +388,7 @@ def test_o_desconto_reprovado_nao_gasta_o_degrau(sessao, ligada, cliente, politi
 
     cliente("tá caro", deps)
 
-    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
     assert ligada.degrau_atual == 0
     assert _turno(sessao).acao_principal == "NAO_EXECUTADA:OFFER_DISCOUNT"
 
@@ -407,9 +396,9 @@ def test_o_desconto_reprovado_nao_gasta_o_degrau(sessao, ligada, cliente, politi
 def test_o_json_invalido_duas_vezes_e_nada_executado_sem_acao(sessao, ligada, cliente, politica):
     deps = _deps(politica, ["isso não é json", "{ainda não}"])
 
-    assert cliente("quanto eu devo?", deps) is ResultadoTurno.ENVIADO
+    assert cliente("quanto eu devo?", deps) is ResultadoTurno.HANDOFF
 
-    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
     assert _turno(sessao).acao_principal == "NAO_EXECUTADA:SEM_ACAO"
     assert _laudos(sessao, BatchJev.JEV1) == [] and _laudos(sessao, BatchJev.JEV2) == []
 
@@ -499,35 +488,6 @@ def test_o_pagamento_durante_a_chamada_do_acolhimento_leva_a_ignorado(
 
     assert deps.chatwoot.chamadas == [] and _do_agente(sessao) == []
     assert _turno(sessao).texto_enviado is None
-
-
-def test_o_acolhimento_reprovado_duas_vezes_da_a_resposta_segura(sessao, ligada, cliente, politica):
-    reprovada = _bruto(acao="NONE", reply="Sinto muito. Sua dívida é {divida}.")
-    deps = _deps(politica, [reprovada, reprovada])
-
-    assert cliente("to chateado", deps) is ResultadoTurno.ENVIADO
-
-    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
-    turno = _turno(sessao)
-    assert turno.acao_principal == "NAO_EXECUTADA:NONE"
-    assert turno.numeros == {"executado": False}
-    assert sessao.scalars(select(Pagamento)).all() == []
-
-
-def test_acolhimento_reprovado_e_none_vazio_depois_da_a_resposta_segura(
-    sessao, ligada, cliente, politica
-):
-    # M-a: antes, o NONE vazio da 2a tentativa fechava em SEM_ENVIO e o cliente ficava sem resposta.
-    reprovada = _bruto(acao="NONE", reply="Sinto muito. Sua dívida é {divida}.")
-    deps = _deps(politica, [reprovada, _bruto(acao="NONE", reply="")])
-
-    assert cliente("to chateado", deps) is ResultadoTurno.ENVIADO
-
-    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
-    turno = _turno(sessao)
-    assert turno.redacao["saida"] == "RESPOSTA_SEGURA"
-    assert turno.acao_principal == "NAO_EXECUTADA:NONE"
-    assert turno.numeros == {"executado": False}
 
 
 # O estado
@@ -660,18 +620,17 @@ def test_o_texto_recusado_depois_do_executar_desfaz_a_acao_e_grava_o_motivo(
     monkeypatch.setattr(orquestrador, "previa_numeros", previa_que_promete_o_link)
     deps = _deps(politica, [_bruto(reply=REPLY_DIVERGENTE)])
 
-    assert cliente("quanto eu devo?", deps) is ResultadoTurno.ENVIADO
+    assert cliente("quanto eu devo?", deps) is ResultadoTurno.HANDOFF
 
-    assert deps.chatwoot.enviadas(555) == [TEXTO_RESPOSTA_SEGURA]
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
     assert sessao.scalars(select(Pagamento)).all() == []
     assert (ligada.degrau_atual, ligada.forma_enviada) == (0, None)
-    assert ligada.estado is EstadoConversa.INICIADO
+    assert ligada.motivo_humano is MotivoHumano.VALIDACAO
     turno = _turno(sessao)
     assert turno.redacao["interpolacao_reprovada"] == ["marcador_sem_valor:link_ctn"]
-    assert turno.redacao["saida"] == "RESPOSTA_SEGURA"
+    assert turno.redacao["saida"] == "HANDOFF"
     assert (turno.acao_principal, turno.numeros) == (
         "NAO_EXECUTADA:INFORM_DEBT",
         {"executado": False},
     )
-    [mensagem] = _do_agente(sessao)
-    assert mensagem.texto == TEXTO_RESPOSTA_SEGURA
+    assert _do_agente(sessao) == []

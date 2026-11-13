@@ -20,9 +20,9 @@ from agente.tipos import (
     OrigemMensagem,
     ResultadoTurno,
 )
-from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, TEXTO_RESPOSTA_SEGURA
+from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.entrega import entregue
-from agente.turno.orquestrador import _ja_saiu_resposta_segura, processar_turno
+from agente.turno.orquestrador import processar_turno
 
 from .auxiliares import _bruto, _deps
 from .test_orquestrador_falhas import PixFora
@@ -213,20 +213,6 @@ def test_o_reenvio_que_cai_fora_da_janela_espera_ela_abrir(sessao, ligada, polit
     assert deps.chatwoot.enviadas(555) == []
     assert _do_agente(sessao)[0].envio is EstadoEnvio.PENDENTE
     assert ligada.falhas_turno == 1
-
-
-def test_a_resposta_segura_descartada_nao_conta_como_ja_enviada(sessao, ligada, politica):
-    registrar_mensagem(
-        sessao,
-        ligada.id,
-        OrigemMensagem.AGENTE,
-        TEXTO_RESPOSTA_SEGURA,
-        None,
-        False,
-        SEGUNDA_10H,
-        envio=EstadoEnvio.DESCARTADA,
-    )
-    assert _ja_saiu_resposta_segura(sessao, ligada.id) is False
 
 
 def test_a_mensagem_do_cliente_que_chegou_na_espera_ainda_ganha_o_seu_turno(
