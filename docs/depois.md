@@ -182,7 +182,8 @@ com a correção quando a hora chegar (texto completo na fonte).
 ## Da leitura a frio (2026-11-13)
 
 Fonte: a leitura a frio de `77a78f2` (`C:/aud-frio/LEITURA-A-FRIO.md`). O lote de correção levou os invariantes I-1,
-I-2, I-3, I-4 e I-8, o F-1 e os documentos D-1 a D-12. O que não entrou:
+I-2, I-3, I-4 e I-8, o F-1 e os documentos D-1 a D-12; o I-4 foi desfeito depois (ver a seção da 3ª auditoria).
+O que não entrou:
 
 - **I-5, figurinha junto de áudio não ouvido** (`turno/transcricao.py:68-73`): o anexo da figurinha e o rótulo
   `[Sticker]` tiram a rajada do pedido de texto; com `NONE`, sai o handoff `SEM_RESPOSTA` em vez de "Não consegui ouvir
@@ -204,7 +205,7 @@ I-2, I-3, I-4 e I-8, o F-1 e os documentos D-1 a D-12. O que não entrou:
 - **F-6, teste que confere a palavra errada** (`tests/turno/test_uma_chamada_entrada.py:290`, `"terceiro" in texto`: a
   regra de redação do terceiro saiu do prompt). **NÃO SERVE**.
 - **F-7, cobertura dos gates novos** (`tests/turno/test_transcricao.py:131-153`): em `tests/turno/test_gates.py` faltam
-  figurinha + foto, figurinha + áudio (I-5) e figurinha fora da janela; o lote do I-4 já pôs o rótulo com e sem anexo.
+  figurinha + foto, figurinha + áudio (I-5) e figurinha fora da janela.
   **NÃO SERVE**.
 - **F-8, figurinha e rótulo duplicados** (`turno/catalogo.py:109-110`, `turno/gates.py:95`, `turno/transcricao.py:33`):
   `_FIGURINHA` em dois módulos e `_ROTULO_DA_IMAGEM` copiando o rótulo de `ROTULOS_DE_ANEXO`. Mudar um rótulo quebra o
@@ -219,3 +220,30 @@ I-2, I-3, I-4 e I-8, o F-1 e os documentos D-1 a D-12. O que não entrou:
   provedor puder mudar. **ANTES DE ESCALAR**.
 - **F-12, teste da palavra-chave sem conferir o Luna** (`tests/turno/test_orquestrador_uma_chamada.py:157`): dá uma
   resposta ao Luna falso que nunca é usada e não confere `pedidos == []`. **NÃO SERVE**.
+
+## Da 3ª auditoria (2026-11-13)
+
+Fonte: as duas análises sobre `2489922` (harness e loop; correções depois da revisão). Daqui em diante, achado novo
+entra com título em palavras, sem série numerada. O que não entrou:
+
+- **Rótulo desconhecido do gateway com anexo** (`turno/gates.py`, `ROTULOS_DO_GATEWAY`): o rótulo genérico do I-4
+  fazia `[Video]`, `[Location]` e `[Contact]` com anexo ficarem em silêncio, sem atendente; foi desfeito. Hoje o rótulo
+  desconhecido é texto: vai ao Luna e, sem ação que sirva, ao atendente. No banco do `dev2` só chegaram `[Image]` e
+  `[Sticker]`. Tratar o vídeo ou o documento como foto quando um deles aparecer numa conversa. **TESTE MEDE**.
+- **Frase do handoff repetida na volta por conciliação** (`turno/orquestrador.py`, `_comprovante_sem_texto` e o sinal
+  `alega_pagamento`): quem já saiu por conciliação, voltou ao robô e manda a foto ou o "já paguei" recebe a frase de
+  novo; só a cobrança quitada no CTN confere `ja_saiu_por_conciliacao`. Junto do AUD-08. **ANTES DO PILOTO REAL**.
+- **Nota enganosa na pendente fora das 24h** (`turno/orquestrador.py`, `_refazer_envio`; `turno/handoff.py:22-25`): usa
+  a `NOTA_FORA_DAS_24H` ("o cliente escreveu fora do horário"), mas quem ficou preso foi a resposta do agente, e o texto
+  descartado não vai à nota. Nota própria com o texto que não saiu. **NÃO SERVE**.
+- **Código morto no ensaio** (`ferramentas/demo-whatsapp/ensaiar.py:568` e `:444-445`; a causa `acao_fora:` em
+  `turno/uma_chamada.py`): o turno em `ERRO` já chega como SEM TURNO e a causa não chega ao banco. O código de saída
+  segue 1. **NÃO SERVE**.
+- **Desconto sem guarda no código** (`turno/uma_chamada.py`, `acoes_permitidas`): só confere se há degrau, não se a
+  dívida já foi informada. A abertura informa a dívida, e o roteiro `comandos` mede o "Oi" no meio da conversa. Perda
+  limitada pelos degraus e pelo teto. **TESTE MEDE**.
+- **Motor de políticas** (as decisões em `gates.py`, `uma_chamada.py` e `orquestrador.py` numa tabela só, com o
+  orquestrador só executando) e **cada caso do ensaio rodado N vezes com limiar**: depois das notas dos testadores,
+  com os casos do ensaio como proteção. **ANTES DE ESCALAR**.
+- **Cada regra num documento só**: `arquitetura.md` e `spec.md` repetem regras da `politicas.md`; ao tocar neles,
+  trocar a repetição por um ponteiro. **NÃO SERVE**.

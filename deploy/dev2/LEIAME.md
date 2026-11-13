@@ -105,6 +105,11 @@ Na máquina de desenvolvimento, de dentro de `repo/`: `git archive --format=tar.
 Copie o arquivo para o servidor, extraia sobre `/opt/agente-inadimplencia/app/` (o `deploy/dev2/.env`
 não está no arquivo, então fica) e rode de novo o `up -d --build`. O banco e o volume continuam.
 
+Antes do `up`, compare a `politica-teste.toml` do servidor com o `deploy/dev2/politica-teste.exemplo.toml` do código
+novo: tire a chave que saiu e ponha a que entrou. A política recusa chave desconhecida e exige as obrigatórias, então
+o serviço não sobe com a cópia velha. O processo que está rodando leu a política na subida, e editar antes do `up` é
+seguro.
+
 ## Ver o log
 
 ```

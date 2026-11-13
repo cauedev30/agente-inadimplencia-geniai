@@ -42,7 +42,9 @@ de fora ("muito obrigada", "bom dia") tira a mensagem da lista. Vale só se **to
 cortesia: "ok, mas quanto fica?" vai ao Luna como qualquer pergunta. "Oi" não está na lista: no meio da conversa, ele
 é `INFORM_DEBT`.
 
-Uma linha nova na tabela muda só a **saída**. Uma situação nova ainda precisa de código que a detecte (um sinal, um
+Uma linha nova na tabela muda só a **saída**, dentro do mesmo tipo: trocar uma frase por outra, ou um motivo do
+atendente por outro. Trocar o tipo (frase ↔ atendente) pede código (`orquestrador.py`, `_motivo_da_politica` e
+`_frase_da_politica`). Uma situação nova ainda precisa de código que a detecte (um sinal, um
 gate ou uma ação); no prompt fica só a linha que faz o Luna reconhecê-la. Diante de uma exceção nova, a 1ª pergunta é
 "dá para mandar ao atendente?".
 
@@ -104,7 +106,8 @@ os tlds comuns. O ponto colado entre duas frases ("Obrigado.Até logo", "agora.C
 fora do piloto; anexo não aceito; só figurinha; fora da janela (o turno é adiado); fora das 24h (atendente, sem
 mensagem); a mensagem do agente gravada e ainda não enviada que passa das 24h na espera (o texto é descartado e a
 conversa vai ao atendente, com a nota, sem mensagem ao cliente), ou que o teto fecha na espera (descartada, porque as
-outras já saíram); quem já saiu pelo teto ou por conciliação e escreveu de novo (atendente, sem mensagem); a cobrança
+outras já saíram); quem já saiu pelo teto e escreveu de novo (atendente, sem mensagem); a cobrança quitada no CTN de
+quem já saiu por conciliação (atendente, sem mensagem; a foto e o "já paguei" repetem a frase); a cobrança
 que fecha no meio do turno; o turno em `ERRO`, que tem nova tentativa.
 
 Regra nova só entra como invariante se ganhar conferidor no código. Senão, é estilo.

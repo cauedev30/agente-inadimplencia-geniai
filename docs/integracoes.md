@@ -482,7 +482,9 @@ provedor, confira o que ele aceita no corpo.
 
 **Atenção ao `json_schema` estrito:** a saída do Luna vai em `response_format` com `json_schema` e `strict: true`
 (`integracoes/llm_turno.py`). O modelo ou o provedor novo tem de aceitá-lo e respeitá-lo; senão toda chamada falha e o
-turno cai nas 3 tentativas e em `INTEGRACAO_INDISPONIVEL`.
+turno cai nas 3 tentativas e em `INTEGRACAO_INDISPONIVEL`. Medido em 2026-11-13 com o `gpt-6-luna`: aceitou o esquema
+estrito com e sem `OFFER_DISCOUNT` no `enum` da ação (régua com e sem degrau) e a saída validou em todos os turnos do
+ensaio local (55/55) e dos 8 roteiros no celular, no `dev2`.
 
 **A confirmar:** a retenção de dados (LGPD) antes de liberar dado real. A comparação que sustentou a escolha do
 modelo está em [`comparacao-llm.md`](comparacao-llm.md) (histórico).
