@@ -109,13 +109,9 @@ def test_so_imagem_ou_arquivo_sem_texto_vai_ao_humano(sessao, conversa, politica
     assert _avaliar(sessao, conversa, [mensagem], politica) == ComprovanteSemTexto()
 
 
-def test_o_rotulo_de_documento_com_anexo_vai_ao_humano(sessao, conversa, politica):
-    mensagem = _cliente(sessao, conversa, texto="[Document]", anexos=[{"tipo": "file"}])
-    assert _avaliar(sessao, conversa, [mensagem], politica) == ComprovanteSemTexto()
-
-
-def test_o_rotulo_de_documento_sem_anexo_e_texto_do_cliente(sessao, conversa, politica):
-    mensagem = _cliente(sessao, conversa, texto="[Document]")
+def test_o_rotulo_desconhecido_com_anexo_vai_ao_luna(sessao, conversa, politica):
+    # O vídeo não pode ficar em silêncio: o rótulo dele é texto, e o Luna o passa ao atendente.
+    mensagem = _cliente(sessao, conversa, texto="[Video]", anexos=[{"tipo": "video"}])
     assert _avaliar(sessao, conversa, [mensagem], politica) == Seguir()
 
 

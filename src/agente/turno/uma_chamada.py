@@ -280,8 +280,7 @@ não é irritado: quem está chateado ou cansado, mas não agride, é neutro ou 
 aspereza, xingamento ou ameaça marcam irritado ou hostil. Sinal de saída, quer_humano e tom
 irritado ou hostil levam a conversa ao atendente.
 A acao é uma da lista acoes, escolhida pelo "quando" dela; nunca HUMAN. Quem quer pagar, paga: se o
-cliente pede o link ou o Pix, ou aceita a oferta, mande o meio de pagamento. Pergunta sobre a
-dívida que as ações não respondem (ex.: quais meses estão em aberto) é NONE.
+cliente pede o link ou o Pix, ou aceita a oferta, mande o meio de pagamento.
 
 Como escrever o reply (só nas ações de cobrança; nas outras, ele fica vazio):
 - Responda ao que o cliente perguntou, com as palavras dele, e cubra a ação inteira. Frases curtas,

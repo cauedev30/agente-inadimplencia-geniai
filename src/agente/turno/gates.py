@@ -7,7 +7,6 @@ arquivo sem texto (vai ao humano) e o toque no botão "Pagar com Pix". O toque n
 mensagem que dispensa a janela de atendimento (D40).
 """
 
-import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -88,17 +87,16 @@ Gate = (
 )
 
 
-# O texto que o gateway do WhatsApp põe na mensagem que é só anexo: `[Image]`, `[Sticker]`,
-# `[Document]`... Qualquer `[Palavra]` com anexo conta. A figurinha chega com anexo do tipo `image`,
-# igual à foto: só o rótulo distingue as duas.
-_ROTULO_DO_GATEWAY = re.compile(r"\[[A-Za-z]+\]")
+# O texto que o gateway põe na mensagem que é só anexo (outro rótulo, como `[Video]`, é texto e vai
+# ao Luna). A figurinha chega com anexo `image`, igual à foto: só o rótulo distingue as duas.
+ROTULOS_DO_GATEWAY = ("[Image]", "[Sticker]")
 _FIGURINHA = "[Sticker]"
 
 
 def _rotulo_do_gateway(mensagem: Mensagem) -> str | None:
     """O rótulo, se a mensagem é só ele e tem anexo; rótulo sem anexo é texto do cliente."""
     texto = mensagem.texto.strip()
-    return texto if _ROTULO_DO_GATEWAY.fullmatch(texto) and mensagem.anexos else None
+    return texto if texto in ROTULOS_DO_GATEWAY and mensagem.anexos else None
 
 
 def _tem_texto(mensagem: Mensagem) -> bool:

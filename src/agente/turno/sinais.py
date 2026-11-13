@@ -73,7 +73,10 @@ CRITERIOS_DA_ACAO = {
     Acao.OUT_OF_SCOPE: (
         "o assunto não é a dívida nem o pagamento (horário, endereço, outro serviço)"
     ),
-    Acao.NONE: "o cliente só confirma que leu ou agradece, sem pergunta nem pedido",
+    Acao.NONE: (
+        "o cliente só confirma que leu ou agradece, ou pergunta da dívida algo que as outras ações "
+        "não respondem (ex.: quais meses estão em aberto)"
+    ),
 }
 
 # O que cada ação pede ao texto. O nome da ação é o da arquitetura (seção 4).

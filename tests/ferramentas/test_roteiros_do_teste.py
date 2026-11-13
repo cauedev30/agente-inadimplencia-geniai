@@ -43,6 +43,7 @@ CHATWOOT_ID = 9001
 # O que o Luna daria a cada fala (a primeira chave contida nas `novas`); o resto é INFORM_DEBT.
 RESPOSTAS = {
     "já paguei": _bruto(alega_pagamento=True, acao="NONE", reply=""),
+    "quais meses": _bruto(acao="NONE", reply=""),
 }
 
 

@@ -177,6 +177,10 @@
       espera:
         acao: INFORM_DEBT
         resultado: ENVIADO
+    - cliente: "Quais meses estão em aberto?"
+      espera:
+        acao: "HUMAN:SEM_RESPOSTA"
+        resultado: HANDOFF
     - cliente: "/nota o texto ficou claro"
       espera:
         acao: "TESTE:NOTA"
