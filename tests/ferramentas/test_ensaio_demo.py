@@ -1132,10 +1132,16 @@ def test_montar_kit_de_teste_sem_a_politica_falha_dizendo_o_que_falta(tmp_path):
 
 
 def test_o_cli_com_politica_de_teste_que_nao_existe_sai_com_2(tmp_path, capsys):
+    # A chave do Luna é lida antes da política: sem a pasta de segredos do Cauê, o teste leva a sua.
+    segredos = tmp_path / "segredos"
+    segredos.mkdir()
+    (segredos / "openai.local.json").write_text('{"api_key": "falsa"}', encoding="utf-8")
     codigo = ensaiar.main(
         [
             "--kit",
             str(tmp_path),
+            "--segredos",
+            str(segredos),
             "--teste",
             str(tmp_path / "nao-existe.toml"),
             "--roteiros",

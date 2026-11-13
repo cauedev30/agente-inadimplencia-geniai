@@ -406,19 +406,55 @@ def test_o_turno_cuja_mensagem_saiu_continua_enviado(sessao, ligada, politica):
     assert _turnos(sessao, ResultadoTurno.DESCARTADO) == []
 
 
-def test_a_pendente_que_passou_das_24h_do_whatsapp_e_descartada(sessao, ligada, politica):
+def _notas(chatwoot):
+    return [chamada[2] for chamada in chatwoot.chamadas if chamada[0] == "nota_privada"]
+
+
+def test_a_pendente_que_passou_das_24h_do_whatsapp_vai_ao_atendente_com_nota(
+    sessao, ligada, politica
+):
     deps = _deps_com(politica, ChatwootInstavel(antes={1}))
     _pergunta(sessao, ligada)
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
     # O retorno só vem no dia seguinte à tarde: a última mensagem do cliente passou das 24h.
     mais_de_24h = SEGUNDA_10H + timedelta(hours=25)
 
-    assert processar_turno(sessao, ligada.id, mais_de_24h, deps) is ResultadoTurno.IGNORADO
+    assert processar_turno(sessao, ligada.id, mais_de_24h, deps) is ResultadoTurno.HANDOFF
 
     assert deps.chatwoot.enviadas(555) == []
     [mensagem] = _do_agente(sessao)
     assert (mensagem.envio, mensagem.conta_no_teto) == (EstadoEnvio.DESCARTADA, False)
+    assert (ligada.estado, ligada.motivo_humano) == (
+        EstadoConversa.ATENDIMENTO_HUMANO,
+        MotivoHumano.FORA_DAS_24H,
+    )
+    [nota] = _notas(deps.chatwoot)
+    assert "passaram as 24h do WhatsApp" in nota
     assert (ligada.turno_em, ligada.falhas_turno) == (None, 0)
+    [turno] = _turnos(sessao, ResultadoTurno.HANDOFF)
+    assert turno.acao_principal == "HUMAN:FORA_DAS_24H"
+    # O turno que gravou a resposta deixa de dizer que ela saiu.
+    assert _turnos(sessao, ResultadoTurno.ENVIADO) == []
+
+
+def test_a_pendente_fora_das_24h_fica_pendente_se_o_chatwoot_falha_na_nota(
+    sessao, ligada, politica
+):
+    class SemNota(ChatwootInstavel):
+        def nota_privada(self, conversa_id, texto):
+            raise httpx.ConnectError("o Chatwoot não respondeu")
+
+    deps = _deps_com(politica, SemNota(antes={1}))
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H + timedelta(hours=25), deps)
+
+    # O descarte é desfeito: a pendente volta a esperar, e a falha conta como de integração.
+    assert resultado is ResultadoTurno.ERRO
+    assert _do_agente(sessao)[0].envio is EstadoEnvio.PENDENTE
+    assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
+    assert ligada.falhas_turno == 2
 
 
 def test_a_pendente_barrada_pelo_teto_e_descartada(sessao, ligada, politica):

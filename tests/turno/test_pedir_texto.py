@@ -24,7 +24,7 @@ from agente.tipos import (
     TipoFixa,
 )
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, DadosFixa, mensagem_fixa
-from agente.turno.gates import Adiar, Ignorar, Seguir, avaliar_envio
+from agente.turno.gates import Adiar, ForaDas24h, Ignorar, Seguir, avaliar_envio
 from agente.turno.orquestrador import processar_turno
 from agente.turno.transcricao import pedido_de_texto
 from tests.ogg_opus import ogg_opus
@@ -367,7 +367,7 @@ class TestAvaliarEnvioDoPedidoPendente:
     def test_depois_das_24h_nao_sai(self, sessao, ligada, politica, pendente):
         depois = SEGUNDA_10H + timedelta(hours=25)
         gate = avaliar_envio(ligada, pendente, depois, politica, sessao)
-        assert isinstance(gate, Ignorar)
+        assert gate == ForaDas24h()
 
     def test_com_humano_na_conversa_nao_sai(self, sessao, ligada, politica, pendente):
         ligada.human_owned = True

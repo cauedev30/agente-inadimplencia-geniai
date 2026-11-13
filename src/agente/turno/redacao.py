@@ -14,11 +14,13 @@ from agente.turno.acoes import Acao
 from agente.turno.executar import Numeros
 
 _MARCADOR = re.compile(r"\{([a-z_]+)\}")
-_DIGITO = re.compile(r"\d")
 
-# Valor e prazo por extenso (sem acento, em minúsculas). O numeral sozinho é palavra comum ("os
-# dois", "zero burocracia", "mil desculpas", "o problema real"): só é barrado perto de uma palavra
-# de dinheiro, de prazo ou de "por cento", ou quando faz um número composto ("duzentos e trinta").
+# Valor e prazo por extenso (sem acento, em minúsculas). Os numerais pequenos são palavra comum
+# ("os dois", "zero burocracia", "mil desculpas", "o problema real", "um abraço"): "zero", "um/uma",
+# "dois/duas", "tres" a "nove" e "mil" só são barrados perto de uma palavra de dinheiro, de prazo ou
+# de "por cento", ou quando fazem um número composto ("duzentos e trinta"). De "dez" a
+# "novecentos", "cem", "cento" e "metade" quase só aparecem falando de valor ("sai por noventa"):
+# são barrados até soltos.
 _NUMERAIS = (
     "zero|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|catorze|quatorze"
     "|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta|quarenta|cinquenta|sessenta"
@@ -26,11 +28,19 @@ _NUMERAIS = (
     "|quatrocentas|quinhentos|quinhentas|seiscentos|seiscentas|setecentos|setecentas"
     "|oitocentos|oitocentas|novecentos|novecentas"
 )
+_NUMERAIS_SOLTOS = (
+    "dez|onze|doze|treze|catorze|quatorze|quinze|dezesseis|dezessete|dezoito|dezenove|vinte"
+    "|trinta|quarenta|cinquenta|sessenta|setenta|oitenta|noventa|cem|cento|duzentos|duzentas"
+    "|trezentos|trezentas|quatrocentos|quatrocentas|quinhentos|quinhentas|seiscentos|seiscentas"
+    "|setecentos|setecentas|oitocentos|oitocentas|novecentos|novecentas|metade"
+)
 _DINHEIRO_E_PRAZO = "reais|real|dias?|mes|meses|semanas?|anos?|horas?|parcelas?|mensalidades?"
 _POR_EXTENSO = re.compile(
     r"%|\b(?:"
+    # "sai por noventa", "fica por cem", "pague a metade".
+    rf"{_NUMERAIS_SOLTOS}"
     # "dez por cento", "cinquenta centavos", "um milhão" sempre falam de valor.
-    r"por cento|centavos?|milhao|milhoes"
+    r"|por cento|centavos?|milhao|milhoes"
     # "dois mil", "um mil", "mil e quinhentos", "mil reais".
     rf"|(?:{_NUMERAIS}|um|uma)\s+mil|mil\s+e\s+(?:{_NUMERAIS})|mil\s+(?:{_DINHEIRO_E_PRAZO})"
     # "duzentos e cinquenta".
@@ -41,11 +51,14 @@ _POR_EXTENSO = re.compile(
     rf"|(?:um|uma)\s+(?:{_DINHEIRO_E_PRAZO})"
     r")\b"
 )
-# Todo link vem do backend, em `{link_ctn}`: sobra "http", "www" e domínio solto.
+# Todo link vem do backend, em `{link_ctn}`: sobra "http", "www" e domínio solto. Qualquer
+# `palavra.tld` com o tld em minúsculas (de 2 a 24 letras) é domínio, seja qual for o tld; com
+# maiúscula, só os tlds comuns, porque "Obrigado.Até logo" é o ponto colado entre duas frases.
 _LINK = re.compile(
-    r"\bhttps?\b|\bwww\b|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*(?P<tld>\.(?:com|net|org|br|io|app|me|co|ly"
-    r"|link|info|biz|gov|edu|xyz|site|online|dev|invalid|example))\b",
-    re.IGNORECASE,
+    r"(?i:\bhttps?\b|\bwww\b)"
+    r"|\b[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*(?P<tld>\.(?:[a-z]{2,24}"
+    r"|(?i:com|net|org|br|io|app|me|co|ly|link|info|biz|gov|edu|xyz|site|online|dev|invalid"
+    r"|example)))\b"
 )
 # "agora.Com o valor": o ponto final sem espaço, com a próxima frase começando em maiúscula. Só
 # "Com" e "Me" abrem frase em português; os outros TLDs ("Online", "Site", "Link") ficam barrados.
@@ -112,6 +125,11 @@ def _sem_acento(texto: str) -> str:
     return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
 
 
+def _tem_numero(texto: str) -> bool:
+    """Dígito de qualquer alfabeto, ou o caractere que vale um número ("①", "²", "½")."""
+    return any(unicodedata.numeric(letra, None) is not None for letra in texto)
+
+
 def _tem_link(texto: str) -> bool:
     """Link ou domínio no texto (sem acento, com a caixa original).
 
@@ -134,7 +152,7 @@ def motivos_do_texto(texto: str) -> list[str]:
     """
     motivos = []
     fora = _MARCADOR.sub("", texto)
-    if _DIGITO.search(fora) or "R$" in fora:
+    if _tem_numero(fora) or "R$" in fora:
         motivos.append("valor_em_digitos")
     simples = _sem_acento(fora).lower()
     if _POR_EXTENSO.search(simples):

@@ -7,6 +7,7 @@ arquivo sem texto (vai ao humano) e o toque no botão "Pagar com Pix". O toque n
 mensagem que dispensa a janela de atendimento (D40).
 """
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -87,16 +88,17 @@ Gate = (
 )
 
 
-# O texto que o gateway do WhatsApp põe na mensagem que é só anexo. A figurinha chega com anexo do
-# tipo `image`, igual à foto: só o rótulo distingue as duas.
-ROTULOS_DO_GATEWAY = ("[Image]", "[Sticker]")
+# O texto que o gateway do WhatsApp põe na mensagem que é só anexo: `[Image]`, `[Sticker]`,
+# `[Document]`... Qualquer `[Palavra]` com anexo conta. A figurinha chega com anexo do tipo `image`,
+# igual à foto: só o rótulo distingue as duas.
+_ROTULO_DO_GATEWAY = re.compile(r"\[[A-Za-z]+\]")
 _FIGURINHA = "[Sticker]"
 
 
 def _rotulo_do_gateway(mensagem: Mensagem) -> str | None:
     """O rótulo, se a mensagem é só ele e tem anexo; rótulo sem anexo é texto do cliente."""
     texto = mensagem.texto.strip()
-    return texto if texto in ROTULOS_DO_GATEWAY and mensagem.anexos else None
+    return texto if _ROTULO_DO_GATEWAY.fullmatch(texto) and mensagem.anexos else None
 
 
 def _tem_texto(mensagem: Mensagem) -> bool:
@@ -219,7 +221,8 @@ def avaliar_envio(
     """Os gates da mensagem do agente já gravada (PENDENTE), antes de ela ir ao Chatwoot.
 
     O que pode ter mudado na espera: cobrança, humano, janela de atendimento, janela de 24h e teto.
-    Só `Seguir`, `Ignorar` (o texto não sai mais) e `Adiar` (sai quando a janela abrir) voltam.
+    Só `Seguir`, `Ignorar` (o texto não sai mais), `Adiar` (sai quando a janela abrir) e
+    `ForaDas24h` (o texto não sai mais e o humano assume, como no turno normal) voltam.
     """
     if conversa.cobranca.status is not StatusCobranca.ATIVA:
         return Ignorar("sem_cobranca_ativa")
@@ -233,7 +236,7 @@ def avaliar_envio(
         )
     )
     if ultima is not None and agora - ultima > JANELA_WHATSAPP:
-        return Ignorar("fora_das_24h")
+        return ForaDas24h()
     # A própria mensagem já conta no teto: o que a barra são as outras.
     outras = mensagens_no_teto(sessao, conversa.id) - (1 if mensagem.conta_no_teto else 0)
     if outras >= politica.teto_resolucao:

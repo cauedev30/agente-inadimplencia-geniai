@@ -80,6 +80,9 @@ def test_o_r_70_cru_escrito_pelo_llm_e_barrado():
         "O valor é R$ {divida}",  # o R$ escrito pelo LLM duplica o do backend
         "O valor é R$ setenta: {divida}",
         "O valor é ٣ reais: {divida}",  # dígito de outro alfabeto
+        "Ligue para a central ① ②: {divida}",  # dígito dentro do círculo
+        "Fica por R² {divida}",  # o expoente vale um número
+        "Fica ½ do valor: {divida}",  # a fração vale um número
     ],
 )
 def test_qualquer_valor_escrito_pelo_llm_e_barrado(texto):
@@ -104,6 +107,12 @@ def test_qualquer_valor_escrito_pelo_llm_e_barrado(texto):
         "Fica mil reais: {divida}",
         "Pague em duas parcelas: {divida}",
         "São quinhentos reais: {divida}",
+        "Hoje sai por noventa: {divida}",  # o numeral de dezena ou centena vale solto
+        "Fica por cem: {divida}",
+        "Fica por cento e dez: {divida}",
+        "Fica por dez: {divida}",
+        "Fica por novecentas: {divida}",
+        "Pague a metade: {divida}",
     ],
 )
 def test_valor_e_prazo_por_extenso_sao_barrados(texto):
@@ -120,6 +129,9 @@ def test_valor_e_prazo_por_extenso_sao_barrados(texto):
         "Pague em HTTP://exemplo/pagar {divida}",
         "Pague em https://pagamento-falso.example/x {divida}",
         "Pague em pagamento.net {divida}",
+        "Veja em cartaodetodos.shop. {divida}",  # o tld fora da lista também é domínio
+        "Pague em pague.site {divida}",
+        "Veja loja.pagamentos/x {divida}",
     ],
 )
 def test_link_ou_dominio_inventado_e_barrado(texto):
@@ -151,6 +163,9 @@ def test_link_em_maiuscula_continua_barrado(texto):
     [
         "Combinado, vou verificar agora.Com isso fica resolvido. {divida}",
         "Estou à disposição.Me avise se tiver dúvida. {divida}",
+        "Obrigado.Até logo. {divida}",
+        "Combinado.Vamos resolver isso. {divida}",
+        "Pode pagar agora.Com agora mesmo fica melhor. {divida}",
     ],
 )
 def test_ponto_sem_espaco_entre_frases_nao_e_link(texto):
@@ -180,6 +195,9 @@ def test_os_motivos_novos_se_somam_aos_antigos():
         "Posso ajudar com os dois assuntos.",
         "Entendo que o problema é real.",
         "Zero burocracia para resolver.",
+        "Os dois assuntos ficam resolvidos.",
+        "Vou olhar as três opções.",
+        "Fico no aguardo, são só nove perguntas.",
     ],
 )
 def test_o_texto_normal_passa(texto):

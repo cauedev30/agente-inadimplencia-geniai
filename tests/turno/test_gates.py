@@ -109,6 +109,21 @@ def test_so_imagem_ou_arquivo_sem_texto_vai_ao_humano(sessao, conversa, politica
     assert _avaliar(sessao, conversa, [mensagem], politica) == ComprovanteSemTexto()
 
 
+def test_o_rotulo_de_documento_com_anexo_vai_ao_humano(sessao, conversa, politica):
+    mensagem = _cliente(sessao, conversa, texto="[Document]", anexos=[{"tipo": "file"}])
+    assert _avaliar(sessao, conversa, [mensagem], politica) == ComprovanteSemTexto()
+
+
+def test_o_rotulo_de_documento_sem_anexo_e_texto_do_cliente(sessao, conversa, politica):
+    mensagem = _cliente(sessao, conversa, texto="[Document]")
+    assert _avaliar(sessao, conversa, [mensagem], politica) == Seguir()
+
+
+def test_a_figurinha_com_o_rotulo_do_gateway_segue_sem_resposta(sessao, conversa, politica):
+    mensagem = _cliente(sessao, conversa, texto="[Sticker]", anexos=[{"tipo": "image"}])
+    assert _avaliar(sessao, conversa, [mensagem], politica) == Ignorar("figurinha")
+
+
 def test_imagem_com_texto_na_rajada_segue(sessao, conversa, politica):
     foto = _cliente(sessao, conversa, texto="", anexos=[{"tipo": "image"}])
     texto = _cliente(sessao, conversa, texto="segue o comprovante", mid="cw-2")

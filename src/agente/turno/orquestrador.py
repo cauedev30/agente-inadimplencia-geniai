@@ -1004,6 +1004,39 @@ def _entregar(
     return ResultadoTurno.ENVIADO
 
 
+def _passar_ao_humano_fora_das_24h(
+    sessao: Session, conversa: Conversa, mensagem: Mensagem, deps: Dependencias, agora: datetime
+) -> ResultadoTurno:
+    """A pendente passou das 24h do WhatsApp na espera: o texto não sai e o humano assume.
+
+    O mesmo handoff do turno normal (`FORA_DAS_24H`, com a nota e sem mensagem ao cliente): a
+    mensagem que não saiu não pode sumir sem que ninguém saiba (AUD-04). Se o Chatwoot falha no
+    handoff, o descarte é desfeito e a tentativa conta como falha de integração.
+    """
+    try:
+        with sessao.begin_nested():
+            _descartar(sessao, mensagem)
+            mensagens = tomar_turno(sessao, conversa.id)
+            turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens])
+            turno.humano_na_conversa = False
+            _handoff(
+                sessao, conversa, MotivoHumano.FORA_DAS_24H, deps, agora, enviar_mensagem=False
+            )
+            conversa.falhas_turno = 0
+            fechar_turno(
+                sessao,
+                turno.id,
+                ResultadoTurno.HANDOFF,
+                acao_principal=rotulo_humano(MotivoHumano.FORA_DAS_24H),
+                redacao={"saida": "HANDOFF"},
+                momento=agora,
+            )
+    except _FALHAS_DE_INTEGRACAO as erro:
+        log.exception("o handoff da conversa %s fora das 24h falhou", conversa.id)
+        return _registrar_falha(sessao, conversa.id, erro, deps, agora, desistindo=False)
+    return ResultadoTurno.HANDOFF
+
+
 def _refazer_envio(
     sessao: Session, conversa: Conversa, mensagem: Mensagem, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
@@ -1015,8 +1048,10 @@ def _refazer_envio(
     if isinstance(gate, Adiar):
         agendar_turno(sessao, conversa.id, gate.ate)
         return ResultadoTurno.ADIADO
+    if isinstance(gate, ForaDas24h):
+        return _passar_ao_humano_fora_das_24h(sessao, conversa, mensagem, deps, agora)
     if not isinstance(gate, Seguir):
-        # O humano assumiu, a cobrança fechou, passaram as 24h ou o teto fechou: o texto não sai.
+        # O humano assumiu, a cobrança fechou ou o teto fechou: o texto não sai.
         _descartar(sessao, mensagem)
         conversa.falhas_turno = 0
         _limpar_retorno(sessao, conversa, agora, None)
