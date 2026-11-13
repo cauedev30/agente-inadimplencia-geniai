@@ -89,6 +89,10 @@ class MotivoHumano(StrEnum):
     # O cliente escreveu fora do horário e passaram as 24h do WhatsApp: só um template poderia sair
     # (AUD-04). A coluna é VARCHAR, então o motivo novo não pede migração.
     FORA_DAS_24H = "FORA_DAS_24H"
+    # O Luna não achou o que responder e a mensagem não é só cortesia (ok, obrigado, emoji): o
+    # cliente não pode ficar sem resposta, então o atendente segue. A coluna é VARCHAR: sem
+    # migração.
+    SEM_RESPOSTA = "SEM_RESPOSTA"
 
 
 class FormaPagamento(StrEnum):

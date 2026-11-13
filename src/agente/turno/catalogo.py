@@ -3,6 +3,8 @@
 Os textos de confirmação são provisórios: o projeto desenha os finais (D28).
 """
 
+import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -38,12 +40,69 @@ class Atendente:
 
 class Situacao(StrEnum):
     TEXTO_REPROVADO = "TEXTO_REPROVADO"
+    SEM_RESPOSTA = "SEM_RESPOSTA"
+    FOTO_SEM_TEXTO = "FOTO_SEM_TEXTO"
 
 
 POLITICAS: dict[Situacao, Frase | Atendente] = {
     # Um texto que não passou duas vezes não vira outra tentativa de texto: o atendente segue.
     Situacao.TEXTO_REPROVADO: Atendente(MotivoHumano.VALIDACAO),
+    # O Luna não tem o que mandar e a mensagem não é cortesia: o cliente não fica sem resposta.
+    Situacao.SEM_RESPOSTA: Atendente(MotivoHumano.SEM_RESPOSTA),
+    # O Luna não lê imagem; foto ou arquivo sem texto em geral é comprovante: alguém confere.
+    Situacao.FOTO_SEM_TEXTO: Atendente(MotivoHumano.CONCILIACAO),
 }
+
+
+# A mensagem que não pede resposta. Fechada e pequena: o que fica fora dela vai ao atendente, que é
+# o erro seguro. "Oi" não está aqui, porque no meio da conversa ele pede a dívida de novo.
+CORTESIA: frozenset[str] = frozenset(
+    {
+        "ok",
+        "okay",
+        "blz",
+        "beleza",
+        "ta bom",
+        "certo",
+        "entendi",
+        "combinado",
+        "obrigado",
+        "obrigada",
+        "obg",
+        "valeu",
+        "vlw",
+    }
+)
+
+
+def _simplificar(texto: str) -> tuple[str, bool]:
+    """O texto sem acento, pontuação, emoji e caixa, espaços normalizados; e se tinha emoji."""
+    letras, tem_emoji = [], False
+    for caractere in unicodedata.normalize("NFKD", texto):
+        categoria = unicodedata.category(caractere)
+        if categoria == "So":
+            tem_emoji = True
+        if categoria[0] == "M":
+            # O acento, separado da letra pela decomposição, some sem partir a palavra.
+            continue
+        if categoria[0] in "PSCZ":
+            # Pontuação (P), símbolo e emoji (S), controle e junção (C) e espaço (Z) separam.
+            letras.append(" ")
+        else:
+            letras.append(caractere.lower())
+    return " ".join("".join(letras).split()), tem_emoji
+
+
+def e_cortesia(textos: Sequence[str]) -> bool:
+    """Todas as mensagens novas estão na lista de cortesia ou são só emoji; sem mensagem, não."""
+    if not textos:
+        return False
+    for texto in textos:
+        simples, tem_emoji = _simplificar(texto)
+        if simples not in CORTESIA and not (simples == "" and tem_emoji):
+            return False
+    return True
+
 
 # A resposta ao toque em "Pagar com Pix" (D26, D59): fixa, com os marcadores que o `interpolar`
 # preenche com o Pix do backend. Conta no teto como qualquer mensagem (D40). A frase do recebedor

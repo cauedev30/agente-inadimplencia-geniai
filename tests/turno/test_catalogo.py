@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from agente.tipos import Botao, TipoFixa
-from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, DadosFixa, mensagem_fixa
+from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, DadosFixa, e_cortesia, mensagem_fixa
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 
@@ -12,6 +12,22 @@ DADOS = DadosFixa(
     valor_centavos=10020,
     link_cartao="https://ctn.invalid/cartao/1",
 )
+
+
+@pytest.mark.parametrize(
+    ("textos", "cortesia"),
+    [
+        (["Ok!"], True),
+        (["Tá bom.", "obrigada"], True),
+        (["👍"], True),
+        (["ok, mas quanto fica?"], False),
+        (["ok", "quanto fica?"], False),
+        (["oi"], False),
+        ([], False),
+    ],
+)
+def test_cortesia_so_quando_todas_as_mensagens_estao_na_lista(textos, cortesia):
+    assert e_cortesia(textos) is cortesia
 
 
 def test_canal_externo_diz_que_o_atendente_segue_na_conversa_e_nao_tem_botao():

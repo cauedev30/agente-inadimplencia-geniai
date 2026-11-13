@@ -1,10 +1,10 @@
 """Gates em código (arquitetura, seção 1): certezas que ficam fora do Jev.
 
 O segredo, o JSON, a conta, a inbox e o dedupe já ficaram no webhook (tarefa 3.4). Aqui ficam os
-gates do turno, nesta ordem: cobrança ativa, humano na conversa, reinício, anexo, janela de
-atendimento, janela de 24h do WhatsApp, teto, a cobrança quitada no CTN, a foto ou o arquivo sem
-texto (vai ao humano) e o toque no botão "Pagar com Pix". O toque no botão é a única mensagem que
-dispensa a janela de atendimento (D40).
+gates do turno, nesta ordem: cobrança ativa, humano na conversa, reinício, anexo, figurinha,
+janela de atendimento, janela de 24h do WhatsApp, teto, a cobrança quitada no CTN, a foto ou o
+arquivo sem texto (vai ao humano) e o toque no botão "Pagar com Pix". O toque no botão é a única
+mensagem que dispensa a janela de atendimento (D40).
 """
 
 from dataclasses import dataclass
@@ -87,18 +87,44 @@ Gate = (
 )
 
 
+# O texto que o gateway do WhatsApp põe na mensagem que é só anexo. A figurinha chega com anexo do
+# tipo `image`, igual à foto: só o rótulo distingue as duas.
+ROTULOS_DO_GATEWAY = ("[Image]", "[Sticker]")
+_FIGURINHA = "[Sticker]"
+
+
+def _rotulo_do_gateway(mensagem: Mensagem) -> str | None:
+    """O rótulo, se a mensagem é só ele e tem anexo; rótulo sem anexo é texto do cliente."""
+    texto = mensagem.texto.strip()
+    return texto if texto in ROTULOS_DO_GATEWAY and mensagem.anexos else None
+
+
+def _tem_texto(mensagem: Mensagem) -> bool:
+    return bool(mensagem.texto.strip()) and _rotulo_do_gateway(mensagem) is None
+
+
+def _so_figurinha(mensagens: list[Mensagem]) -> bool:
+    """A rajada é só figurinha: não há o que ler nem o que conferir."""
+    return all(_rotulo_do_gateway(mensagem) == _FIGURINHA for mensagem in mensagens)
+
+
 def _so_imagem_ou_arquivo(mensagens: list[Mensagem]) -> bool:
     """Sem texto em nenhuma mensagem, sem áudio (que é transcrito) e com ao menos uma imagem ou um
-    arquivo."""
-    tipos = [anexo.get("tipo") for mensagem in mensagens for anexo in mensagem.anexos]
-    if any(mensagem.texto.strip() for mensagem in mensagens) or "audio" in tipos:
+    arquivo. A figurinha nunca conta como imagem, porque não é comprovante."""
+    tipos = [
+        anexo.get("tipo")
+        for mensagem in mensagens
+        if _rotulo_do_gateway(mensagem) != _FIGURINHA
+        for anexo in mensagem.anexos
+    ]
+    if any(_tem_texto(mensagem) for mensagem in mensagens) or "audio" in tipos:
         return False
     return "image" in tipos or "file" in tipos
 
 
 def _so_anexo_nao_aceito(mensagens: list[Mensagem], politica: Politica) -> bool:
     for mensagem in mensagens:
-        if mensagem.texto.strip():
+        if _tem_texto(mensagem):
             return False
         if any(anexo.get("tipo") in politica.anexos_aceitos for anexo in mensagem.anexos):
             return False
@@ -150,6 +176,8 @@ def avaliar_gates(
         return Ignorar("humano_na_conversa")
     if _so_anexo_nao_aceito(mensagens, politica):
         return Ignorar("anexo_nao_aceito")
+    if _so_figurinha(mensagens):
+        return Ignorar("figurinha")
     toque = _so_toque_no_botao_pix(mensagens)
     if not toque and not dentro_da_janela(agora, politica):
         # O toque no botão é a exceção à D16 (D40): quem toca quer pagar agora, e a resposta é uma

@@ -53,6 +53,7 @@ from agente.turno.catalogo import (
     Atendente,
     DadosFixa,
     Situacao,
+    e_cortesia,
     mensagem_fixa,
 )
 from agente.turno.entrega import confirmar_envio, entregue
@@ -618,8 +619,23 @@ def _seguir(
     veredito = resolucao.veredito
     laudo_da_acao = ids.get((BatchJev.JEV2, "acao"))
     if veredito.acao is Acao.NONE and resolucao.reply is None:
-        # Não agir (ou o terceiro sem texto): nada é enviado. O `NONE` com texto aprovado (o
-        # acolhimento, D47 decisão 18) segue abaixo, como o terceiro.
+        if not veredito.terceiro and not e_cortesia(novas):
+            # O Luna não tem o que mandar, e a mensagem pedia resposta: o atendente segue, para o
+            # cliente não ficar sem resposta. Só a cortesia (ok, obrigado, emoji) fica em silêncio.
+            motivo = _motivo_da_politica(Situacao.SEM_RESPOSTA)
+            _handoff(sessao, conversa, motivo, deps, agora, laudo_id=laudo_da_acao)
+            return _fechar(
+                sessao,
+                turno,
+                ResultadoTurno.HANDOFF,
+                avaliacao,
+                {},
+                agora,
+                redacao=resolucao.como_dict("HANDOFF"),
+                rotulo=rotulo_humano(motivo),
+            )
+        # A cortesia (ou o terceiro sem texto): nada é enviado. O `NONE` com texto aprovado segue
+        # abaixo, como o terceiro.
         destino = proximo_estado(conversa.estado, None, False)
         _mudar_estado(sessao, conversa, destino, laudo_da_acao, agora)
         return _fechar(
@@ -1077,9 +1093,10 @@ def _quitada(
 def _comprovante_sem_texto(
     sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
-    """Foto ou arquivo sem texto (gate `ComprovanteSemTexto`, AUD-07): sem Luna, o humano confere.
+    """Foto ou arquivo sem texto (gate `ComprovanteSemTexto`): sem Luna, o humano confere.
 
-    A saída é a CONCILIACAO, a mesma do "já paguei": o atendente vê o comprovante no Chatwoot.
+    A saída é a da tabela de políticas, a mesma do "já paguei": o atendente vê o comprovante no
+    Chatwoot.
     """
     if _cobranca_fechou_no_meio(sessao, conversa):
         fechar_turno(
@@ -1090,12 +1107,13 @@ def _comprovante_sem_texto(
             momento=agora,
         )
         return ResultadoTurno.IGNORADO
-    _handoff(sessao, conversa, MotivoHumano.CONCILIACAO, deps, agora)
+    motivo = _motivo_da_politica(Situacao.FOTO_SEM_TEXTO)
+    _handoff(sessao, conversa, motivo, deps, agora)
     fechar_turno(
         sessao,
         turno.id,
         ResultadoTurno.HANDOFF,
-        acao_principal=rotulo_humano(MotivoHumano.CONCILIACAO),
+        acao_principal=rotulo_humano(motivo),
         redacao={"saida": "HANDOFF", "motivo": "anexo_sem_texto"},
         momento=agora,
     )

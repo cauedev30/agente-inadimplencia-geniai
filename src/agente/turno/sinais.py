@@ -55,8 +55,9 @@ class LeituraJev1:
 CRITERIOS_DA_ACAO = {
     Acao.INFORM_DEBT: (
         "o cliente pergunta quanto deve, não entendeu o valor ou pede que o expliquem, pergunta "
-        "como pagar, pede parcelamento (a dívida é à vista) ou diz que quer pagar, sem escolher "
-        "Pix nem cartão; o sistema junta a forma de pagamento"
+        "como pagar, pede parcelamento (a dívida é à vista), diz que quer pagar, sem escolher "
+        "Pix nem cartão, ou só cumprimenta (bom dia, oi, olá); o sistema junta a forma de "
+        "pagamento"
     ),
     Acao.OFFER_DISCOUNT: (
         "o cliente acha caro, diz que não consegue pagar tudo, pede desconto ou um valor melhor, "
@@ -72,10 +73,7 @@ CRITERIOS_DA_ACAO = {
     Acao.OUT_OF_SCOPE: (
         "o assunto não é a dívida nem o pagamento (horário, endereço, outro serviço)"
     ),
-    Acao.NONE: (
-        "o cliente só cumprimenta (bom dia, oi, olá), confirma que leu ou agradece, sem pergunta "
-        "nem pedido"
-    ),
+    Acao.NONE: "o cliente só confirma que leu ou agradece, sem pergunta nem pedido",
 }
 
 # O que cada ação pede ao texto. O nome da ação é o da arquitetura (seção 4).

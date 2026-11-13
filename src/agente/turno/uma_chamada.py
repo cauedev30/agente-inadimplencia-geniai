@@ -95,8 +95,8 @@ GLOSSARIO_MARCADORES: dict[str, str] = {
 # A ação sem efeito não está no `DESCRICAO_ACOES`, que é o que o texto faz. Tem dois usos (D47,
 # decisão 18): o silêncio e o acolhimento, sem marcador, valor, link nem Pix.
 _FAZ_NONE = (
-    "nenhuma ação de cobrança neste turno. Se o cliente não pede nada (ok, obrigado, um "
-    "cumprimento solto), o reply fica vazio. Se desabafa ou reclama sem pedir nada (chateado, "
+    "nenhuma ação de cobrança neste turno. Se o cliente não pede nada (ok, obrigado), o reply "
+    "fica vazio. Se desabafa ou reclama sem pedir nada (chateado, "
     "cansado, frustrado, sobrecarregado), o reply são uma ou duas frases que acolhem e perguntam "
     "o que houve ou do que ele precisa, sem marcador, valor, link nem Pix. O NONE acolhe só "
     "desabafo. Pergunta fora do escopo (ex.: quais meses estão em aberto) é OUT_OF_SCOPE, nunca "
@@ -302,7 +302,7 @@ Regras de cada campo:
   aceita a oferta, mande o meio de pagamento.
 - reply: a mensagem ao cliente, com os marcadores obrigatórios da ação escolhida e, se ajudar, os
   opcionais. Cubra a ação inteira nesta mensagem. Com a ação NONE, o reply tem dois usos. Fica
-  vazio para quem não pede nada (ok, obrigado, um cumprimento solto). Para quem desabafa ou
+  vazio para quem não pede nada (ok, obrigado). Para quem desabafa ou
   reclama sem pedir nada (chateado, cansado, frustrado, sobrecarregado) e nenhum sinal de saída
   é true (se algum for, o acolhimento não vale: o texto vai no handoff_reply), são uma ou duas
   frases que acolhem e perguntam o que houve ou do que ele precisa, sem marcador, sem valor, sem
@@ -618,8 +618,6 @@ def resolver_turno(
     """
     resolucao = ResolucaoTurno()
     reprovadas: list[str] = []
-    # Um texto não vazio já reprovou na prévia: o silêncio da tentativa seguinte não vale.
-    texto_reprovado = False
     for _ in range(TENTATIVAS_UMA_CHAMADA):
         try:
             saida = ler_saida(llm.completar_json(*montar_mensagens(entrada, reprovadas)))
@@ -652,11 +650,6 @@ def resolver_turno(
             return resolucao
         if veredito.acao is None and not veredito.terceiro:
             reprovadas = [f"acao_nao_permitida:{saida.acao}"]
-        elif sem_efeito(veredito) and not saida.reply.strip() and texto_reprovado:
-            # M-a: o texto da tentativa anterior reprovou e esta devolve `NONE` vazio. O cliente não
-            # pode ficar sem resposta: conta como reprovada, e o fim das tentativas leva ao
-            # atendente.
-            reprovadas = ["texto_vazio"]
         elif sem_efeito(veredito) and not saida.reply.strip():
             # Nada a enviar. O terceiro sem texto segue como `NONE`, com o rótulo do terceiro. O
             # `NONE` com texto é conferido abaixo, como o do terceiro (decisão 18).
@@ -666,7 +659,6 @@ def resolver_turno(
             return resolucao
         else:
             reprovadas = _conferir_texto(veredito, saida.reply, previa)
-            texto_reprovado = bool(reprovadas) and bool(saida.reply.strip())
         resolucao.tentativas.append(TentativaUmaChamada(saida.acao, saida.reply, tuple(reprovadas)))
         if not reprovadas:
             resolucao.reply = saida.reply

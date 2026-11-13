@@ -128,6 +128,29 @@ def test_so_foto_ou_arquivo_sem_texto_vai_ao_humano_sem_chamar_o_luna(
     assert deps.llm_turno.pedidos == []
 
 
+def test_foto_com_o_rotulo_do_gateway_vai_a_conciliacao_sem_chamar_o_luna(sessao, ligada, politica):
+    deps = _deps(politica, transcritor=None)
+    _cliente(sessao, ligada, texto="[Image]", anexos=[{"tipo": "image", "url": URL_AUDIO}])
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.HANDOFF
+    assert ligada.motivo_humano is MotivoHumano.CONCILIACAO
+    assert deps.llm_turno.pedidos == []
+
+
+def test_so_figurinha_fica_em_silencio_sem_chamar_o_luna(sessao, ligada, politica):
+    # A figurinha chega com anexo do tipo image, igual à foto: só o rótulo a distingue.
+    deps = _deps(politica, transcritor=None)
+    _cliente(sessao, ligada, texto="[Sticker]", anexos=[{"tipo": "image", "url": URL_AUDIO}])
+
+    resultado = processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+
+    assert resultado is ResultadoTurno.IGNORADO
+    assert deps.llm_turno.pedidos == [] and deps.chatwoot.chamadas == []
+    assert ligada.motivo_humano is None
+
+
 def test_foto_com_texto_segue_o_turno_e_o_historico_mostra_o_rotulo(sessao, ligada, politica):
     deps = _deps(politica, transcritor=None)
     _cliente(sessao, ligada, texto="segue o comprovante", anexos=[{"tipo": "image"}])

@@ -418,6 +418,18 @@ def test_none_fecha_sem_envio_e_o_iniciado_vai_a_engajado(sessao, ligada, client
     assert deps.pix.cobrancas == {} and deps.ctn.links == {}
 
 
+def test_none_vazio_fora_da_cortesia_vai_ao_atendente_sem_resposta(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica, [_bruto(acao="NONE", reply="")])
+
+    assert cliente("to cansado disso tudo", deps) is ResultadoTurno.HANDOFF
+
+    assert ligada.motivo_humano is MotivoHumano.SEM_RESPOSTA
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+    assert _turno(sessao).acao_principal == "HUMAN:SEM_RESPOSTA"
+
+
 def test_o_terceiro_recebe_o_texto_sem_valor_nem_link_nem_pix(sessao, ligada, cliente, politica):
     deps = _deps(politica, [_bruto(terceiro=True, reply=REPLY_TERCEIRO)])
 
