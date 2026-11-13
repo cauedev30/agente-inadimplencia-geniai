@@ -161,13 +161,19 @@
     mensalidades: 2
 
 # Os comandos do testador: a lista de casos, a nota presa ao último turno, o comando desconhecido e o
-# /reset, que recomeça o caso atual (a abertura volta no "Oi" seguinte).
+# /reset, que recomeça o caso atual (a abertura volta no "Oi" seguinte). O "Oi" no meio da conversa
+# não é cortesia: o agente volta a informar o débito. Fica aqui, e não num caso que termina PAGA,
+# porque os comandos do teste rodam antes do turno e um handoff inesperado não os estraga.
 - nome: comandos
   passos:
     - cliente: "Oi"
       espera:
         acao: "TESTE:ABERTURA"
     - cliente: "Quanto eu estou devendo?"
+      espera:
+        acao: INFORM_DEBT
+        resultado: ENVIADO
+    - cliente: "Oi"
       espera:
         acao: INFORM_DEBT
         resultado: ENVIADO

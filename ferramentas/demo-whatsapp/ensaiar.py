@@ -20,6 +20,12 @@ Cada roteiro (`roteiros/teste.yaml`) tem um devedor inventado, com telefone pró
 do cliente chega em dobro ao webhook, como no Chatwoot real (o bot e o webhook mandam o mesmo
 evento). A saída fica numa pasta nova do kit, `ensaio-AAAAMMDD-HHMM/`, fora do git: a política, a
 carteira, o banco, o `servico.log` e o `relatorio.md`.
+
+Código de saída: 1 se algum passo sem o Luna divergiu, se algum turno terminou em `ERRO`, se algum
+passo ficou sem turno ou se o fim de um roteiro divergiu; 0 se não; 2 se o ensaio nem rodou. A
+divergência num passo em que o Luna redigiu não reprova: vai para a lista "Divergências em passo
+com LLM" do relatório, que o Cauê lê. As linhas ERROR do log também não reprovam e vão listadas no
+relatório.
 """
 
 import argparse
@@ -325,6 +331,9 @@ def montar_kit(
 class Veredito(StrEnum):
     OK = "OK"
     DIVERGIU = "DIVERGIU"
+    # A escolha do Luna real varia de uma rodada para outra: a divergência é lida pelo Cauê e não
+    # reprova o ensaio.
+    DIVERGIU_LLM = "DIVERGIU COM LLM"
     ERRO = "ERRO"
     SEM_TURNO = "SEM TURNO"
     A_DECIDIR = "A DECIDIR"
@@ -347,6 +356,12 @@ class Obtido:
     erros_no_log: list[str] = field(default_factory=list)
     # O que não estraga o turno mas tem de aparecer: o POST em dobro com 500 e o erro dele no log.
     avisos: list[str] = field(default_factory=list)
+
+    @property
+    def chamou_o_luna(self) -> bool:
+        """O turno pediu texto ao Luna. Só esse turno grava as tentativas da redação; o toque em
+        "Pagar com Pix", os comandos do modo teste, as fixas e os gates não gravam nenhuma."""
+        return bool(self.reprovadas)
 
 
 def evento_do_cliente(
@@ -542,14 +557,21 @@ def divergencias(espera: Espera | None, obtido: Obtido) -> list[str]:
 
 
 def conferir(espera: Espera | None, a_decidir: bool, obtido: Obtido | None) -> Veredito:
-    """O veredito do passo. Sem turno é SEM TURNO; o erro vale mais que o "a decidir"."""
+    """O veredito do passo. Sem turno é SEM TURNO; o erro vale mais que o "a decidir".
+
+    O erro é só o do turno: uma linha ERROR no log pode ser de uma rotina que não estragou o passo,
+    e vai listada no relatório. A divergência num turno que chamou o Luna é DIVERGIU COM LLM, que
+    não reprova; no turno sem o Luna, o código é o único autor, e a divergência reprova.
+    """
     if obtido is None:
         return Veredito.SEM_TURNO
-    if obtido.resultado == ResultadoTurno.ERRO or obtido.erros_no_log:
+    if obtido.resultado == ResultadoTurno.ERRO:
         return Veredito.ERRO
     if a_decidir:
         return Veredito.A_DECIDIR
-    return Veredito.DIVERGIU if divergencias(espera, obtido) else Veredito.OK
+    if not divergencias(espera, obtido):
+        return Veredito.OK
+    return Veredito.DIVERGIU_LLM if obtido.chamou_o_luna else Veredito.DIVERGIU
 
 
 def divergencias_do_fim(
@@ -729,10 +751,9 @@ def rodar_roteiro(
             erros = erros_do_log(rodada.log, posicao_no_log)
             avisos = []
             if any(codigo != 200 for codigo in codigos):
-                # O erro no log é o do POST que perdeu a corrida (A8): vira aviso. Um erro do
-                # próprio turno continua pego pelo resultado ERRO no banco.
-                avisos = [f"o webhook respondeu {codigos} (A8)", *erros]
-                erros = []
+                # O POST que perdeu a corrida na 1ª mensagem da conversa: o erro dele fica no log
+                # e na lista do relatório, como qualquer outro, sem reprovar.
+                avisos = [f"o webhook respondeu {codigos}"]
             exigidas = passo.espera.mensagem_tem if passo.espera else []
             obtido = dataclasses.replace(
                 obtido,
@@ -860,6 +881,38 @@ def _linhas_do_passo(resultado: ResultadoPasso) -> list[str]:
     return [*linhas, ""]
 
 
+def _divergencias_com_llm(resultados: list[ResultadoRoteiro]) -> list[str]:
+    """A lista que o Cauê lê: os passos em que o Luna fez outra coisa que o roteiro esperava."""
+    linhas = ["## Divergências em passo com LLM (não reprovam)", ""]
+    achadas = [(r, p) for r in resultados for p in r.passos if p.veredito is Veredito.DIVERGIU_LLM]
+    if not achadas:
+        return [*linhas, "Nenhuma.", ""]
+    for r, p in achadas:
+        obtido = p.obtido
+        texto = _curto(obtido.texto_enviado, 400) if obtido and obtido.texto_enviado else "nenhum"
+        linhas += [
+            f"- **{r.roteiro.nome}, passo {p.indice}** (`{p.passo.cliente}`): esperava "
+            f"{_esperado(p.passo)}; veio ação {obtido.acao_principal if obtido else None}, "
+            f"resultado {obtido.resultado if obtido else None}",
+            *[f"  - {d}" for d in p.divergencias],
+            f"  - texto enviado: {texto}",
+        ]
+    return [*linhas, ""]
+
+
+def _erros_do_log(resultados: list[ResultadoRoteiro]) -> list[str]:
+    """As linhas ERROR e Traceback do log, passo a passo: não reprovam, mas não podem sumir."""
+    linhas = ["## Linhas de erro no log (não reprovam)", ""]
+    achadas = [
+        f"- {r.roteiro.nome}, passo {p.indice}: `{erro}`"
+        for r in resultados
+        for p in r.passos
+        if p.obtido is not None
+        for erro in p.obtido.erros_no_log
+    ]
+    return [*linhas, *(achadas or ["Nenhuma."]), ""]
+
+
 def formatar_resumo(resultados: list[ResultadoRoteiro]) -> str:
     """Uma linha por roteiro, para o terminal."""
     linhas = []
@@ -868,6 +921,7 @@ def formatar_resumo(resultados: list[ResultadoRoteiro]) -> str:
             f"{contagem} {nome}"
             for nome, veredito in (
                 ("diverg.", Veredito.DIVERGIU),
+                ("diverg. com LLM", Veredito.DIVERGIU_LLM),
                 ("erro", Veredito.ERRO),
                 ("sem turno", Veredito.SEM_TURNO),
                 ("a decidir", Veredito.A_DECIDIR),
@@ -893,6 +947,8 @@ def formatar_relatorio(resultados: list[ResultadoRoteiro], quando: str = "") -> 
             observacoes = f"INTERROMPIDO: {r.interrompido}"
         linhas.append(f"| {numero} | {r.roteiro.nome} | {r.ok}/{r.total} | {observacoes} |")
     linhas.append("")
+    linhas += _divergencias_com_llm(resultados)
+    linhas += _erros_do_log(resultados)
     for numero, r in enumerate(resultados, start=1):
         linhas += [f"## {numero}. {r.roteiro.nome}: {r.ok}/{r.total} OK", ""]
         linhas.append(f"Telefone inventado {r.telefone}; régua {r.roteiro.regua.value}.")
@@ -951,8 +1007,9 @@ def ensaiar(
     """Sobe o Chatwoot falso e o serviço, roda os roteiros e grava o `relatorio.md` em `saida`.
 
     Com `teste` (a política do modo teste), o ensaio usa essa política e o cardápio dela, sem
-    carteira. Devolve 0 se nenhum passo divergiu, deu erro ou ficou sem turno (o "a decidir" não
-    conta), e 1 se algum deu. O Chatwoot falso e o uvicorn são encerrados no `finally`.
+    carteira. Devolve 1 se algum passo sem o Luna divergiu, deu erro ou ficou sem turno, ou se o
+    fim de um roteiro divergiu, e 0 se não (o "a decidir", a divergência em passo com o Luna e a
+    linha ERROR do log não contam). O Chatwoot falso e o uvicorn são encerrados no `finally`.
     """
     if saida.exists():
         raise ErroDaDemo(f"a pasta {saida} já existe: o ensaio não sobrescreve")
@@ -1037,7 +1094,14 @@ def main(argv: list[str] | None = None) -> int:
     for saida_padrao in (sys.stdout, sys.stderr):
         if hasattr(saida_padrao, "reconfigure"):
             saida_padrao.reconfigure(encoding="utf-8", errors="replace")
-    parser = argparse.ArgumentParser(description="Ensaio automático da demo no WhatsApp.")
+    parser = argparse.ArgumentParser(
+        description="Ensaio automático da demo no WhatsApp.",
+        epilog=(
+            "Sai com 1 se um passo sem o Luna divergiu, um turno terminou em ERRO, um passo ficou "
+            "sem turno ou o fim de um roteiro divergiu; com 2 se o ensaio nem rodou. A divergência "
+            "em passo com o Luna e as linhas ERROR do log vão listadas no relatório, sem reprovar."
+        ),
+    )
     parser.add_argument("--kit", type=Path, required=True, help="pasta do kit da demo")
     parser.add_argument("--roteiro", help="o nome de um roteiro (o padrão é rodar todos)")
     parser.add_argument(

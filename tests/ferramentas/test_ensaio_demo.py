@@ -341,7 +341,8 @@ def _obtido(**campos):
         "acoes_anexadas": [],
         "resultado": "ENVIADO",
         "texto_enviado": "Você deve R$ 100,20. Pix: 00020126abc",
-        "reprovadas": [[]],
+        # Sem tentativas de redação: o turno não chamou o Luna, e a divergência reprova.
+        "reprovadas": [],
         "estado": "ENGAJADO",
         "motivo": None,
         "segundos": 11.0,
@@ -410,9 +411,22 @@ def test_conferir_sem_turno_quando_nao_ha_obtido():
     assert ensaiar.conferir(None, True, None) == Veredito.SEM_TURNO
 
 
-def test_conferir_erro_pelo_resultado_ou_pelo_log_vale_mais_que_a_decidir():
-    assert ensaiar.conferir(ESPERA_DIVIDA, False, _obtido(resultado="ERRO")) == Veredito.ERRO
-    assert ensaiar.conferir(None, True, _obtido(erros_no_log=["ERROR boom"])) == Veredito.ERRO
+def test_conferir_erro_so_pelo_resultado_vale_mais_que_a_decidir_e_o_log_nao_reprova():
+    assert ensaiar.conferir(ESPERA_DIVIDA, True, _obtido(resultado="ERRO")) == Veredito.ERRO
+    assert ensaiar.conferir(None, True, _obtido(erros_no_log=["ERROR boom"])) == (
+        Veredito.A_DECIDIR
+    )
+    assert ensaiar.conferir(ESPERA_DIVIDA, False, _obtido(erros_no_log=["ERROR boom"])) == (
+        Veredito.OK
+    )
+
+
+def test_conferir_divergencia_com_o_luna_nao_reprova_e_sem_o_luna_reprova():
+    com_luna = _obtido(acao_principal="NONE", reprovadas=[["sem_codigo"], []])
+    sem_luna = _obtido(acao_principal="NONE")
+    assert ensaiar.conferir(ESPERA_DIVIDA, False, com_luna) == Veredito.DIVERGIU_LLM
+    assert ensaiar.conferir(ESPERA_DIVIDA, False, sem_luna) == Veredito.DIVERGIU
+    assert ensaiar.conferir(ESPERA_DIVIDA, False, _obtido(reprovadas=[[]])) == Veredito.OK
 
 
 def test_conferir_a_decidir_nao_da_veredito_mesmo_que_diverja():
@@ -771,9 +785,12 @@ def test_rodar_roteiro_so_olha_o_log_depois_de_cada_passo(cenario):
         nome="a", passos=[ensaiar.Passo(cliente="ok"), ensaiar.Passo(cliente="quebra")]
     )
     resultado = ensaiar.rodar_roteiro(roteiro, 1, "+5583900000001", rodada)
-    assert resultado.passos[0].veredito == Veredito.OK  # o ERROR antigo do log não conta
-    assert resultado.passos[1].veredito == Veredito.ERRO
+    assert resultado.passos[0].obtido.erros_no_log == []  # o ERROR antigo do log não conta
+    # O ERROR do passo fica anotado, mas só o resultado ERRO do turno reprova.
+    assert resultado.passos[1].veredito == Veredito.OK
     assert resultado.passos[1].obtido.erros_no_log == ["ERROR agente: algo quebrou"]
+    relatorio = ensaiar.formatar_relatorio([resultado])
+    assert "- a, passo 2: `ERROR agente: algo quebrou`" in relatorio
 
 
 def test_rodar_roteiro_com_intervalo_nao_espera_o_turno_anterior(cenario):
@@ -890,6 +907,29 @@ def test_o_relatorio_traz_o_resumo_por_roteiro_e_o_detalhe_por_passo():
     assert "**No log:** `ERROR boom`" in relatorio
     assert "  > Linha 1\n  > Linha 2" in relatorio
     assert "ação: esperava HUMAN:DESCONFIANCA, veio NONE" in relatorio
+
+
+def test_o_relatorio_lista_as_divergencias_em_passo_com_llm():
+    roteiro = ensaiar.Roteiro(
+        nome="caso", passos=[ensaiar.Passo(cliente="Oi", espera=ESPERA_DIVIDA)]
+    )
+    obtido = _obtido(
+        acao_principal="HUMAN:SEM_RESPOSTA",
+        resultado="HANDOFF",
+        texto_enviado=None,
+        reprovadas=[[]],
+    )
+    achadas = ensaiar.divergencias(ESPERA_DIVIDA, obtido)
+    passo = ensaiar.ResultadoPasso(
+        1, roteiro.passos[0], ensaiar.conferir(ESPERA_DIVIDA, False, obtido), obtido, achadas
+    )
+    resultado = ensaiar.ResultadoRoteiro(roteiro, "+5583900000001", [passo])
+    relatorio = ensaiar.formatar_relatorio([resultado])
+    secao = relatorio.split("## Divergências em passo com LLM")[1].split("## ")[0]
+    assert "**caso, passo 1** (`Oi`)" in secao
+    assert "ação INFORM_DEBT" in secao and "veio ação HUMAN:SEM_RESPOSTA" in secao
+    assert "texto enviado: nenhum" in secao
+    assert ensaiar.formatar_resumo([resultado]) == " 1. caso: 0/1 OK  (1 diverg. com LLM)"
 
 
 def test_o_resumo_do_terminal_tem_uma_linha_por_roteiro():
