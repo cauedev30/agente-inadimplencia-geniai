@@ -475,8 +475,7 @@ def _rotulo_uma_chamada(resolucao: ResolucaoTurno) -> str:
     if resolucao.motivo is not None:
         return rotulo_humano(resolucao.motivo)
     if not _passou(resolucao):
-        ultima = next((t.acao for t in reversed(resolucao.tentativas) if t.acao), "SEM_ACAO")
-        return f"{NAO_EXECUTADA}{ultima}"
+        return f"{NAO_EXECUTADA}{resolucao.tentativas[-1].acao}"
     if resolucao.veredito.terceiro:
         return ROTULO_TERCEIRO
     return resolucao.veredito.acao.value

@@ -53,7 +53,7 @@ class LunaDoRoteiro(LLMTurnoFalso):
 
     por_texto: dict = field(default_factory=dict)
 
-    def completar_json(self, sistema, usuario):
+    def completar_json(self, sistema, usuario, esquema):
         entrada = json.loads(usuario)
         novas = " ".join(entrada["novas"]).casefold()
         resposta = next((r for k, r in self.por_texto.items() if k in novas), None)
@@ -63,7 +63,7 @@ class LunaDoRoteiro(LLMTurnoFalso):
             resposta = _bruto(reply=f"Segue o que você pediu: {marcadores}")
         self.respostas = [resposta]
         self._usadas = 0
-        return super().completar_json(sistema, usuario)
+        return super().completar_json(sistema, usuario, esquema)
 
 
 @pytest.fixture(autouse=True)

@@ -54,11 +54,11 @@ class LLMQueEspera(LLMTurnoFalso):
 
     ao_chamar: object = None
 
-    def completar_json(self, sistema, usuario):
+    def completar_json(self, sistema, usuario, esquema):
         if self.ao_chamar is not None:
             self.ao_chamar()
             self.ao_chamar = None
-        return super().completar_json(sistema, usuario)
+        return super().completar_json(sistema, usuario, esquema)
 
 
 def _pergunta(sessao, conversa, texto="quanto eu devo?"):

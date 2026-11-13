@@ -4,14 +4,17 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agente.integracoes.llm_turno import JSONInvalido, LLMTurnoFalso, LLMTurnoIndisponivel
+from agente.integracoes.llm_turno import LLMTurnoFalso, LLMTurnoIndisponivel
 from agente.tipos import MotivoHumano
 from agente.turno.acoes import Acao
 from agente.turno.uma_chamada import (
     SINAIS,
     TENTATIVAS_UMA_CHAMADA,
     ResolucaoTurno,
+    SaidaTurno,
     TentativaUmaChamada,
+    acoes_permitidas,
+    esquema_da_saida,
     montar_entrada,
     previa_numeros,
     resolver_turno,
@@ -64,26 +67,6 @@ def test_a_valida_com_inform_debt_sai_aprovada_em_uma_chamada(conversa, politica
     assert TENTATIVAS_UMA_CHAMADA == 2
 
 
-def test_acao_fora_leva_o_motivo_na_segunda_chamada_e_sai_aprovada(conversa, politica):
-    conversa.degrau_atual = 3  # o último degrau: não há mais desconto
-
-    resolucao, llm, previa = _resolver(
-        conversa, politica, [_bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK), _bruto()]
-    )
-
-    assert len(llm.pedidos) == 2
-    assert "acao_nao_permitida:OFFER_DISCOUNT" not in llm.pedidos[0][1]
-    assert "acao_nao_permitida:OFFER_DISCOUNT" in llm.pedidos[1][1]
-    assert resolucao.reply == REPLY_PIX and resolucao.motivo is None
-    assert [t.reprovadas for t in resolucao.tentativas] == [
-        ("acao_nao_permitida:OFFER_DISCOUNT",),
-        (),
-    ]
-    assert resolucao.tentativas[0].acao == "OFFER_DISCOUNT"
-    # A prévia só roda para a ação que passou da decisão.
-    assert previa.chamadas == [(Acao.INFORM_DEBT, Acao.GENERATE_PIX)]
-
-
 def test_texto_com_digito_e_reprovado_e_reprovado_de_novo_sai_sem_texto_nem_motivo(
     conversa, politica
 ):
@@ -107,24 +90,33 @@ def test_send_ctn_link_sem_o_marcador_do_link_e_reprovado(conversa, politica):
     assert resolucao.tentativas[0].reprovadas == ("marcador_faltando:link_ctn",)
 
 
-def test_json_invalido_conta_como_tentativa_e_a_segunda_valida_sai_aprovada(conversa, politica):
-    resolucao, llm, _ = _resolver(conversa, politica, ["isto não é json", _bruto()])
-
-    assert len(llm.pedidos) == 2
-    assert "json_invalido" in llm.pedidos[1][1]
-    assert resolucao.tentativas[0] == TentativaUmaChamada(None, None, ("json_invalido",))
-    assert resolucao.reply == REPLY_PIX
-
-
-def test_saida_com_campo_faltando_tambem_e_json_invalido(conversa, politica):
+def test_saida_que_nao_valida_levanta_indisponivel_sem_nova_tentativa(conversa, politica):
     incompleta = _bruto()
     del incompleta["tom"]
 
-    resolucao, _, _ = _resolver(conversa, politica, [incompleta, JSONInvalido("x")])
+    with pytest.raises(LLMTurnoIndisponivel, match="não valida"):
+        _resolver(conversa, politica, [incompleta, _bruto()])
 
-    assert resolucao.reply is None and resolucao.motivo is None
-    assert resolucao.saida is None and resolucao.veredito is None
-    assert [t.reprovadas for t in resolucao.tentativas] == [("json_invalido",)] * 2
+
+def test_acao_fora_das_permitidas_levanta_indisponivel_sem_nova_tentativa(conversa, politica):
+    conversa.degrau_atual = 3  # o último degrau: não há mais desconto
+
+    with pytest.raises(LLMTurnoIndisponivel, match="fora das permitidas"):
+        _resolver(conversa, politica, [_bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK), _bruto()])
+
+
+def test_o_esquema_sem_degrau_nao_tem_o_desconto_e_e_estrito(conversa, politica):
+    conversa.degrau_atual = 3  # o último degrau: não há mais desconto
+    permitidas = acoes_permitidas(conversa, conversa.cobranca, politica)
+
+    esquema = esquema_da_saida(permitidas)
+
+    assert "OFFER_DISCOUNT" not in esquema["properties"]["acao"]["enum"]
+    assert esquema["properties"]["acao"]["enum"] == [acao.value for acao in permitidas]
+    assert esquema["type"] == "object" and esquema["additionalProperties"] is False
+    assert esquema["required"] == list(esquema["properties"])
+    # As propriedades são as que a saída aceita, nem mais nem menos.
+    assert set(esquema["properties"]) == set(SaidaTurno.model_fields)
 
 
 def test_llm_fora_sem_guarda_levanta_para_as_tentativas_com_espera(conversa, politica):
@@ -137,18 +129,6 @@ def test_llm_fora_na_segunda_tentativa_tambem_levanta(conversa, politica):
 
     with pytest.raises(LLMTurnoIndisponivel, match="prazo"):
         _resolver(conversa, politica, [ruim, LLMTurnoIndisponivel("prazo")])
-
-
-def test_o_sinal_que_aparece_so_na_segunda_tentativa_leva_ao_humano(conversa, politica):
-    fora = _bruto(acao="XYZ")
-    sinal = _bruto(vulnerabilidade=True)
-
-    resolucao, llm, _ = _resolver(conversa, politica, [fora, sinal])
-
-    assert resolucao.motivo is MotivoHumano.CAUTELA
-    assert resolucao.veredito.causa == "sinal:vulnerabilidade"
-    assert len(llm.pedidos) == 2
-    assert resolucao.tentativas[0].reprovadas == ("acao_nao_permitida:XYZ",)
 
 
 def test_o_humano_da_primeira_tentativa_nao_chama_de_novo(conversa, politica):
@@ -165,19 +145,6 @@ def test_none_sai_sem_reply_nem_motivo_e_sem_chamar_a_previa(conversa, politica)
     assert resolucao.veredito.acao is Acao.NONE
     assert len(llm.pedidos) == 1 and previa.chamadas == []
     assert resolucao.tentativas == [TentativaUmaChamada("NONE", "", ())]
-
-
-def test_none_vazio_depois_de_json_invalido_ou_acao_fora_segue_como_silencio(conversa, politica):
-    resolucao, _, _ = _resolver(
-        conversa, politica, ["isto não é json", _bruto(acao="NONE", reply="")]
-    )
-
-    assert resolucao.tentativas[-1] == TentativaUmaChamada("NONE", "", ())
-
-    fora = _bruto(acao="FOO", reply="algo")
-    resolucao, _, _ = _resolver(conversa, politica, [fora, _bruto(acao="NONE", reply="")])
-
-    assert resolucao.tentativas[-1] == TentativaUmaChamada("NONE", "", ())
 
 
 def test_none_com_texto_so_de_espacos_sai_como_o_none_vazio(conversa, politica):
@@ -240,9 +207,7 @@ def test_o_como_dict_traz_as_tentativas_a_causa_e_o_caminho(conversa, politica):
     assert "erro" not in dados
 
 
-def test_alega_pagamento_com_reply_nulo_vai_a_conciliacao_e_nao_ao_json_invalido(
-    conversa, politica
-):
+def test_alega_pagamento_com_reply_nulo_vai_a_conciliacao_sem_falhar(conversa, politica):
     saida = _bruto(alega_pagamento=True, acao=None, reply=None)
 
     resolucao, llm, _ = _resolver(conversa, politica, [saida])

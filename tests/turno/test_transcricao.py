@@ -50,11 +50,11 @@ class LLMPorTexto(LLMTurnoFalso):
 
     por_texto: dict = field(default_factory=dict)
 
-    def completar_json(self, sistema, usuario):
+    def completar_json(self, sistema, usuario, esquema):
         novas = " ".join(json.loads(usuario)["novas"])
         self.respostas = [next((r for k, r in self.por_texto.items() if k in novas), _bruto())]
         self._usadas = 0
-        return super().completar_json(sistema, usuario)
+        return super().completar_json(sistema, usuario, esquema)
 
 
 def _deps(politica, *, transcritor, llm=None):

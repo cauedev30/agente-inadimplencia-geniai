@@ -1,8 +1,8 @@
 """A chamada JSON ao Luna do turno de uma chamada (D47).
 
 Uma chamada por turno devolve os sinais, a ação e o texto num objeto JSON só. A API é a de chat
-completions com `response_format: json_object` (D42). Aqui só há o
-transporte: o que o JSON significa é do `turno/uma_chamada.py`.
+completions com `response_format: json_schema` em modo estrito: o esquema vem de quem chama. Aqui
+só há o transporte: o que o JSON significa é do `turno/uma_chamada.py`.
 """
 
 import json
@@ -16,8 +16,8 @@ import httpx
 
 URL_OPENAI = "https://api.openai.com/v1"
 
-# O Luna às vezes cerca o JSON com ```json ... ``` ou o escreve no meio de um texto, mesmo pedindo
-# `json_object`: vale do primeiro `{` ao último `}`, como o `_extract_json` do outro agente.
+# O Luna às vezes cerca o JSON com ```json ... ``` ou o escreve no meio de um texto: vale do
+# primeiro `{` ao último `}`, como o `_extract_json` do outro agente.
 _OBJETO = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -27,8 +27,12 @@ class Uso:
     tokens_saida: int
 
 
+# O nome do esquema no pedido: a OpenAI só o usa para identificar o formato.
+NOME_DO_ESQUEMA = "saida_turno"
+
+
 class LLMTurnoIndisponivel(RuntimeError):
-    """O LLM falhou (HTTP), demorou ou devolveu um conteúdo vazio."""
+    """O LLM falhou (HTTP), demorou, devolveu um conteúdo vazio ou fora do formato."""
 
 
 class JSONInvalido(ValueError):
@@ -41,8 +45,8 @@ class LLMTurno(Protocol):
     # Os tokens da última chamada, para o custo; None quando não informa ou a chamada falhou.
     ultimo_uso: Uso | None
 
-    def completar_json(self, sistema: str, usuario: str) -> dict:
-        """O objeto JSON da resposta. Levanta LLMTurnoIndisponivel ou JSONInvalido."""
+    def completar_json(self, sistema: str, usuario: str, esquema: dict) -> dict:
+        """O objeto JSON da resposta, no `esquema` dado. Levanta LLMTurnoIndisponivel."""
         ...
 
 
@@ -62,7 +66,7 @@ def ler_objeto_json(conteudo: str) -> dict:
 
 
 class LLMTurnoOpenAI:
-    """A API de chat completions da OpenAI, ou de quem fale o mesmo protocolo, em modo JSON.
+    """A API de chat completions da OpenAI, ou de quem fale o mesmo protocolo, em esquema estrito.
 
     O `corpo_extra` entra no corpo do pedido: o Luna só aceita a temperatura com o
     `reasoning_effort: "none"` (medido no outro agente).
@@ -98,7 +102,7 @@ class LLMTurnoOpenAI:
     def fechar(self) -> None:
         self._cliente.close()
 
-    def completar_json(self, sistema: str, usuario: str) -> dict:
+    def completar_json(self, sistema: str, usuario: str, esquema: dict) -> dict:
         # Uma chamada que falha não deixa o uso da anterior para a comparação somar de novo.
         self.ultimo_uso = None
         corpo = {
@@ -108,7 +112,10 @@ class LLMTurnoOpenAI:
                 {"role": "user", "content": usuario},
             ],
             "temperature": self.temperatura,
-            "response_format": {"type": "json_object"},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": NOME_DO_ESQUEMA, "strict": True, "schema": esquema},
+            },
             **self.corpo_extra,
         }
         try:
@@ -126,14 +133,18 @@ class LLMTurnoOpenAI:
         # O uso vem antes do JSON: a resposta torta também gastou tokens (M7 da revisão da E1).
         uso = dados.get("usage") or {}
         self.ultimo_uso = Uso(uso.get("prompt_tokens", 0), uso.get("completion_tokens", 0))
-        return ler_objeto_json(conteudo)
+        try:
+            return ler_objeto_json(conteudo)
+        except JSONInvalido as erro:
+            # Com o esquema estrito, o JSON cortado ou torto é defeito da integração, não do texto.
+            raise LLMTurnoIndisponivel(f"o LLM devolveu um JSON torto: {erro}") from None
 
 
 @dataclass
 class LLMTurnoFalso:
     """Devolve as `respostas` dadas, uma por chamada: um `dict` sai como está, uma `str` é lida como
-    JSON (ou levanta `JSONInvalido`) e uma `Exception` é levantada. Quando acabam, levanta
-    `LLMTurnoIndisponivel`.
+    JSON e uma `Exception` é levantada. A `str` que não é objeto JSON e o fim das respostas levantam
+    `LLMTurnoIndisponivel`, como a real. O esquema não é conferido.
 
     Só grava os pedidos com `registrar`, que é coisa de teste: o pedido traz o histórico do cliente.
     """
@@ -147,7 +158,7 @@ class LLMTurnoFalso:
     ultimo_uso: Uso | None = None
     _usadas: int = field(default=0, init=False, repr=False)
 
-    def completar_json(self, sistema: str, usuario: str) -> dict:
+    def completar_json(self, sistema: str, usuario: str, esquema: dict) -> dict:
         self.ultimo_uso = None
         if self.registrar:
             self.pedidos.append((sistema, usuario))
@@ -159,6 +170,12 @@ class LLMTurnoFalso:
         self._usadas += 1
         if isinstance(resposta, Exception):
             raise resposta
-        objeto = resposta if isinstance(resposta, dict) else ler_objeto_json(resposta)
+        if isinstance(resposta, dict):
+            objeto = resposta
+        else:
+            try:
+                objeto = ler_objeto_json(resposta)
+            except JSONInvalido as erro:
+                raise LLMTurnoIndisponivel(f"o LLM devolveu um JSON torto: {erro}") from None
         self.ultimo_uso = self.uso
         return objeto

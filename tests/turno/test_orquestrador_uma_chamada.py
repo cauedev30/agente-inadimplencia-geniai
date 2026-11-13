@@ -42,11 +42,11 @@ class LLMQueEspera(LLMTurnoFalso):
 
     ao_chamar: object = None
 
-    def completar_json(self, sistema, usuario):
+    def completar_json(self, sistema, usuario, esquema):
         if self.ao_chamar is not None:
             self.ao_chamar()
             self.ao_chamar = None
-        return super().completar_json(sistema, usuario)
+        return super().completar_json(sistema, usuario, esquema)
 
 
 class CTNQueEspera(CTNFalso):
@@ -340,16 +340,6 @@ def test_o_desconto_reprovado_nao_gasta_o_degrau(sessao, ligada, cliente, politi
     assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
     assert ligada.degrau_atual == 0
     assert _turno(sessao).acao_principal == "NAO_EXECUTADA:OFFER_DISCOUNT"
-
-
-def test_o_json_invalido_duas_vezes_e_nada_executado_sem_acao(sessao, ligada, cliente, politica):
-    deps = _deps(politica, ["isso não é json", "{ainda não}"])
-
-    assert cliente("quanto eu devo?", deps) is ResultadoTurno.HANDOFF
-
-    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
-    assert _turno(sessao).acao_principal == "NAO_EXECUTADA:SEM_ACAO"
-    assert _laudos(sessao, BatchJev.JEV1) == [] and _laudos(sessao, BatchJev.JEV2) == []
 
 
 # Sem envio e o terceiro

@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_
 
 from agente.db.modelos import Cobranca, Conversa
 from agente.dominio.desconto import proxima_oferta, valor_com_desconto
-from agente.integracoes.llm_turno import LLMTurno
+from agente.integracoes.llm_turno import LLMTurno, LLMTurnoIndisponivel
 from agente.politica import Politica
 from agente.tipos import FormaPagamento, Laudo, MotivoHumano
 from agente.turno.acoes import Acao, anexar
@@ -315,9 +315,30 @@ def montar_mensagens(
 # A saída
 
 
+def esquema_da_saida(permitidas: Sequence[Acao]) -> dict:
+    """O JSON Schema da saída, no modo estrito da OpenAI: o modelo só devolve o que cabe nele.
+
+    Um booleano por sinal, o tom e a ação em lista fechada e o texto. Todas as propriedades são
+    obrigatórias e nenhuma outra entra, porque o modo estrito exige. A lista da ação é a das
+    permitidas, então o desconto só aparece quando há degrau seguinte.
+    """
+    propriedades: dict[str, dict] = {sinal: {"type": "boolean"} for sinal in SINAIS}
+    propriedades |= {
+        "tom": {"type": "string", "enum": list(TONS_UMA_CHAMADA)},
+        "acao": {"type": "string", "enum": [acao.value for acao in permitidas]},
+        "reply": {"type": "string"},
+    }
+    return {
+        "type": "object",
+        "properties": propriedades,
+        "required": list(propriedades),
+        "additionalProperties": False,
+    }
+
+
 class SaidaTurno(BaseModel):
-    """O JSON que o LLM devolve. A ação é só texto aqui: a decisão confere se é permitida, para a
-    nova tentativa saber o motivo."""
+    """O JSON que o LLM devolve. A ação é só texto aqui: a decisão confere se é permitida, porque o
+    esquema estrito restringe o modelo, mas o código não confia nele para isso."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -452,8 +473,8 @@ TENTATIVAS_UMA_CHAMADA = 2
 class TentativaUmaChamada:
     """Uma chamada ao LLM: a ação e o texto que ele deu e o que reprovou. Sem reprovadas, passou."""
 
-    acao: str | None
-    reply: str | None
+    acao: str
+    reply: str
     reprovadas: tuple[str, ...]
 
 
@@ -512,19 +533,22 @@ def resolver_turno(
 
     Não toca no banco: a prévia vem de quem chama. A cada tentativa a decisão roda do começo, então
     um sinal que só aparece na 2ª também leva ao humano. O `NONE`, o `OUT_OF_SCOPE` e o terceiro
-    voltam sem conferir o texto, que não é usado. O Luna fora do ar levanta `LLMTurnoIndisponivel`,
-    e a falha passageira sobe para as tentativas com espera do orquestrador.
+    voltam sem conferir o texto, que não é usado. Só o texto reprovado ganha nova tentativa.
+
+    O Luna fora do ar, a saída que não valida e a ação fora das permitidas levantam
+    `LLMTurnoIndisponivel`: com o esquema estrito, a saída fora do formato é defeito da integração,
+    não do texto, e sobe para as tentativas com espera do orquestrador.
     """
     resolucao = ResolucaoTurno()
+    esquema = esquema_da_saida(entrada.permitidas)
     reprovadas: list[str] = []
     for _ in range(TENTATIVAS_UMA_CHAMADA):
+        bruto = llm.completar_json(*montar_mensagens(entrada, reprovadas), esquema)
         try:
-            saida = ler_saida(llm.completar_json(*montar_mensagens(entrada, reprovadas)))
+            saida = ler_saida(bruto)
         except ValueError:
-            # O JSONInvalido e o ValidationError do `ler_saida` são ValueError.
-            reprovadas = ["json_invalido"]
-            resolucao.tentativas.append(TentativaUmaChamada(None, None, ("json_invalido",)))
-            continue
+            # Só o tipo do erro: a mensagem do pydantic traz o texto que o Luna escreveu.
+            raise LLMTurnoIndisponivel("a saída do LLM não valida") from None
         veredito = decidir(saida, entrada.permitidas, cobranca)
         resolucao.saida, resolucao.veredito = saida, veredito
         if veredito.motivo is not None or sem_efeito(veredito):
@@ -532,9 +556,9 @@ def resolver_turno(
             resolucao.tentativas.append(TentativaUmaChamada(saida.acao, saida.reply, ()))
             return resolucao
         if veredito.acao is None:
-            reprovadas = [f"acao_nao_permitida:{saida.acao}"]
-        else:
-            reprovadas = _conferir_texto(veredito, saida.reply, previa)
+            # Sem o valor: é texto que o Luna escreveu, e a mensagem vai ao log.
+            raise LLMTurnoIndisponivel("o LLM devolveu uma ação fora das permitidas")
+        reprovadas = _conferir_texto(veredito, saida.reply, previa)
         resolucao.tentativas.append(TentativaUmaChamada(saida.acao, saida.reply, tuple(reprovadas)))
         if not reprovadas:
             resolucao.reply = saida.reply

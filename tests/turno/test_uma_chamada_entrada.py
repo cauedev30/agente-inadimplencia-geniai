@@ -322,8 +322,8 @@ def test_montar_mensagens_devolve_o_sistema_e_o_usuario(conversa, politica):
 def test_com_reprovadas_antes_o_usuario_traz_os_motivos(conversa, politica):
     entrada = _entrada(conversa, politica)
 
-    _, usuario = montar_mensagens(entrada, ["valor_em_digitos", "acao_nao_permitida:HUMAN"])
+    _, usuario = montar_mensagens(entrada, ["valor_em_digitos", "marcador_faltando:divida"])
 
     assert usuario.startswith(entrada.como_json())
-    assert "valor_em_digitos" in usuario and "acao_nao_permitida:HUMAN" in usuario
+    assert "valor_em_digitos" in usuario and "marcador_faltando:divida" in usuario
     assert "reprovada" in usuario
