@@ -16,10 +16,10 @@ URL do Chatwoot é sempre a do falso, e o ensaio nem lê o `chatwoot-teste.local
 do Luna é lida (a variável `AGENTE_LLM_API_KEY` ou o `openai.local.json`). Só texto inventado vai
 ao Luna.
 
-Cada roteiro (`roteiros/demo.yaml`) tem um devedor inventado, com telefone próprio. Cada mensagem do
-cliente chega em dobro ao webhook, como no Chatwoot real (o bot e o webhook mandam o mesmo evento).
-A saída fica numa pasta nova do kit, `ensaio-AAAAMMDD-HHMM/`, fora do git: a política, a carteira, o
-banco, o `servico.log` e o `relatorio.md`.
+Cada roteiro (`roteiros/teste.yaml`) tem um devedor inventado, com telefone próprio. Cada mensagem
+do cliente chega em dobro ao webhook, como no Chatwoot real (o bot e o webhook mandam o mesmo
+evento). A saída fica numa pasta nova do kit, `ensaio-AAAAMMDD-HHMM/`, fora do git: a política, a
+carteira, o banco, o `servico.log` e o `relatorio.md`.
 """
 
 import argparse
@@ -73,7 +73,7 @@ ErroDaDemo = subir.ErroDaDemo
 ChatwootFalsoLocal = chatwoot_falso.ChatwootFalsoLocal
 
 REPO = subir.REPO
-ROTEIROS_PADRAO = _PASTA / "roteiros" / "demo.yaml"
+ROTEIROS_PADRAO = _PASTA / "roteiros" / "teste.yaml"
 # O Chatwoot falso se passa pela conta e pela inbox da demo, que o serviço filtra por padrão.
 CONTA = 91
 INBOX = 280
@@ -338,8 +338,6 @@ class Obtido:
     acoes_anexadas: list[str]
     resultado: str | None
     texto_enviado: str | None
-    jev2_acao: str | None
-    jev2_p: float | None
     # Uma lista por tentativa de redação: o que reprovou o texto.
     reprovadas: list[list[str]]
     estado: str | None
@@ -434,11 +432,6 @@ def _ler_turno_fechado(banco: Path, chatwoot_message_id: str) -> Obtido | None:
         turno = next((t for t in turnos if mensagem["id"] in _json(t["mensagens_ids"], [])), None)
         if turno is None:
             return None
-        jev2 = con.execute(
-            "SELECT valor, probabilidade FROM laudo "
-            "WHERE turno_id = ? AND batch = 'JEV2' AND pergunta = 'acao' ORDER BY id DESC",
-            (turno["id"],),
-        ).fetchone()
         conversa = con.execute(
             "SELECT estado, motivo_humano FROM conversa WHERE id = ?", (turno["conversa_id"],)
         ).fetchone()
@@ -449,8 +442,6 @@ def _ler_turno_fechado(banco: Path, chatwoot_message_id: str) -> Obtido | None:
         acoes_anexadas=list(_json(turno["acoes_anexadas"], [])),
         resultado=turno["resultado"],
         texto_enviado=turno["texto_enviado"],
-        jev2_acao=_json(jev2["valor"], None) if jev2 else None,
-        jev2_p=jev2["probabilidade"] if jev2 else None,
         reprovadas=[list(t.get("reprovadas") or []) for t in tentativas],
         estado=conversa["estado"] if conversa else None,
         motivo=conversa["motivo_humano"] if conversa else None,
@@ -842,9 +833,6 @@ def _linhas_do_passo(resultado: ResultadoPasso) -> list[str]:
         for divergencia in resultado.divergencias:
             linhas.append(f"- **Problema:** {divergencia}")
         return [*linhas, ""]
-    laudo_da_acao = (
-        f"{obtido.jev2_acao} (p={obtido.jev2_p:.2f})" if obtido.jev2_acao else "sem laudo"
-    )
     reprovadas = (
         "; ".join(
             f"tentativa {n}: {', '.join(r) or 'nenhuma'}"
@@ -855,7 +843,6 @@ def _linhas_do_passo(resultado: ResultadoPasso) -> list[str]:
     linhas += [
         f"- **Obtido:** ação {obtido.acao_principal}; anexos {obtido.acoes_anexadas or 'nenhum'}; "
         f"resultado {obtido.resultado}",
-        f"- **Laudo da ação:** {laudo_da_acao}",
         f"- **Reprovadas na prévia:** {reprovadas}",
         f"- **Conversa:** estado {obtido.estado}, motivo {obtido.motivo}",
         f"- **Chatwoot falso:** {_registros(obtido)}",

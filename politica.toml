@@ -13,7 +13,6 @@ texto_pix_recebedor = "Ao colar o código no seu banco, confira que o recebedor 
 # padrão: o Pix pendente continua valendo depois do handoff; true o expira só no banco do agente (o
 # Pix segue pagável no banco do CDT, e o pagamento ainda é confirmado) até a T1 dizer se dá para cancelá-lo
 handoff_expira_pix = false
-objecoes_sem_desconto_ate_humano = 2 # padrão (G1.1): na régua sem desconto, a 2ª objeção vai ao humano
 rajada_segundos = 7                  # espera para juntar as mensagens em rajada
 audio_max_segundos = 120             # arquitetura, seção 1
 audio_max_bytes = 5242880            # D43 (5 MB): o maior áudio baixado do Chatwoot; o do outro agente

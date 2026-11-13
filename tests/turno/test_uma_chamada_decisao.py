@@ -116,21 +116,26 @@ def test_handoff_reply_como_lista_e_aceito_mas_nao_vira_texto():
     assert texto_de_handoff(saida) is None
 
 
+def _laudo(leitura, pergunta):
+    [laudo] = [laudo for laudo in leitura.laudos if laudo.pergunta == pergunta]
+    return laudo
+
+
 def test_a_leitura_traz_os_sinais_e_o_tom_como_laudos():
     leitura = _saida(risco_juridico=True, tom="hostil").leitura()
-    assert leitura.sim("risco_juridico") is True
-    assert leitura.sim("terceiro") is False
-    assert leitura.tom == "hostil"
-    assert leitura.laudo("quer_humano") == Laudo("quer_humano", False, 1.0, 1.0)
+    assert _laudo(leitura, "risco_juridico").valor is True
+    assert _laudo(leitura, "terceiro").valor is False
+    assert _laudo(leitura, "tom").valor == "hostil"
+    assert _laudo(leitura, "quer_humano") == Laudo("quer_humano", False, 1.0, 1.0)
     assert [laudo.pergunta for laudo in leitura.laudos] == [*SINAIS, "tom"]
     assert {(laudo.probabilidade, laudo.confianca) for laudo in leitura.laudos} == {(1.0, 1.0)}
 
 
 def test_a_leitura_com_a_guarda_do_golpe_vale_sim_mesmo_com_o_sinal_falso():
     saida = _saida()
-    assert saida.leitura().sim("desconfia_golpe") is False
-    assert saida.leitura(golpe_pela_guarda=True).sim("desconfia_golpe") is True
-    assert _saida(desconfia_golpe=True).leitura().sim("desconfia_golpe") is True
+    assert _laudo(saida.leitura(), "desconfia_golpe").valor is False
+    assert _laudo(saida.leitura(golpe_pela_guarda=True), "desconfia_golpe").valor is True
+    assert _laudo(_saida(desconfia_golpe=True).leitura(), "desconfia_golpe").valor is True
 
 
 def test_o_laudo_da_acao():

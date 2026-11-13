@@ -31,11 +31,10 @@ from agente.turno.redacao import (
     motivos_do_texto,
 )
 from agente.turno.sinais import (
-    _SENSIVEL,
     CRITERIOS_DA_ACAO,
     DESCRICAO_ACOES,
     GATILHOS,
-    PERGUNTAS_JEV1,
+    SINAIS_DO_PROMPT,
     LeituraJev1,
 )
 
@@ -43,7 +42,7 @@ from agente.turno.sinais import (
 # probabilidade (decisão 8 do plano).
 ORIGEM_UMA_CHAMADA = "luna:uma-chamada"
 
-# O `cordial` de `TONS` vira `neutro` (decisão 12).
+# Os tons que o Luna pode devolver; o `cordial` não entra, porque vale `neutro`.
 TONS_UMA_CHAMADA = ("neutro", "impaciente", "irritado", "hostil")
 
 # Os sinais que levam ao humano, na ordem do `GATILHOS` (a ordem em que vencem), e os dois que o
@@ -220,7 +219,7 @@ def montar_entrada(
         acoes.append(
             {
                 "acao": acao.value,
-                "quando": CRITERIOS_DA_ACAO[acao].removesuffix(_SENSIVEL),
+                "quando": CRITERIOS_DA_ACAO[acao],
                 "faz": DESCRICAO_ACOES.get(acao.value, _FAZ_NONE),
                 "marcadores_obrigatorios": obrigatorios,
                 "marcadores_opcionais": opcionais,
@@ -250,12 +249,8 @@ def montar_entrada(
 
 
 def _sinais_do_sistema() -> str:
-    """Um critério por sinal, vindo das descrições de `PERGUNTAS_JEV1`."""
-    descricoes = {pergunta.nome: pergunta.descricao for pergunta in PERGUNTAS_JEV1}
-    descricoes["quer_humano"] = (
-        "pede para falar com uma pessoa, um atendente ou a equipe, ou recusa falar com um robô"
-    )
-    return "\n".join(f"  - {nome}: {descricoes[nome]}." for nome in SINAIS)
+    """Um critério por sinal, vindo de `SINAIS_DO_PROMPT`."""
+    return "\n".join(f"  - {nome}: {SINAIS_DO_PROMPT[nome]}." for nome in SINAIS)
 
 
 def _formato_do_json() -> str:
@@ -404,7 +399,7 @@ class SaidaTurno(BaseModel):
 
         Com `golpe_pela_guarda`, o `desconfia_golpe` vale sim (D44): a palavra-chave já decidiu.
 
-        Traz só os 11 laudos (os sinais e o tom), sem os da `PERGUNTAS_JEV1` inteira.
+        Traz só os 11 laudos: os sinais e o tom.
         """
         laudos = [
             Laudo(

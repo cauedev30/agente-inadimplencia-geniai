@@ -20,7 +20,6 @@ from agente.db.modelos import (
     Cliente,
     Cobranca,
     Conversa,
-    LaudoGravado,
     Mensagem,
     Turno,
 )
@@ -28,7 +27,6 @@ from agente.db.sessao import criar_sessao
 from agente.integracoes.chatwoot import ChatwootHttp
 from agente.politica import Regua, carregar_politica
 from agente.tipos import (
-    BatchJev,
     EstadoConversa,
     Modo,
     MotivoHumano,
@@ -151,37 +149,6 @@ def test_arquivo_que_nao_e_lista_ou_nao_existe_da_erro(tmp_path):
         ensaiar.carregar_roteiros(_yaml(tmp_path, "nome: a\n"))
     with pytest.raises(ensaiar.RoteiroInvalido, match="falta"):
         ensaiar.carregar_roteiros(tmp_path / "nao-existe.yaml")
-
-
-def test_o_demo_yaml_real_carrega_com_os_dezoito_roteiros():
-    roteiros = ensaiar.carregar_roteiros(_PASTA / "roteiros" / "demo.yaml")
-    assert [r.nome for r in roteiros] == [
-        "divida",
-        "desconto",
-        "aceite-condicional",
-        "golpe",
-        "enrolacao",
-        "contestacao",
-        "ja-paguei",
-        "fora-da-politica",
-        "parcelar-curto",
-        "parcelar-divida",
-        "irritado",
-        "fora-do-assunto",
-        "meses-em-aberto",
-        "valor-citado",
-        "cumprimento-solto",
-        "ok-solto",
-        "obrigado-solto",
-        "reset",
-    ]
-    reset = roteiros[-1]
-    assert reset.equipe is True
-    assert reset.passos[1].cliente == "/reset"
-    assert reset.passos[2].intervalo == 3
-    assert roteiros[3].passos[0].espera.etiqueta == "desconfianca"
-    # A enrolação não chega ao teto de forma garantida: o SEM_MELHORA pode vir antes (E2.8).
-    assert roteiros[4].fim is None
 
 
 # --------------------------------------------------------------------------- kit
@@ -374,8 +341,6 @@ def _obtido(**campos):
         "acoes_anexadas": [],
         "resultado": "ENVIADO",
         "texto_enviado": "Você deve R$ 100,20. Pix: 00020126abc",
-        "jev2_acao": "INFORM_DEBT",
-        "jev2_p": 0.93,
         "reprovadas": [[]],
         "estado": "ENGAJADO",
         "motivo": None,
@@ -438,11 +403,6 @@ def test_conferir_a_mensagem_enviada_vem_dos_registros_do_chatwoot_falso():
     )
     assert ensaiar.conferir(espera, False, com) == Veredito.OK
     assert ensaiar.conferir(espera, False, sem) == Veredito.DIVERGIU
-
-
-def test_os_roteiros_da_demo_carregam():
-    roteiros = ensaiar.carregar_roteiros(_PASTA / "roteiros" / "demo.yaml")
-    assert len(roteiros) == 18
 
 
 def test_conferir_sem_turno_quando_nao_ha_obtido():
@@ -545,23 +505,12 @@ def _turno(sessao, conversa, mensagens, resultado=ResultadoTurno.ENVIADO, **camp
     return turno
 
 
-def test_esperar_turno_le_o_turno_fechado_com_o_laudo_da_acao_e_as_reprovadas(banco):
+def test_esperar_turno_le_o_turno_fechado_e_as_reprovadas(banco):
     caminho, fabrica = banco
     with fabrica() as sessao:
         conversa = _cobranca(sessao)
         mensagem = _mensagem(sessao, conversa, 100001)
-        turno = _turno(sessao, conversa, [mensagem], acoes_anexadas=["GENERATE_PIX"])
-        sessao.add(
-            LaudoGravado(
-                turno_id=turno.id,
-                batch=BatchJev.JEV2,
-                origem="jev-real",
-                pergunta="acao",
-                valor="INFORM_DEBT",
-                probabilidade=0.93,
-                confianca=0.9,
-            )
-        )
+        _turno(sessao, conversa, [mensagem], acoes_anexadas=["GENERATE_PIX"])
         conversa.estado = EstadoConversa.ENGAJADO
         sessao.commit()
 
@@ -571,7 +520,6 @@ def test_esperar_turno_le_o_turno_fechado_com_o_laudo_da_acao_e_as_reprovadas(ba
     assert obtido.acoes_anexadas == ["GENERATE_PIX"]
     assert obtido.resultado == "ENVIADO"
     assert obtido.texto_enviado == "Você deve R$ 100,20"
-    assert (obtido.jev2_acao, obtido.jev2_p) == ("INFORM_DEBT", 0.93)
     assert obtido.reprovadas == [["sem_codigo"], []]
     assert (obtido.estado, obtido.motivo) == ("ENGAJADO", None)
     assert obtido.segundos >= 0
@@ -933,7 +881,6 @@ def test_o_relatorio_traz_o_resumo_por_roteiro_e_o_detalhe_por_passo():
     assert "`Isso é golpe?`" in relatorio
     assert "ação HUMAN:DESCONFIANCA; etiqueta desconfianca" in relatorio
     assert "ação NONE" in relatorio
-    assert "INFORM_DEBT (p=0.93)" in relatorio
     assert "tentativa 1: sem_codigo; tentativa 2: nenhuma" in relatorio
     assert "estado ENGAJADO" in relatorio
     assert "notas: Laudo do Jev" in relatorio
@@ -1000,7 +947,7 @@ def test_o_cli_com_roteiro_desconhecido_sai_com_2(tmp_path, capsys):
             "--roteiro",
             "nao-existe",
             "--roteiros",
-            str(_PASTA / "roteiros" / "demo.yaml"),
+            str(_PASTA / "roteiros" / "teste.yaml"),
         ]
     )
     assert codigo == 2

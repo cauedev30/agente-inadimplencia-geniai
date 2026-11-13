@@ -204,7 +204,6 @@ class Politica(_Imutavel):
     pix_reaproveitar_minimo_minutos: int = Field(ge=0)
     # O handoff expira o Pix pendente? Padrão não: o Pix continua valendo e o pagamento conta.
     handoff_expira_pix: bool = False
-    objecoes_sem_desconto_ate_humano: int = Field(ge=1)
     rajada_segundos: int = Field(ge=0)
     audio_max_segundos: int = Field(ge=1)
     # O download do áudio do cliente (D43): o maior arquivo, o prazo de tudo e, para o formato cuja

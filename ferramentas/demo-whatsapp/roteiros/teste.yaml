@@ -10,8 +10,7 @@
 #
 # `espera.acao` compara com `turno.acao_principal`; `texto_tem` olha o texto do agente no turno e
 # `mensagem_tem` qualquer mensagem enviada ao Chatwoot na janela do passo (as do modo teste e as
-# fixas não ficam no `texto_enviado`). A pergunta ao Luna ("Quanto eu estou devendo?") é a que o
-# roteiro `demo.yaml` já usa.
+# fixas não ficam no `texto_enviado`).
 
 - nome: caso-1
   passos:
