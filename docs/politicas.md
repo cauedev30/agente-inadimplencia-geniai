@@ -24,9 +24,10 @@ Todo o resto tem uma saída fixa, decidida no código: uma frase pronta ou o ate
 |---|---|
 | Fora do assunto (`OUT_OF_SCOPE`): horário, endereço, clínica, outro serviço | frase fixa: *"Esse assunto não é tratado por aqui. Esta conversa é sobre a sua mensalidade em aberto."* |
 | Terceiro (quem escreve não é o devedor) | frase fixa: *"Obrigado pelo retorno. Este contato é para o titular do cadastro. Quando ele puder, é só falar com a gente por aqui."* |
-| Palavra-chave: golpe, advogado, Procon, processo, atendente, humano | atendente, **sem chamar o Luna** |
+| Palavra-chave: golpe ou golpista, advogado, Procon, processo ou processar, atendente, humano, "falar com alguém" | atendente, **sem chamar o Luna** |
 | Sinal de saída (cancelar, risco jurídico, já pagou, contesta a dívida, desconfia de golpe, vulnerável, reclama da clínica, Energisa), pedido de humano, tom irritado ou hostil | atendente, com o motivo do sinal |
-| Desabafo sem pedido; pergunta sobre a dívida que as ações não respondem ("quais meses?") | o Luna devolve `NONE`; atendente (`SEM_RESPOSTA`) |
+| Desabafo sem pedido | o sinal de vulnerabilidade leva ao atendente (`CAUTELA`); sem sinal, se o Luna devolve `NONE`, atendente (`SEM_RESPOSTA`) |
+| Pergunta sobre a dívida que as ações não respondem ("quais meses?") | o Luna devolve `NONE`; atendente (`SEM_RESPOSTA`) |
 | `NONE` sem texto, fora da lista de cortesia | atendente (`SEM_RESPOSTA`) |
 | `NONE` sem texto, dentro da lista de cortesia | silêncio |
 | Texto reprovado nas 2 tentativas | atendente (`VALIDACAO`) |
@@ -82,7 +83,7 @@ do agente fora do ar.
 
 | Invariante | Quem confere |
 |---|---|
-| Nenhum dígito, `R$` ou valor por extenso fora dos marcadores; nenhum link fora de `{link_ctn}` | `motivos_do_texto` (`turno/redacao.py`) |
+| Nenhum dígito, `R$` ou valor por extenso fora dos marcadores; nenhum link fora de `{link_ctn}` (o que se barra, logo abaixo) | `motivos_do_texto` (`turno/redacao.py`) |
 | Marcador conhecido, com valor e com os obrigatórios da ação | `interpolar` (`turno/redacao.py`) |
 | Ação dentro das permitidas no turno (`HUMAN` nunca é permitida; `OFFER_DISCOUNT` só com degrau seguinte) | `decidir` (`turno/uma_chamada.py`) |
 | Sinal de saída, tom irritado ou hostil e pedido de humano vão ao atendente | `decidir` |
@@ -92,10 +93,19 @@ do agente fora do ar.
 | O turno que chega ao Luna termina em mensagem, handoff ou silêncio da lista de cortesia | orquestrador (`_seguir`) |
 | Nenhum segredo no log | a máscara do log (`src/agente/logs.py`) |
 
+O que o `motivos_do_texto` barra fora dos marcadores: qualquer dígito, inclusive o que não é decimal ("①", "²", "½"),
+e `R$`; o `%`, "por cento", "centavos" e "milhão"; o numeral por extenso de "dez" a "novecentos", "cem", "cento" e
+"metade", mesmo solto ("sai por noventa", "pague a metade"); "zero", "um/uma", "dois/duas", "três" a "nove" e "mil" só
+quando vêm perto de uma palavra de dinheiro ou prazo ("dois reais", "três dias") ou fazem um número composto ("mil e
+quinhentos"); "http", "www" e qualquer `palavra.tld` com o tld em minúsculas (`cartaodetodos.shop`), e com maiúscula
+os tlds comuns. O ponto colado entre duas frases ("Obrigado.Até logo", "agora.Com o valor") passa.
+
 **Silêncios legítimos** (lista fechada; não violam o invariante do turno): sem cobrança ativa; humano na conversa;
 fora do piloto; anexo não aceito; só figurinha; fora da janela (o turno é adiado); fora das 24h (atendente, sem
-mensagem); quem já saiu pelo teto ou por conciliação e escreveu de novo (atendente, sem mensagem); a cobrança que
-fecha no meio do turno; o turno em `ERRO`, que tem nova tentativa.
+mensagem); a mensagem do agente gravada e ainda não enviada que passa das 24h na espera (o texto é descartado e a
+conversa vai ao atendente, com a nota, sem mensagem ao cliente), ou que o teto fecha na espera (descartada, porque as
+outras já saíram); quem já saiu pelo teto ou por conciliação e escreveu de novo (atendente, sem mensagem); a cobrança
+que fecha no meio do turno; o turno em `ERRO`, que tem nova tentativa.
 
 Regra nova só entra como invariante se ganhar conferidor no código. Senão, é estilo.
 
@@ -125,7 +135,7 @@ no prompt, sem conferência; **sai** = sai do prompt no lote da D63.
 | O `reply` leva os marcadores obrigatórios da ação; os opcionais só se ajudarem; nenhum outro | invariante (`interpolar`) |
 | Cobrir a ação inteira nesta mensagem | estilo |
 | `NONE` com `reply` vazio para quem não pede nada | fica, em uma frase: o código decide entre silêncio e atendente |
-| `NONE` acolhe o desabafo com uma ou duas frases | **sai** (desabafo vai ao atendente) |
+| `NONE` acolhe o desabafo com uma ou duas frases | **sai** (o desabafo vai ao atendente pelo sinal de vulnerabilidade ou, com `NONE`, por `SEM_RESPOSTA`) |
 | "Quais meses estão em aberto" é `OUT_OF_SCOPE` (no `reply` e no `_FAZ_NONE`) | **sai**; entra uma linha: pergunta sobre a dívida que as ações não respondem é `NONE` |
 | Com `terceiro`, uma mensagem curta e gentil, sem falar da dívida | **sai** (frase fixa) |
 | Com sinal de saída, o `reply` fica vazio | **sai** (o código ignora o texto no handoff) |

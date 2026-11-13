@@ -79,7 +79,8 @@ A linha de chegada atual, provisória até a G4 trazer a meta de negócio. Está
 1. o agente roda no `dev2` (o serviço, o Postgres e um túnel), em modo teste, com o Luna real, só para os telefones do
    piloto;
 2. o ensaio automático (`ferramentas/demo-whatsapp/ensaiar.py --teste`) passa no `dev2` com os 5 casos do cardápio:
-   reprova só o turno em `ERRO`, o turno faltando e a divergência em passo sem LLM (toque no Pix, `/paguei`, `/caso`).
+   reprova só o turno em `ERRO`, o turno faltando, a divergência em passo sem LLM (toque no Pix, `/paguei`, `/caso`) e
+   o fim de um roteiro que diverge.
    A divergência em passo com LLM e as linhas `ERROR` do log vão listadas no relatório, que o Cauê lê; a suíte
    determinística é o portão, o ensaio com o Luna real é relatório;
 3. o Cauê fez o roteiro exato no celular e ele passou;

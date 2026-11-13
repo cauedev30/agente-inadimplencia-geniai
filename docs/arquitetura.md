@@ -12,8 +12,9 @@ estados; 4: ações; 5: backend; 9: falhas).
 **O Luna lê e escreve; o código confere e executa.**
 
 - O **Luna** (`gpt-6-luna`, D42) lê a conversa e devolve, numa chamada só, os sinais da mensagem do cliente, a ação do
-  turno, o texto da resposta e o texto do encaminhamento ao humano (D59). Ele não recebe nenhum valor em dinheiro, link
-  nem código Pix: escreve **marcadores** (`{divida}`, `{valor_final}`, `{link_ctn}`, `{pix_copia_e_cola}`…).
+  turno e o texto da resposta, que só existe nas 4 ações de cobrança (D59, D63). Ele não redige o encaminhamento ao
+  humano: todo handoff leva só a frase fixa. Não recebe nenhum valor em dinheiro, link nem código Pix: escreve
+  **marcadores** (`{divida}`, `{valor_final}`, `{link_ctn}`, `{pix_copia_e_cola}`…).
 - O **backend** faz as contas e executa: a dívida (D24), o degrau do desconto (D35), a propensão ao cartão (D36), o Pix e
   o link do CTN. Troca cada marcador pelo valor certo.
 - O **código** confere tudo o que o Luna devolveu: a ação é permitida, os marcadores são os da ação, o texto não traz
@@ -72,10 +73,10 @@ rajada. A saída é um JSON em esquema estrito (`json_schema`) com os sinais, o 
 texto nas 4 ações de cobrança (D63); saída inválida ou ação fora do enum conta como falha de integração (3 tentativas,
 depois `INTEGRACAO_INDISPONIVEL`).
 
-**A decisão** é do código: vence a primeira regra que bate. A guarda de palavra-chave (golpe, advogado, Procon, processo,
-atendente, humano) vem antes da chamada e manda ao atendente **sem chamar o Luna**. Depois da chamada: um sinal de
-saída, o tom irritado ou hostil, o pedido de humano, o terceiro, a ação fora das permitidas e, por fim, a ação com o que
-vai junto (seção 4).
+**A decisão** é do código: vence a primeira regra que bate. A guarda de palavra-chave (golpe ou golpista, advogado,
+Procon, processo ou processar, atendente, humano, "falar com alguém") vem antes da chamada e manda ao atendente **sem
+chamar o Luna**. Depois da chamada: um sinal de saída, o tom irritado ou hostil, o pedido de humano, o terceiro, a ação
+fora das permitidas e, por fim, a ação com o que vai junto (seção 4).
 
 | Sinal | Motivo |
 |---|---|
@@ -148,7 +149,9 @@ Na régua sem desconto (NR, R1, R2) não há `OFFER_DISCOUNT`. Esgotados os degr
 ## 6. Validação do texto pelo código
 
 O texto do Luna é conferido contra uma prévia dos números, antes de qualquer link ou Pix de verdade: os marcadores
-obrigatórios da ação estão presentes, nenhum outro, e não há dígito, valor ou link solto. Reprovou: **2 tentativas**, a
+obrigatórios da ação estão presentes, os outros só valem se o turno tem o valor deles (os opcionais com valor, como
+`{mensalidades}` e `{valor_pix}`, também são aceitos), nenhum marcador desconhecido, e não há dígito, valor ou link
+solto. Reprovou: **2 tentativas**, a
 2ª dizendo ao Luna o motivo. Sem texto aprovado, a conversa vai ao atendente (`VALIDACAO`), sem resposta segura (D63).
 
 ## 7. Custo e latência

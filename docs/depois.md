@@ -25,7 +25,7 @@ com a correção quando a hora chegar (texto completo na fonte).
 | AUD-04 | Mensagem de sábado 13h passa de 24h na segunda; `Retomar` manda o template ao `DisparadorFalso` e consome a rajada | Handoff com nota enquanto o disparador for falso | AGORA, 1.6 (motivo `FORA_DAS_24H`) |
 | AUD-05 | `travar_conversas_e_cobranca` não relê a cobrança: baixa e confirmação em dobro (precisa prova no Postgres) | `.all()` na consulta ou `refresh(with_for_update)` | ANTES DO PILOTO REAL |
 | AUD-06 | Linha de baixa malformada (valor negativo) trava a rotina das baixas por 24h | `_baixas_validas` em `_baixas_da_pessoa`; parar só em falha de transporte | ANTES DO PILOTO REAL |
-| AUD-07 | Comprovante em foto/PDF sem legenda chega vazio ao LLM; cliente que pagou fica sem resposta | Gate para rajada só com anexo → `CONCILIACAO`; rótulos `[imagem enviada]` | AGORA, 1.7; **no canal real a foto vem como texto `[Image]` e o gate não pega (D62): sem resposta, aceito no teste** |
+| AUD-07 | Comprovante em foto/PDF sem legenda chega vazio ao LLM; cliente que pagou fica sem resposta | Gate para rajada só com anexo → `CONCILIACAO`; rótulos `[imagem enviada]` | AGORA, 1.7; **feito** (`c1a1545`, D63): a foto que chega como `[Image]` com anexo vai à conciliação; só a figurinha fica sem resposta |
 | AUD-08 | Fixa e notas do handoff saem dentro da transação que pode ser repetida (fixa paga até 3 vezes) | Gravar PENDENTE e despachar depois do commit | ANTES DO PILOTO REAL |
 | AUD-09 | Telefone casa com 2 cobranças ativas: vence a de menor id (expõe dívida a terceiro) | Nenhuma ligada; handoff com nota | ANTES DO PILOTO REAL |
 | AUD-10 | `uma_chamada`: sem conferência de promessa ("pode pagar em duas vezes"), `OFFER_DISCOUNT` sem objeção, `contar_objecao` nunca chamado | (1) desconto só após INFORM_DEBT; (2) `objecao_valor`; (3) conferir `reply` com perguntas de segurança | TESTE MEDE (se a Lohanny vir desconto cedo ou promessa falsa, voltam as 3 partes) |
@@ -153,9 +153,9 @@ com a correção quando a hora chegar (texto completo na fonte).
   a resposta do Chatwoot se perdeu (timeout depois da entrega), ela sai de novo; (b) em `_resolver_pendente` (~813) a mensagem
   pendente é descartada sem conferência e o teto pode contar uma a menos. Janelas raras. A saída é o token do bot passar a ler as
   mensagens (Chatwoot, T3) ou guardar o id da resposta do envio. O ensaio não pega (o Chatwoot falso não tem essa permissão).
-- **Leitura de imagem (futuro, importante; D62, 2026-11-11):** hoje a foto e a figurinha chegam ao agente como `[Image]` ou `[Sticker]` + anexo e ficam
-  sem resposta (o Luna devolve `NONE`). Implementar: (1) tratar o texto-padrão do gateway com anexo como "sem texto" e mandar ao humano
-  (`CONCILIACAO`, o desenho original do AUD-07), e (2) ler o comprovante (imagem ou PDF) com um modelo de visão, confirmando valor e data antes de
+- **Leitura de imagem (futuro, importante; D62, 2026-11-11):** a foto e a figurinha chegam ao agente como `[Image]` ou `[Sticker]` + anexo.
+  Implementar: (1) **feito** (`c1a1545`, D63): o texto-padrão do gateway com anexo conta como "sem texto" e a foto vai ao humano
+  (`CONCILIACAO`, o desenho original do AUD-07); só a figurinha fica sem resposta; (2) ler o comprovante (imagem ou PDF) com um modelo de visão, confirmando valor e data antes de
   conciliar. Os anexos já guardam o tipo e o endereço (`mensagem.anexos`); o token do Agent Bot baixa a mídia? *a conferir* (o áudio já usa `baixar_anexo`).
 - **Achados (B) da revisão Opus da Etapa 2 (PARADA 2, 2026-11-11), nada bloqueia o teste:** (1) `deploy/dev2/agente.env.exemplo` traz
   `AGENTE_LLM_DADOS_REAIS_LIBERADOS=false` e o comentário "token novo, depois da rotação", que contradizem a decisão de 2026-11-11
@@ -178,3 +178,44 @@ com a correção quando a hora chegar (texto completo na fonte).
   (Celular, 2026-11-13.)
 - **Ordem do "[TESTE] Simulando a confirmação" e do "Obrigado":** depois do `/paguei`, as duas saem no mesmo segundo e
   a ordem varia. Só existe no modo teste. **NÃO SERVE**. (Celular, 2026-11-13.)
+
+## Da leitura a frio (2026-11-13)
+
+Fonte: a leitura a frio de `77a78f2` (`C:/aud-frio/LEITURA-A-FRIO.md`). O lote de correção levou os invariantes I-1,
+I-2, I-3, I-4 e I-8, o F-1 e os documentos D-1 a D-12. O que não entrou:
+
+- **I-5, figurinha junto de áudio não ouvido** (`turno/transcricao.py:68-73`): o anexo da figurinha e o rótulo
+  `[Sticker]` tiram a rajada do pedido de texto; com `NONE`, sai o handoff `SEM_RESPOSTA` em vez de "Não consegui ouvir
+  seu áudio". Lado seguro (vai ao atendente). **NÃO SERVE**.
+- **I-6, `reply` com mais de 1000 caracteres** (`turno/uma_chamada.py:357`, contra `:329` e `:547-551`): a saída inteira
+  não valida e vira falha de integração; o sinal (ex.: `alega_pagamento`) chega ao atendente só depois das 3
+  tentativas, com `INTEGRACAO_INDISPONIVEL`. **TESTE MEDE** (se o Luna escrever textos assim, tirar o limite do esquema
+  e deixar o conferidor reprovar).
+- **I-7, mensagem só de símbolo vale como cortesia** (`turno/catalogo.py:94-95` e `:135`): "❓", "🤔", "👎" e "😡" ficam
+  em silêncio com `NONE`. Dentro da letra da política; parente da cortesia com pergunta. **TESTE MEDE**.
+- **F-2, docstring de `motivos_do_texto`** (`turno/redacao.py:151`): ainda cita o texto do handoff, que ninguém confere
+  mais. **NÃO SERVE**.
+- **F-3, teste que não testa** (`tests/turno/test_uma_chamada_resolver.py:150-154`): o `NONE` com texto só de espaços
+  repete o da linha 141; falta o caso do `NONE` com texto de verdade (sai o handoff `SEM_RESPOSTA`). **NÃO SERVE**.
+- **F-4, constante sem uso** (`tests/turno/auxiliares.py:29`, `REPLY_NONE`, um uso em
+  `tests/turno/test_orquestrador_uma_chamada.py:349`). **NÃO SERVE**.
+- **F-5, asserção que não falha** (`tests/turno/test_uma_chamada_resolver.py:207`, `"erro" not in dados`: o campo saiu
+  da `ResolucaoTurno`). **NÃO SERVE**.
+- **F-6, teste que confere a palavra errada** (`tests/turno/test_uma_chamada_entrada.py:290`, `"terceiro" in texto`: a
+  regra de redação do terceiro saiu do prompt). **NÃO SERVE**.
+- **F-7, cobertura dos gates novos** (`tests/turno/test_transcricao.py:131-153`): em `tests/turno/test_gates.py` faltam
+  figurinha + foto, figurinha + áudio (I-5) e figurinha fora da janela; o lote do I-4 já pôs o rótulo com e sem anexo.
+  **NÃO SERVE**.
+- **F-8, figurinha e rótulo duplicados** (`turno/catalogo.py:109-110`, `turno/gates.py:95`, `turno/transcricao.py:33`):
+  `_FIGURINHA` em dois módulos e `_ROTULO_DA_IMAGEM` copiando o rótulo de `ROTULOS_DE_ANEXO`. Mudar um rótulo quebra o
+  silêncio da figurinha sem teste que acuse (o lado seguro é o atendente). **ANTES DE ESCALAR**.
+- **F-9, docstring do módulo dos gates** (`turno/gates.py:3-7`, contra `:169-178`): diz "humano na conversa, reinício";
+  o código faz o reinício antes do humano. **NÃO SERVE**.
+- **F-10, linha do prompt quase sem efeito** (`turno/uma_chamada.py:295`): "leve a preocupação a sério" está em "como
+  escrever o reply", mas com `desconfia_golpe` ou a palavra "golpe" o `reply` nunca sai. Mexer no prompt só com dado
+  novo. **NÃO SERVE**.
+- **F-11, defesas de antes do esquema estrito** (`turno/uma_chamada.py:359-364`, `integracoes/llm_turno.py:19-21`): o
+  `null` que vira `""` e o JSON cercado por crases não têm entrada possível com o `json_schema` estrito. Ficam se o
+  provedor puder mudar. **ANTES DE ESCALAR**.
+- **F-12, teste da palavra-chave sem conferir o Luna** (`tests/turno/test_orquestrador_uma_chamada.py:157`): dá uma
+  resposta ao Luna falso que nunca é usada e não confere `pedidos == []`. **NÃO SERVE**.

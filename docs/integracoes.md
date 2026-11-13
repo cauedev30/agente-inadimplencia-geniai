@@ -472,13 +472,17 @@ escreve marcadores (`{valor_final}`), e o backend preenche os números. **Sem a 
 |---|---|---|
 | `AGENTE_LLM_API_KEY` | (obrigatória) | a chave da OpenAI |
 | `AGENTE_LLM_URL` | `https://api.openai.com/v1` | a base da API de chat completions |
-| `AGENTE_LLM_MODELO` | `gpt-6-luna` | o modelo; trocar é só mudar isto |
+| `AGENTE_LLM_MODELO` | `gpt-6-luna` | o modelo; trocar exige que o provedor aceite `json_schema` estrito (abaixo) |
 | `AGENTE_LLM_CORPO_EXTRA` | `{"reasoning_effort": "none"}` | JSON que entra no corpo de todo pedido |
 | `AGENTE_LLM_DADOS_REAIS_LIBERADOS` | `false` | a trava do M2 (ver "A trava dos dados reais"); sem `true`, o serviço não sobe |
 
 **Atenção ao `reasoning_effort`:** o Luna **recusa a temperatura** (HTTP 400, e toda chamada falha) sem o
 `reasoning_effort: "none"`; foi medido no outro agente da GeniAI. O padrão já o manda. Se mudar o modelo ou o
 provedor, confira o que ele aceita no corpo.
+
+**Atenção ao `json_schema` estrito:** a saída do Luna vai em `response_format` com `json_schema` e `strict: true`
+(`integracoes/llm_turno.py`). O modelo ou o provedor novo tem de aceitá-lo e respeitá-lo; senão toda chamada falha e o
+turno cai nas 3 tentativas e em `INTEGRACAO_INDISPONIVEL`.
 
 **A confirmar:** a retenção de dados (LGPD) antes de liberar dado real. A comparação que sustentou a escolha do
 modelo está em [`comparacao-llm.md`](comparacao-llm.md) (histórico).

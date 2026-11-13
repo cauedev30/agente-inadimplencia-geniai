@@ -86,8 +86,9 @@ agente grava a mensagem de quem está fora do piloto, sem responder (registrado 
   mande `/reset` e depois "Oi" de novo.
 - **A política é `chmod 644`**, porque o contêiner roda como uid 1000 e precisa lê-la. O arquivo só tem
   telefones do piloto; o `agente.env` segue `chmod 600`.
-- **Foto e figurinha chegam do gateway como texto `[Image]`/`[Sticker]` mais o anexo**, e o agente não
-  responde (D62: ignorados no teste; a leitura de imagem está em `docs/depois.md`). Avise os testadores.
+- **Foto e figurinha chegam do gateway como texto `[Image]`/`[Sticker]` mais o anexo.** A foto vai ao
+  atendente (`CONCILIACAO`, D63); só a figurinha fica sem resposta. A leitura da imagem está em
+  `docs/depois.md`. Avise os testadores.
 - **O token do Agent Bot dá 401 em `GET /messages`.** O agente usa essa leitura para conferir se a
   mensagem já saiu; com o 401, a conferência vira "não sei" e a confirmação do pagamento sai mesmo assim
   (`6379d91`; o risco, uma confirmação repetida, está em `docs/depois.md`). Se a confirmação voltar a

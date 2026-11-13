@@ -473,7 +473,9 @@ deixa a nota com o resumo. Desenho, riscos e a alternativa (o humano no próprio
 **Respondida pelo Cauê em 2026-10-22 → D38:** os padrões abaixo ficam valendo. **Revista pela D47 e pela D59
 (2026-11-11):** o Jev saiu; o Luna decide `NONE` do mesmo modo, não há `EM_RISCO` nem Jev 3 (o texto que o código
 reprova duas vezes recebe a resposta segura, e na vez seguinte o atendente), e o LLM, o CTN, o Pix ou o Chatwoot fora do
-ar seguem os padrões 4 e 5.
+ar seguem os padrões 4 e 5. **Revista também pela D63 (2026-11-13):** não há resposta segura, e o texto reprovado duas
+vezes vai direto ao atendente (`VALIDACAO`); o `NONE` fora da lista de cortesia também vai ao atendente
+(`SEM_RESPOSTA`), em vez de o agente não responder nada. O texto abaixo é o histórico.
 
 A etapa 5 precisou de regras que a spec não fixava. **Padrões até você decidir (2026-10-22):**
 
