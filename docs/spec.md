@@ -61,40 +61,9 @@ A leitura do CTN (carteira, conferência, baixas) é real e está pronta, mas pa
 
 ## 4. Regras da conversa
 
-| Regra | Decisão |
-|---|---|
-| **Teto: 5 mensagens do agente.** A abertura (template) não conta. Depois da 5ª, a próxima mensagem do cliente recebe a **6ª, fixa e sem LLM**, e a conversa passa ao atendente | D33, D14 |
-| **A 6ª diz:** *"Para resolver da melhor forma, um atendente da unidade vai continuar com você aqui mesmo, nesta conversa."* Sem link e sem botão. Se o Luna redigiu um texto de encaminhamento, ele vem antes dessa frase | D60, D19 |
-| **A confirmação de pagamento sai sempre**, fora do teto. Fora das 24h do WhatsApp, vai por template de utilidade. Para quem paga Pix todo mês, convida a cadastrar o cartão | D33, D36 |
-| **O toque em "Pagar com Pix"** é respondido na hora, mesmo fora da janela, com uma mensagem fixa e sem LLM: o Pix, o valor, o vencimento e o recebedor. Conta no teto | D26, D40, D59 |
-| **Janela de atendimento:** segunda a sexta, 8h às 18h; sábado, 8h às 12h (padrão G3); domingo e feriado fora. Fora dela o agente não responde: o que chegou é respondido quando a janela abre | D11, D16 |
-| **Janela de 24h do WhatsApp:** se a última mensagem do cliente passou de 24h (por exemplo, chegou no sábado depois das 12h), o agente não responde: a conversa vai ao atendente com uma nota, sem mensagem ao cliente | D16 |
-| **Desconto máximo por régua:** nenhum na NR, R1 e R2 (sem ação de desconto); até R$ 90 na R3 e na R4; até R$ 75 na R5; até R$ 60 na R6. Três degraus iguais, um por objeção de valor. Esgotados os degraus, a última oferta é o valor final: o agente mantém o link, sem prometer outro desconto | D29, D35, D47 |
-| **Propensão ao cartão:** ao informar o débito, o código anexa o link do CTN para quem paga Pix em dia fixo há 3 meses e o Pix para os demais | D36, D37 |
-| **Áudio** é transcrito (`gpt-4o-mini-transcribe`) e segue como texto. Áudio que não se lê: pede o texto uma vez, fora do teto; na 2ª vez, atendente. Foto ou PDF sem texto vai ao atendente conferir o comprovante | D43 |
-| **Cobrança quitada no CTN:** não se cobra; a conversa vai ao atendente conferir, com a mensagem só na 1ª vez | D50 |
-
-**Quando a conversa vai ao atendente.** O Luna devolve sinais junto com a ação, e o código também confere palavras-chave
-(golpe, advogado, Procon, processo, "atendente", "humano"): quer cancelar, cita risco jurídico, diz que já pagou
-(CONCILIAÇÃO), contesta a dívida, desconfia de golpe, está em situação vulnerável, reclama da clínica, quer pagar na
-Energisa, pede uma pessoa ou escreve em tom irritado ou hostil. Também vão ao atendente: o teto, o texto reprovado
-duas vezes (depois de uma resposta segura, que sai uma vez por conversa), o Luna, o CTN, o Pix ou o Chatwoot fora do ar
-depois de 3 tentativas, e o erro de código repetido. Quem escreve em nome de terceiro não vai ao atendente: recebe só
-uma mensagem curta, sem falar da dívida.
-No handoff o agente deixa no Chatwoot uma nota privada, uma etiqueta com o motivo e a atribuição ao time, e abre a
-conversa. Quem desconfia de golpe recebe uma frase própria, sem a fixa do teto (D44). Quando o atendente marca a
-conversa como Pendente, o robô reassume.
-
-**Padrões até as dúvidas fecharem** (todos são parâmetros do `politica.toml`):
-
-| Lacuna | Padrão | Dúvida |
-|---|---|---|
-| Degraus do desconto | 3 degraus iguais até o máximo | G1.1 |
-| Desconto na Prévia e na R6 | R$ 60 nas duas | G1.1 |
-| Mais de 6 mensalidades | condição da R6 | G1.1 |
-| Pix gerado e não pago | vale 24h; sem pagamento, não há novo contato | G2.4 |
-| Regra da propensão ao cartão | 3 meses seguidos de Pix, com tolerância de 3 dias | T9 |
-| Mês a vencer na troca do cartão | não cobra junto | G9.2 |
+As regras da conversa, a tabela de políticas (o que o agente faz sozinho, o que vai ao atendente e o que fica em
+silêncio), os invariantes que o código confere e a lista de estilo estão em [`politicas.md`](politicas.md), que é a
+única casa delas desde a D63.
 
 ## 5. Fora do escopo por enquanto
 
@@ -109,8 +78,10 @@ A linha de chegada atual, provisória até a G4 trazer a meta de negócio. Está
 
 1. o agente roda no `dev2` (o serviço, o Postgres e um túnel), em modo teste, com o Luna real, só para os telefones do
    piloto;
-2. o ensaio automático (`ferramentas/demo-whatsapp/ensaiar.py --teste`) passa no `dev2` com os 5 casos do cardápio,
-   sem divergência, erro ou turno faltando;
+2. o ensaio automático (`ferramentas/demo-whatsapp/ensaiar.py --teste`) passa no `dev2` com os 5 casos do cardápio:
+   reprova só o turno em `ERRO`, o turno faltando e a divergência em passo sem LLM (toque no Pix, `/paguei`, `/caso`).
+   A divergência em passo com LLM e as linhas `ERROR` do log vão listadas no relatório, que o Cauê lê; a suíte
+   determinística é o portão, o ensaio com o Luna real é relatório;
 3. o Cauê fez o roteiro exato no celular e ele passou;
 4. o Luciano e a Lohanny testaram os 5 casos em até 3 dias úteis;
 5. as correções que bloqueiam, tiradas da lista da Lohanny (as `/nota`), saíram num lote só, e o resto foi para
