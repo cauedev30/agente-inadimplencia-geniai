@@ -79,7 +79,17 @@ perigoso (dado de outra pessoa, valor absurdo), **avise o Cauê direto**, além 
 
 ## O que ainda não funciona (não é defeito)
 
-- **Foto, figurinha, áudio e PDF:** o agente não lê e fica mudo. Escreva em texto.
+- **Foto e PDF sem texto:** o agente não lê; passa a conversa a um atendente, para conferir o comprovante.
+- **Figurinha:** fica sem resposta. **Áudio:** no teste, o agente pede para escrever; na 2ª vez, passa a um atendente.
 - **Pix e link do cartão:** vêm como `[TESTE] aqui viria...`, porque o Pix real e o sistema do cartão ainda não
   estão ligados.
 - O agente só responde ao que você escreve; ele não puxa conversa sozinho.
+
+## O que vai ao atendente de propósito (não é defeito)
+
+O agente só resolve sozinho o que leva ao pagamento: o valor, o desconto, o link e o Pix. O resto tem saída fixa.
+Pergunta que ele não sabe responder ("quais meses estão em aberto?"), desabafo, pedido de uma pessoa, "golpe",
+"advogado" ou "Procon" passam a conversa a um atendente, com uma frase pronta que diz que um atendente da unidade
+vai continuar ali mesmo, na conversa. Assunto que não é a mensalidade (horário, endereço,
+clínica) recebe uma frase pronta. "Ok" e "obrigado" ficam sem resposta. Se achar que foi ao atendente sem
+precisar, anote com `/nota`; não é defeito, mas a nota ajuda a medir.
