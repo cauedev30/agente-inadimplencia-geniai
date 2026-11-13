@@ -172,3 +172,9 @@ com a correção quando a hora chegar (texto completo na fonte).
 - **Cortesia com pergunta de confirmação:** a lista descarta a pontuação, então "certo?", "ok, certo?" e "entendi, certo?"
   ficam em silêncio quando o Luna devolve `NONE`. Pode ser uma pergunta que fica sem resposta. Medir no teste; se
   aparecer, a mensagem com "?" sai da cortesia. (Conferência curta da PARADA.)
+- **Ponto final grudado no código Pix:** na resposta do `INFORM_DEBT`, o Luna fecha a frase com "." logo depois do
+  `{pix_copia_e_cola}` ("…copia e cola: [código]."). Com o Pix real, o cliente pode copiar o ponto junto e o pagamento
+  não passa. O botão "Pagar com Pix" já põe o código numa linha sozinho. **ANTES DO PILOTO REAL** (com o T1).
+  (Celular, 2026-11-13.)
+- **Ordem do "[TESTE] Simulando a confirmação" e do "Obrigado":** depois do `/paguei`, as duas saem no mesmo segundo e
+  a ordem varia. Só existe no modo teste. **NÃO SERVE**. (Celular, 2026-11-13.)

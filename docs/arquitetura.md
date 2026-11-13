@@ -47,13 +47,14 @@ São certezas, não probabilidades, e por isso ficam em código.
    - reinício (só telefones da equipe);
    - humano na conversa;
    - anexo que o agente não lê;
+   - só figurinha (`[Sticker]`): silêncio, sem chamar o Luna (D63);
    - **janela de atendimento**: segunda a sexta, 8h às 18h; sábado, 8h às 12h; domingo e feriado fora (D11, D16). Fora
      dela nada é enviado e o turno volta quando ela abre; só o toque no botão "Pagar com Pix" passa (D40);
    - **janela de 24h do WhatsApp**: passada, o humano assume com uma nota, sem mensagem ao cliente;
    - **teto de 5 mensagens**, com a 6ª fixa (D33, D60). A abertura não conta, e a confirmação de pagamento sai sempre,
      fora do teto;
    - cobrança quitada no CTN: o humano confere (`CONCILIACAO`), com a mensagem só na 1ª vez;
-   - foto ou PDF sem texto: o humano confere o comprovante (`CONCILIACAO`);
+   - foto ou PDF sem texto, inclusive o que chega como `[Image]`: o humano confere o comprovante (`CONCILIACAO`);
    - toque no botão "Pagar com Pix": segue direto ao Pix fixo (seção 5), sem o Luna.
 
    Passando todos, o turno segue ao Luna.
@@ -67,11 +68,14 @@ São certezas, não probabilidades, e por isso ficam em código.
 
 **A chamada** (`turno/uma_chamada.py`). A entrada traz o primeiro nome, a régua, o degrau, a forma já enviada, as ações
 permitidas (cada uma com "quando usar", "o que o texto faz" e os marcadores), as regras da cobrança, o histórico e a
-rajada. A saída é um JSON com os sinais, o tom, a ação, o `reply` e o `handoff_reply`.
+rajada. A saída é um JSON em esquema estrito (`json_schema`) com os sinais, o tom, a ação e o `reply`. O `reply` só tem
+texto nas 4 ações de cobrança (D63); saída inválida ou ação fora do enum conta como falha de integração (3 tentativas,
+depois `INTEGRACAO_INDISPONIVEL`).
 
-**A decisão** é do código: vence a primeira regra que bate. A guarda de palavra-chave (golpe, jurídico, pedido de humano),
-um sinal de saída, o tom irritado ou hostil, o pedido de humano, o terceiro, a ação fora das permitidas e, por fim, a ação
-com o que vai junto (seção 4).
+**A decisão** é do código: vence a primeira regra que bate. A guarda de palavra-chave (golpe, advogado, Procon, processo,
+atendente, humano) vem antes da chamada e manda ao atendente **sem chamar o Luna**. Depois da chamada: um sinal de
+saída, o tom irritado ou hostil, o pedido de humano, o terceiro, a ação fora das permitidas e, por fim, a ação com o que
+vai junto (seção 4).
 
 | Sinal | Motivo |
 |---|---|
@@ -86,16 +90,16 @@ com o que vai junto (seção 4).
 | `quer_humano` | `PEDIU_HUMANO` |
 | tom `irritado` ou `hostil` | `TOM` |
 
-O `terceiro` (quem escreve não é o devedor) não vai ao humano: o Luna escreve só uma mensagem curta, sem falar da dívida.
+O `terceiro` (quem escreve não é o devedor) não vai ao humano: recebe uma frase fixa, sem falar da dívida (D63). As
+outras saídas fixas (fora do assunto, `NONE`, cortesia) estão na tabela de [`politicas.md`](politicas.md).
 
 **O handoff.** Toda saída do robô passa a conversa a um atendente **na mesma conversa do WhatsApp** (D60): uma nota
 privada com o motivo, a etiqueta, a atribuição ao time (`AGENTE_CHATWOOT_TIME_HUMANO`) e o status aberto. O estado vira
-`ATENDIMENTO_HUMANO`. Quando há mensagem ao cliente, ela é o texto de encaminhamento que o Luna redigiu (1 ou 2 frases,
-até 300 caracteres, sem dígito nem marcador) seguido da fixa *"Para resolver da melhor forma, um atendente da unidade vai
-continuar com você aqui mesmo, nesta conversa."* Quem desconfia de golpe recebe uma frase própria (D44). Fica sem
-mensagem ao cliente a volta ao humano de quem já recebeu a 6ª ou o aviso de cobrança quitada, e o caso das 24h vencidas.
-Outros motivos: `TETO`, `AUDIO`, `VALIDACAO`, `FORA_DAS_24H`, `INTEGRACAO_INDISPONIVEL`, `ERRO_INTERNO` e
-`PAGAMENTO_DIVERGENTE`. O rodízio entre os atendentes é a atribuição automática do Chatwoot (*a confirmar* na conta do
+`ATENDIMENTO_HUMANO`. Quando há mensagem ao cliente, ela é só a fixa *"Para resolver da melhor forma, um atendente da
+unidade vai continuar com você aqui mesmo, nesta conversa."*, sem texto do Luna (D63). Quem desconfia de golpe recebe uma
+frase própria (D44). Fica sem mensagem ao cliente a volta ao humano de quem já recebeu a 6ª ou o aviso de cobrança
+quitada, e o caso das 24h vencidas. Outros motivos: `SEM_RESPOSTA`, `TETO`, `AUDIO`, `VALIDACAO`, `FORA_DAS_24H`,
+`INTEGRACAO_INDISPONIVEL`, `ERRO_INTERNO` e `PAGAMENTO_DIVERGENTE`. O rodízio entre os atendentes é a atribuição automática do Chatwoot (*a confirmar* na conta do
 JP Sul, D60).
 
 ## 3. Estados da conversa
@@ -123,8 +127,8 @@ O Luna escolhe uma **ação principal**; o código anexa o que vai junto, por um
 | `OFFER_DISCOUNT` | libera o próximo degrau (D35); só existe se há degrau seguinte | o link do CTN, já com o desconto (D34) |
 | `SEND_CTN_LINK` | manda o link: paga e cadastra o cartão (D30) | nada |
 | `GENERATE_PIX` | gera o Pix do valor integral (D22, D34) | nada |
-| `OUT_OF_SCOPE` | diz que o assunto não é tratado ali | nada |
-| `NONE` | não agir; com desabafo, uma ou duas frases que acolhem, sem valor | nada |
+| `OUT_OF_SCOPE` | sai a frase fixa do fora do assunto; o Luna não redige | nada |
+| `NONE` | sem texto: cortesia fica em silêncio; o resto vai ao atendente (`SEM_RESPOSTA`) | nada |
 
 Na régua sem desconto (NR, R1, R2) não há `OFFER_DISCOUNT`. Esgotados os degraus, a última oferta é o valor final.
 
@@ -145,8 +149,7 @@ Na régua sem desconto (NR, R1, R2) não há `OFFER_DISCOUNT`. Esgotados os degr
 
 O texto do Luna é conferido contra uma prévia dos números, antes de qualquer link ou Pix de verdade: os marcadores
 obrigatórios da ação estão presentes, nenhum outro, e não há dígito, valor ou link solto. Reprovou: **2 tentativas**, a
-2ª dizendo ao Luna o motivo. Sem texto aprovado: uma **resposta segura** curta, sem número, uma vez por conversa; na vez
-seguinte, o humano assume (`VALIDACAO`). Com a guarda de palavra-chave, a chamada é uma só e serve ao texto do handoff.
+2ª dizendo ao Luna o motivo. Sem texto aprovado, a conversa vai ao atendente (`VALIDACAO`), sem resposta segura (D63).
 
 ## 7. Custo e latência
 

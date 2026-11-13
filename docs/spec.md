@@ -29,7 +29,7 @@ métrica de custo.
   cadastra o cartão (D30). O desconto só vale no link; o Pix é sempre o valor integral (D34).
 - **Passa a conversa a um atendente** quando o caso não é do robô (seção 4), na mesma conversa do WhatsApp (D60).
 - Em cada mensagem do cliente, **uma chamada ao Luna** (`gpt-6-luna`, D42) lê a conversa, escolhe a ação e redige o
-  texto (D59). O **código confere**: a ação é permitida, os valores vêm do backend (o texto só traz marcadores), os
+  texto (D59), só nas 4 ações de cobrança; o resto tem frase fixa ou vai ao atendente (D63). O **código confere**: a ação é permitida, os valores vêm do backend (o texto só traz marcadores), os
   gatilhos de humano, a guarda de palavra-chave e o teto. Quem decide o que pode ser dito é o código; o Luna não
   calcula nem inventa valor. O desenho está em [`arquitetura.md`](arquitetura.md).
 
