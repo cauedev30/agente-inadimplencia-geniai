@@ -217,7 +217,6 @@ def test_o_modo_teste_carrega_o_cardapio_dos_5_casos(tmp_path):
         (4, "Daniel", 5),
         (5, "Elisa", 6),
     ]
-    assert [c.cpf[:3] for c in teste.casos] == ["101", "202", "303", "404", "505"]
     assert [len(c.historico) for c in teste.casos] == [3, 3, 3, 3, 0]
     assert {h.forma for h in teste.casos[0].historico} == {FormaHistorico.CARTAO}
     assert {h.forma for h in teste.casos[3].historico} == {
@@ -273,20 +272,6 @@ def test_o_texto_de_abertura_sem_nome_ou_valor_e_recusado(tmp_path, sem):
 def test_o_texto_de_abertura_sem_mensalidades_e_aceito(tmp_path):
     teste = TESTE.replace(" Há {mensalidades} mensalidades em aberto,", "")
     assert carregar_politica(_politica_de_teste(tmp_path, teste=teste)).teste
-
-
-def test_o_cpf_com_digito_verificador_valido_e_recusado(tmp_path):
-    # 10123456703 é o CPF de base 101234567 com os dígitos certos.
-    cardapio = CARDAPIO.read_text(encoding="utf-8").replace("10123456711", "10123456703")
-    with pytest.raises(PoliticaInvalida, match=r"cardapio-teste\.toml.*caso\[0\]\.cpf"):
-        carregar_politica(_politica_de_teste(tmp_path, cardapio=cardapio))
-
-
-@pytest.mark.parametrize("cpf", ["1012345671", "101234567111", "1012345671a"])
-def test_o_cpf_que_nao_tem_11_digitos_e_recusado(tmp_path, cpf):
-    cardapio = CARDAPIO.read_text(encoding="utf-8").replace("10123456711", cpf)
-    with pytest.raises(PoliticaInvalida, match=r"caso\[0\]\.cpf"):
-        carregar_politica(_politica_de_teste(tmp_path, cardapio=cardapio))
 
 
 def test_o_erro_no_cardapio_diz_o_arquivo_e_o_campo(tmp_path):

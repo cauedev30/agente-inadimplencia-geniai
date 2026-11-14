@@ -9,7 +9,7 @@ roteiro.
 Você conversa pelo WhatsApp com o **agente de inadimplência**, como se fosse um cliente do Cartão de Todos
 com mensalidades em atraso. O agente lê, responde, informa a dívida e oferece o Pix.
 
-- **Os clientes são inventados** (nome e CPF de mentira). Ninguém é cobrado, e nenhum dado real entra.
+- **Os clientes são inventados** (só o nome é de mentira). Ninguém é cobrado, e nenhum dado real entra.
 - **O Pix e o link do cartão são de mentira** (aparecem com `[TESTE]`). A conversa é de verdade: o agente
   usa a inteligência artificial de verdade para entender você e redigir as respostas.
 - **Só os 3 telefones do teste conversam com ele.** Qualquer outro número é ignorado.
@@ -18,34 +18,35 @@ com mensalidades em atraso. O agente lê, responde, informa a dívida e oferece 
 
 Mande **`Oi`** para o número do teste. Você começa como o caso 1 (Ana) e o agente abre a conversa
 citando a dívida. A partir daí, converse como um cliente de verdade: do jeito mais difícil que você já viu
-na operação. Se o agente pedir o CPF, use o da tabela abaixo.
+na operação.
 
 Para pedir o Pix, escreva **`Pagar com Pix`** ou peça com as suas palavras.
 
 | Comando | O que faz |
 |---|---|
 | `/caso` | Lista os 5 casos. |
-| `/caso 3` | Você passa a ser o caso 3 (troque o número). |
+| `/caso 3` | Você passa a ser o caso 3 (troque o número). Depois, mande `Oi`: a 1ª mensagem só recebe a abertura. |
 | `/paguei` | Simula o banco confirmando o Pix que o agente deu. |
 | `/nota texto livre` | Anota uma observação sua. É como você devolve o retorno. |
 
-Também existem `/reset` (recomeça o caso em que você está) e `/paguei 2` (simula 2 mensalidades pagas por
+Também existem `/reset` (recomeça o caso em que você está; depois, mande `Oi`) e `/paguei 2` (simula 2 mensalidades pagas por
 fora, sem passar pelo agente).
 
 Mande uma mensagem por vez e espere a resposta (ele leva alguns segundos). Pode testar **a qualquer hora**.
-Se ficar mais de 2 minutos sem resposta, avise o Cauê.
+Se ficar mais de 2 minutos sem resposta, avise o Cauê. Depois que o agente diz que "um atendente vai continuar", ele fica
+mudo de propósito: para seguir, mande `/reset`.
 
 ## O que pedimos
 
 **Passe pelos 5 casos pelo menos uma vez**, cada um do seu jeito. O resto é livre.
 
-| Caso | Cliente | Atraso | Dívida | CPF fictício |
-|---|---|---|---|---|
-| 1 | Ana, pagava no cartão | 3 meses | R$ 100,20 | 10123456711 |
-| 2 | Bruno, paga Pix todo mês (tende ao cartão: o link do cartão vem antes do Pix) | 3 meses | R$ 100,20 | 20234567800 |
-| 3 | Carla, pagava boleto | 4 meses | R$ 133,60 | 30345678900 |
-| 4 | Daniel, histórico misto | 5 meses | R$ 167,00 | 40456789000 |
-| 5 | Elisa, último mês antes do corte | 6 meses | R$ 200,40 | 50567890100 |
+| Caso | Cliente | Atraso | Dívida |
+|---|---|---|---|
+| 1 | Ana, pagava no cartão | 3 meses | R$ 100,20 |
+| 2 | Bruno, paga Pix todo mês (tende ao cartão: o link do cartão vem antes do Pix) | 3 meses | R$ 100,20 |
+| 3 | Carla, pagava boleto | 4 meses | R$ 133,60 |
+| 4 | Daniel, histórico misto | 5 meses | R$ 167,00 |
+| 5 | Elisa, último mês antes do corte | 6 meses | R$ 200,40 |
 
 Cada mensalidade é R$ 33,40; o valor que o agente cita tem de bater com a coluna "Dívida".
 
@@ -65,7 +66,8 @@ dúvida ainda aberta com a gestão, e o teste usa o padrão da spec.
 
 ## Como mandar o retorno
 
-Use **`/nota`** na própria conversa, logo depois de ver o que quer comentar. O teste responde "Nota anotada" e
+Use **`/nota`** na própria conversa, logo depois de ver o que quer comentar e **antes de trocar de caso**: a nota
+guarda o que estava acontecendo no caso em que você está. O teste responde "Nota anotada" e
 guarda a nota junto com o que estava acontecendo. Elogio também vale.
 
 ```

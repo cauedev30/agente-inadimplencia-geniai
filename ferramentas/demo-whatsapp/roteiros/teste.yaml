@@ -1,5 +1,5 @@
 # Roteiros do ensaio do MODO TESTE (D56, D61): os 5 casos do cardapio-teste.toml, o Luna real e o
-# Chatwoot falso. Rodar com `ensaiar.py --teste ferramentas/demo-whatsapp/politica-teste-ensaio.toml
+# Chatwoot falso. Rodar com `ensaiar.py --teste deploy/dev2/politica-teste.exemplo.toml
 # --roteiros ferramentas/demo-whatsapp/roteiros/teste.yaml`. Só dado inventado.
 #
 # Cada roteiro é um testador do piloto, com telefone inventado próprio, que nasce no caso 1 (o
@@ -222,7 +222,8 @@
     - cliente: "Oi"
       espera:
         acao: "TESTE:ABERTURA"
-    - anexo: image
+    - cliente: "[Image]"
+      anexo: image
       espera:
         acao: "HUMAN:CONCILIACAO"
         resultado: HANDOFF

@@ -179,7 +179,7 @@ def _tratar_caso(rajada: _Rajada, comando: Comando) -> Cobranca | None:
         return None
     _responder(
         rajada,
-        f"[TESTE] Agora você é o caso {caso.numero}: {caso.titulo}. CPF fictício: {caso.cpf}.",
+        f"[TESTE] Agora você é o caso {caso.numero}: {caso.titulo}. Mande Oi para começar.",
     )
     return cobranca
 

@@ -996,7 +996,7 @@ def test_o_cli_com_roteiro_desconhecido_sai_com_2(tmp_path, capsys):
 
 # --------------------------------------------------------------------------- modo teste (D56)
 
-POLITICA_TESTE = _PASTA / "politica-teste-ensaio.toml"
+POLITICA_TESTE = RAIZ / "deploy" / "dev2" / "politica-teste.exemplo.toml"
 ROTEIROS_TESTE = _PASTA / "roteiros" / "teste.yaml"
 
 
@@ -1086,20 +1086,25 @@ def test_esperar_mensagens_desiste_no_prazo_e_devolve_o_que_ha():
         falso.parar()
 
 
-def test_a_politica_teste_do_ensaio_carrega_com_os_cinco_casos():
-    politica = carregar_politica(POLITICA_TESTE)
+def _politica_do_ensaio(tmp_path):
+    ensaiar.montar_kit(tmp_path / "kit", tmp_path / "saida", [_roteiro("a")], POLITICA_TESTE)
+    return carregar_politica(tmp_path / "saida" / "politica-demo.toml")
+
+
+def test_a_politica_de_teste_carrega_com_os_cinco_casos(tmp_path):
+    politica = _politica_do_ensaio(tmp_path)
     assert politica.teste is not None
     assert [c.numero for c in politica.teste.casos] == [1, 2, 3, 4, 5]
     assert politica.comando_reinicio == "/reset"
     assert politica.liberacao.modo == "piloto"
 
 
-def test_a_politica_teste_do_ensaio_so_difere_da_do_repo_no_que_o_ensaio_muda():
+def test_a_politica_de_teste_so_difere_da_do_repo_no_que_o_teste_muda(tmp_path):
     do_repo = carregar_politica(RAIZ / "politica.toml")
-    do_ensaio = carregar_politica(POLITICA_TESTE)
+    do_ensaio = _politica_do_ensaio(tmp_path)
     trocados = {"comando_reinicio", "telefones_equipe", "liberacao", "janela", "teste"}
     assert do_ensaio.model_dump(exclude=trocados) == do_repo.model_dump(exclude=trocados)
-    # A janela do ensaio é aberta o dia todo, sem feriado: o ensaio não depende da hora em que roda.
+    # A janela do teste é aberta o dia todo, sem feriado: o ensaio não depende da hora em que roda.
     horarios = do_ensaio.janela.dias.values()
     assert len(horarios) == 7
     assert all(

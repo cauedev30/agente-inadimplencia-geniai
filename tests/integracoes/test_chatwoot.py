@@ -86,20 +86,15 @@ def test_etiquetar_soma_as_etiquetas_que_ja_existem(chatwoot):
 
 
 @respx.mock
-def test_atribuir_status_e_atributos(chatwoot):
+def test_atribuir_e_mudar_status(chatwoot):
     atribuir = respx.post(f"{BASE}/assignments").mock(return_value=httpx.Response(200, json={}))
     status = respx.post(f"{BASE}/toggle_status").mock(return_value=httpx.Response(200, json={}))
-    atributos = respx.post(f"{BASE}/custom_attributes").mock(
-        return_value=httpx.Response(200, json={})
-    )
 
     chatwoot.atribuir(42, time_id=3)
     chatwoot.mudar_status(42, "open")
-    chatwoot.gravar_atributos(42, {"cobranca_id": 10})
 
     assert _corpo(atribuir) == {"team_id": 3}
     assert _corpo(status) == {"status": "open"}
-    assert _corpo(atributos) == {"custom_attributes": {"cobranca_id": 10}}
 
 
 @respx.mock

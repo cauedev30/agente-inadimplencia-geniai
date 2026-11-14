@@ -9,8 +9,8 @@ A primeira franquia é o **Cartão de Todos João Pessoa Sul**.
 
 ## Status
 
-**Em implementação, no corte de 2026-11-11 (D59, D60, D61).** O código está escrito e os testes automáticos
-passam, mas o serviço ainda não está hospedado e ninguém o testou à mão. Só conversam os telefones do piloto.
+**Em implementação, no corte de 2026-11-11 (D59, D60, D61).** O código está escrito, os testes automáticos
+passam e o serviço roda no `dev2`, em modo teste (o Cauê já o testou à mão). Só conversam os telefones do piloto.
 O Pix, o link e a baixa do CTN e o disparador são peças falsas até os sistemas reais chegarem (T1, T9 e T4,
 em [`docs/integracoes.md`](docs/integracoes.md)); a leitura do CTN é real, mas fica parada até o piloto real. Só o
 Luna foi conferido com o modelo real, em ensaio com um Chatwoot falso. A linha de chegada atual
@@ -26,12 +26,13 @@ fora dela está em [`docs/depois.md`](docs/depois.md).
 | [`docs/decisoes.md`](docs/decisoes.md) | Decisões numeradas (D1, D2, …), com data |
 | [`docs/duvidas.md`](docs/duvidas.md) | Perguntas em aberto, separadas por quem responde, cada uma com o padrão usado até a resposta |
 | [`docs/depois.md`](docs/depois.md) | O que ficou fora da linha de chegada: os achados da auditoria e as pendências |
-| [`docs/comparacao-llm.md`](docs/comparacao-llm.md) | Por que o LLM é o `gpt-6-luna`: as duas rodadas de comparação, com os resultados brutos (histórico) |
-| [`docs/ideia-waha.md`](docs/ideia-waha.md) | Ideia do humano num número WAHA; sem efeito pela D60 (histórico) |
+| [`docs/politicas.md`](docs/politicas.md) | As regras do agente, em um lugar só: invariantes, políticas e estilo |
+| [`docs/roteiro-dos-testadores.md`](docs/roteiro-dos-testadores.md) | O que se pede ao Luciano e à Lohanny no teste |
+| [`deploy/dev2/LEIAME.md`](deploy/dev2/LEIAME.md) | Como o `dev2` roda e como operar o teste |
 | [`docs/integracoes.md`](docs/integracoes.md) | Guia para ligar os sistemas reais (T1 a T11): o que precisamos, onde entra e o teste de cada um |
 
-Saíram do código e ficam na tag `antes-do-enxugamento`: o pipeline do Jev, a simulação e a comparação de
-redatores.
+Saíram do código e ficam na tag `antes-do-enxugamento`: o pipeline do Jev, a simulação, a comparação de
+redatores (`docs/comparacao-llm.md`) e a ideia do número WAHA (`docs/ideia-waha.md`).
 Sem efeito pela D59, D60 e D61: o modo sombra e o webchat.
 
 ## Stack

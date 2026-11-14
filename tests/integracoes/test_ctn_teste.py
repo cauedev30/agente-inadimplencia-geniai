@@ -133,7 +133,7 @@ class TestCTNDeCasos(ContratoLeituraCTN):
 def test_o_cliente_e_o_do_caso_com_o_telefone_do_ativar():
     ctn = _ctn_de_casos()
     ctn.ativar(SIM_2, TELEFONE)
-    assert ctn.consultar_cliente(SIM_2) == ClienteCTN(SIM_2, "Bruno", TELEFONE, "20234567800")
+    assert ctn.consultar_cliente(SIM_2) == ClienteCTN(SIM_2, "Bruno", TELEFONE, None)
 
 
 def test_o_cliente_sem_o_ativar_vem_sem_telefone():

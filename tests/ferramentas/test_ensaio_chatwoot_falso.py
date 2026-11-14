@@ -82,14 +82,12 @@ def test_etiquetar_soma_as_etiquetas_e_registra_a_lista_inteira(falso, cliente):
     assert falso.etiquetas(CONVERSA + 1) == []
 
 
-def test_atribuir_mudar_status_e_atributos_gravam_cada_um_o_seu_registro(falso, cliente):
+def test_atribuir_e_mudar_status_gravam_cada_um_o_seu_registro(falso, cliente):
     cliente.atribuir(CONVERSA, 7)
     cliente.mudar_status(CONVERSA, "open")
-    cliente.gravar_atributos(CONVERSA, {"matricula": "ENS-0001"})
     assert [(r.tipo, r.conteudo) for r in falso.registros] == [
         ("atribuicao", 7),
         ("status", "open"),
-        ("atributos", {"matricula": "ENS-0001"}),
     ]
 
 

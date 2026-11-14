@@ -131,7 +131,7 @@ class CTNDeCasos:
         caso = self._caso(matricula)
         if caso is None:
             raise ClienteNaoEncontrado(matricula)
-        return ClienteCTN(matricula, caso.nome, self._estado(matricula).telefone, caso.cpf)
+        return ClienteCTN(matricula, caso.nome, self._estado(matricula).telefone, None)
 
     def mensalidades_em_aberto(self, matricula: str) -> list[MensalidadeAberta]:
         caso = self._caso(matricula)

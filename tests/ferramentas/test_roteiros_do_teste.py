@@ -36,7 +36,7 @@ ensaiar = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = ensaiar
 _spec.loader.exec_module(ensaiar)
 
-POLITICA_TESTE = _PASTA / "politica-teste-ensaio.toml"
+POLITICA_TESTE = RAIZ / "deploy" / "dev2" / "politica-teste.exemplo.toml"
 ROTEIROS_TESTE = _PASTA / "roteiros" / "teste.yaml"
 CHATWOOT_ID = 9001
 
@@ -160,7 +160,7 @@ def test_o_teste_yaml_real_carrega_e_traz_os_cinco_casos():
         assert f"/caso {numero}" in primeiras
     for comando in ("/paguei 2", "/nota", "/caso", "/reset", "Pagar com Pix", "Já paguei"):
         assert comando in primeiras
-    assert any(p.anexo == "image" and not p.cliente for r in roteiros for p in r.passos)
+    assert any(p.anexo == "image" and p.cliente == "[Image]" for r in roteiros for p in r.passos)
     # Cada telefone inventado do ensaio tem os 4 últimos dígitos distintos (são a matrícula).
     finais = {ensaiar.telefone_do_roteiro(n)[-4:] for n in range(1, len(roteiros) + 1)}
     assert len(finais) == len(roteiros)

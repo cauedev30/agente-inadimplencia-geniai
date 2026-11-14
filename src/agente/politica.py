@@ -110,16 +110,6 @@ class LiberacaoPiloto(_Imutavel):
     _normalizar = field_validator("telefones")(_em_e164)
 
 
-def _cpf_valido(cpf: str) -> bool:
-    """Os 2 dígitos verificadores do CPF batem com os 9 primeiros (a conta padrão)."""
-    digitos = [int(d) for d in cpf]
-    for tamanho in (9, 10):
-        soma = sum(d * (tamanho + 1 - i) for i, d in enumerate(digitos[:tamanho]))
-        if digitos[tamanho] != (soma * 10 % 11) % 10:
-            return False
-    return True
-
-
 class HistoricoDoCaso(_Imutavel):
     """Um pagamento do histórico do caso: `meses_atras` meses antes do 1º mês em aberto."""
 
@@ -134,19 +124,8 @@ class CasoTeste(_Imutavel):
     numero: int = Field(ge=1)
     titulo: str = Field(min_length=1)
     nome: str = Field(min_length=1)
-    cpf: str = Field(pattern=r"^\d{11}$")
     meses_atraso: int = Field(ge=1, le=6)
     historico: tuple[HistoricoDoCaso, ...] = ()
-
-    @field_validator("cpf")
-    @classmethod
-    def _cpf_ficticio(cls, valor: str) -> str:
-        # O CPF do cardápio nunca é o de uma pessoa: o dígito verificador é inválido de propósito.
-        if _cpf_valido(valor):
-            raise ValueError(
-                "o CPF do cardápio tem de ter o dígito verificador inválido (fictício)"
-            )
-        return valor
 
 
 # A campanha da importação diária do CTN (o padrão do `agente importar-ctn`).

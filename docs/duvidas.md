@@ -226,7 +226,7 @@ que sustenta a D42 continua valendo.)*
 
 **Respondida em 2026-10-26 → D42:** o LLM é o `gpt-6-luna`, com a chave da empresa. Continua valendo
 o aviso abaixo, agora para a OpenAI. As duas rodadas de comparação estão reunidas, com os resultados
-brutos, em [`comparacao-llm.md`](comparacao-llm.md).
+brutos, em `docs/comparacao-llm.md` da tag `antes-do-enxugamento`.
 
 O LLM de redação é escolhido por teste (D6). **Como é esse teste**: quais conversas, quais critérios? E
 quem aprova o resultado?
@@ -459,14 +459,14 @@ Cauê trouxer para o Plan Mode, no Opus.
 ### C6. O humano num número WAHA, no lugar do webchat
 
 **Sem efeito pela D60 (2026-11-11):** o webchat saiu e o humano segue no próprio número oficial, que era a
-alternativa registrada na [`ideia-waha.md`](ideia-waha.md). O número WAHA só volta se o custo das mensagens humanas
+alternativa registrada na `docs/ideia-waha.md` da tag `antes-do-enxugamento`. O número WAHA só volta se o custo das mensagens humanas
 na Meta pesar depois do piloto.
 
 O link do webchat pode não converter: um link na conversa de quem deve gera suspeita. **Direção
 provável (2026-10-29), não implementada:** a 6ª mensagem manda um cartão de contato de um segundo
 número, fora da API oficial, ligado ao Chatwoot pelo WAHA. O backend acha a cobrança pelo telefone e
 deixa a nota com o resumo. Desenho, riscos e a alternativa (o humano no próprio número oficial) em
-[`ideia-waha.md`](ideia-waha.md). Revisaria a D32 e a D19; elas foram revisadas pela D60, com a alternativa.
+`docs/ideia-waha.md` da tag `antes-do-enxugamento`. Revisaria a D32 e a D19; elas foram revisadas pela D60, com a alternativa.
 
 ### C4. Comportamentos do turno ativo
 

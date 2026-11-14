@@ -6,5 +6,7 @@ __pycache__
 .pytest_cache
 .ruff_cache
 pre-sombra/
+tests/
+docs/
 **/*.local.json
 secrets/

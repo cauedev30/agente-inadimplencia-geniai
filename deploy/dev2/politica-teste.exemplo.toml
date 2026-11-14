@@ -2,7 +2,8 @@
 # e troque os telefones fictícios pelos do piloto (Luciano, Lohanny, Cauê); esse arquivo real fica fora
 # do git. É a repo/politica.toml com: o `/reset` como comando de reinício, os telefones do piloto e o
 # bloco [teste] ligado. O cardápio é montado ao lado, em /etc/agente/cardapio-teste.toml.
-# Conferir depois de mudar o repo/politica.toml (o resto desta cópia tem de acompanhá-lo).
+# Conferir depois de mudar o repo/politica.toml (o resto desta cópia tem de acompanhá-lo). O ensaio
+# (ferramentas/demo-whatsapp/ensaiar.py --teste) também a lê, trocando os telefones pelos inventados.
 
 # Política de negócio do agente. Nenhum número de política fica no código: ele vem daqui.
 # Os valores marcados "padrão" são provisórios e citam a dúvida (docs/duvidas.md) que os decide.
@@ -89,20 +90,18 @@ n_degraus = 3
 # Janela de atendimento (D11, D16). Dia ausente = fechado.
 [janela]
 fuso = "America/Fortaleza"
-# Padrão (G3): feriados nacionais e o 5 de agosto (Paraíba e João Pessoa). Lista local a confirmar.
-feriados = [
-    2026-11-02, 2026-11-15, 2026-11-20, 2026-12-25,
-    2027-01-01, 2027-03-26, 2027-04-21, 2027-05-01, 2027-08-05,
-    2027-09-07, 2027-10-12, 2027-11-02, 2027-11-15, 2027-11-20, 2027-12-25,
-]
+# TESTE: aberta todos os dias, o dia todo, e sem feriados (o teste e o ensaio não dependem da hora). Antes
+# do piloto real, volte ao padrão do repo/politica.toml (seg-sex 8h-18h, sáb 8h-12h, feriados).
+feriados = []
 
 [janela.dias]
-seg = ["08:00", "18:00"]
-ter = ["08:00", "18:00"]
-qua = ["08:00", "18:00"]
-qui = ["08:00", "18:00"]
-sex = ["08:00", "18:00"]
-sab = ["08:00", "12:00"]  # padrão (G3): a operação não confirmou o sábado
+seg = ["00:00", "23:59"]
+ter = ["00:00", "23:59"]
+qua = ["00:00", "23:59"]
+qui = ["00:00", "23:59"]
+sex = ["00:00", "23:59"]
+sab = ["00:00", "23:59"]
+dom = ["00:00", "23:59"]
 
 # Propensão ao cartão (D36). Padrão (T9.4) até o CTN confirmar o histórico.
 [propensao]

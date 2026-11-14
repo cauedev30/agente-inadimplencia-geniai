@@ -487,7 +487,7 @@ estrito com e sem `OFFER_DISCOUNT` no `enum` da ação (régua com e sem degrau)
 ensaio local (55/55) e dos 8 roteiros no celular, no `dev2`.
 
 **A confirmar:** a retenção de dados (LGPD) antes de liberar dado real. A comparação que sustentou a escolha do
-modelo está em [`comparacao-llm.md`](comparacao-llm.md) (histórico).
+modelo está em `docs/comparacao-llm.md` da tag `antes-do-enxugamento` (histórico).
 
 ## T11 — Transcrição de áudio
 

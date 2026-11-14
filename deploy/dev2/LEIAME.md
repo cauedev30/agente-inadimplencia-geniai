@@ -73,14 +73,15 @@ do **webhook 14** e o `outgoing_url` do **bot 69** da conta 91. Não mexe no bot
 contêiner `tunel` recomeçar.**
 
 Dois fatos da conta 91: ela **não tem time**, então `AGENTE_CHATWOOT_TIME_HUMANO` fica vazio (o handoff
-abre a conversa, etiqueta e põe a nota, sem atribuir); e o webhook 14 é da **conta toda**, então o
-agente grava a mensagem de quem está fora do piloto, sem responder (registrado em `docs/depois.md`).
+abre a conversa, etiqueta e põe a nota, sem atribuir); e o webhook 14 é da **conta toda**: o
+agente ignora o que chega de outra inbox (`AGENTE_CHATWOOT_INBOX=280`) e, no modo teste, sem carteira, não grava a
+mensagem de quem está fora do piloto (`sem_cobranca`) nem responde.
 
 ## Particularidades do teste no dev2
 
-- **Janela aberta 24 h, sem feriado.** Só a cópia do servidor (`politica-teste.toml`) tem a janela
-  `[janela.dias]` de segunda a domingo, `00:00` a `23:59`, e `feriados = []`; o `repo/politica.toml`
-  real não mudou (seg-sex 8h-18h, sáb 8h-12h, D11/D16). Sem isso o agente não responde depois das 18h,
+- **Janela aberta 24 h, sem feriado.** A `politica-teste.toml` (e o `politica-teste.exemplo.toml`, de onde
+  ela sai) tem a janela `[janela.dias]` de segunda a domingo, `00:00` a `23:59`, e `feriados = []`; o
+  `repo/politica.toml` real não mudou (seg-sex 8h-18h, sáb 8h-12h, D11/D16). Sem isso o agente não responde depois das 18h,
   de propósito. Antes do piloto real, volte a janela ao padrão (a cópia `politica-teste.toml.bak-janela`
   guarda a versão anterior). Um "Oi" que chegou fora da janela fica pendente e **não volta sozinho**:
   mande `/reset` e depois "Oi" de novo.
@@ -103,7 +104,8 @@ agente grava a mensagem de quem está fora do piloto, sem responder (registrado 
 
 Na máquina de desenvolvimento, de dentro de `repo/`: `git archive --format=tar.gz -o agente.tar.gz HEAD`.
 Copie o arquivo para o servidor, extraia sobre `/opt/agente-inadimplencia/app/` (o `deploy/dev2/.env`
-não está no arquivo, então fica) e rode de novo o `up -d --build`. O banco e o volume continuam.
+não está no arquivo, então fica) e rode de novo o `up -d --build`. O banco e o volume continuam. **Não suba no meio de um caso:** o estado
+dos casos (os meses pagos com `/paguei`) vive na memória, e o reinício devolve ao testador o mês que ele pagou.
 
 Antes do `up`, compare a `politica-teste.toml` do servidor com o `deploy/dev2/politica-teste.exemplo.toml` do código
 novo: tire a chave que saiu e ponha a que entrou. A política recusa chave desconhecida e exige as obrigatórias, então

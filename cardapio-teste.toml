@@ -1,6 +1,4 @@
 # O cardápio do modo teste (D56): os casos que o testador escolhe com /caso. Tudo aqui é inventado.
-# O CPF é fictício, de dígito verificador INVÁLIDO de propósito (nunca é o de uma pessoa); os 3
-# primeiros dígitos mudam por caso. A política recusa o CPF cujo dígito verificador bate.
 # `meses_atraso`: quantos meses antes do mês de hoje estão em aberto. `historico`: o pagamento
 # `meses_atras` meses antes do 1º mês em aberto, no `dia` do mês, na `forma` dada.
 
@@ -8,7 +6,6 @@
 numero = 1
 titulo = "R3, pagava no cartão"
 nome = "Ana"
-cpf = "10123456711"
 meses_atraso = 3
 historico = [
     { meses_atras = 1, dia = 10, forma = "CARTAO" },
@@ -20,7 +17,6 @@ historico = [
 numero = 2
 titulo = "R3, paga Pix todo mês (propensa ao cartão)"
 nome = "Bruno"
-cpf = "20234567800"
 meses_atraso = 3
 historico = [
     { meses_atras = 1, dia = 5, forma = "PIX" },
@@ -32,7 +28,6 @@ historico = [
 numero = 3
 titulo = "R4"
 nome = "Carla"
-cpf = "30345678900"
 meses_atraso = 4
 historico = [
     { meses_atras = 1, dia = 15, forma = "BOLETO" },
@@ -44,7 +39,6 @@ historico = [
 numero = 4
 titulo = "R5"
 nome = "Daniel"
-cpf = "40456789000"
 meses_atraso = 5
 historico = [
     { meses_atras = 1, dia = 8, forma = "CARTAO" },
@@ -56,5 +50,4 @@ historico = [
 numero = 5
 titulo = "R6, último mês antes do corte"
 nome = "Elisa"
-cpf = "50567890100"
 meses_atraso = 6

@@ -268,6 +268,13 @@ def test_o_desconto_so_existe_com_degrau():
     assert "desconto" in opcionais
 
 
+def test_o_valor_com_desconto_so_existe_com_degrau():
+    numeros = _numeros(Acao.SEND_CTN_LINK)
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar("São {valor_final} pelo link {link_ctn}", numeros)
+    assert erro.value.motivos == ["marcador_sem_valor:valor_final"]
+
+
 def _com_recebedor(politica, nome="Cartão de Todos Ltda"):
     return politica.model_copy(update={"pix_recebedor": nome})
 

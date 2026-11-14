@@ -98,8 +98,8 @@ com a correção quando a hora chegar (texto completo na fonte).
   ponto de partida da tarefa 1.8.
 - Frentes com o gestor e com o dev (G1.1, G4, G2.4, G9, G7, G5, G3, T1, T2, T3, T4, T9): continuam em
   `repo/docs/duvidas.md`; as de webchat (G7) ficam "sem efeito pela D60".
-- Achados da tarefa 1.3 (código sem leitor depois do Jev): `politica.objecoes_sem_desconto_ate_humano` e a coluna
-  `Conversa.objecoes_sem_desconto`; `proximo_estado(..., em_risco)` chamado sempre com `False`; motivos
+- Achados da tarefa 1.3 (código sem leitor depois do Jev): `politica.objecoes_sem_desconto_ate_humano` (**feito**, saiu
+  da política) e a coluna `Conversa.objecoes_sem_desconto`; `proximo_estado(..., em_risco)` chamado sempre com `False`; motivos
   `JEV_INDISPONIVEL`, `DECISAO_JEV2`, `BAIXA_CONFIANCA`, `SEM_MELHORA` e `OBJECAO_SEM_DESCONTO` e
   `EstadoConversa.EM_RISCO` sem uso; o `LLMTurnoOpenAI` do serviço não é fechado no encerramento (já era assim).
 - Achados da tarefa 1.4/1.6: `Dependencias.disparador` sem leitor no turno (só `pagamento/concluir.py` usa um, com
@@ -109,9 +109,8 @@ com a correção quando a hora chegar (texto completo na fonte).
   (`_PASSOS` perdeu a chave); o erro é capturado e logado. Só afeta banco com dado antigo; o serviço ainda não está hospedado.
 - Efeito da 1.5 a lembrar: a fixa do golpe (`HUMANO_NO_WHATSAPP`) só sai no motivo `DESCONFIANCA`; com outro motivo e
   `desconfia_golpe` sim, a 6ª é a `CANAL_EXTERNO` comum (como o plano manda).
-- Achados da tarefa 1.7/1.8: `ensaiar.py` ainda tem resquícios do Jev (`jev2_acao`, `jev2_p`, `reprovadas`, leitura de
-  laudos); `roteiros/demo.yaml` e `v1-operacao.yaml` são da era do Jev e os `texto_tem` de Pix e CTN podem não bater mais; a
-  docstring do `ensaiar.py` ainda cita `demo.yaml`; `MotivoHumano.REDATOR_INDISPONIVEL` sem uso (enum mantido).
+- Achados da tarefa 1.7/1.8: os resquícios do Jev no `ensaiar.py`, os roteiros `demo.yaml` e `v1-operacao.yaml` e a
+  docstring que citava `demo.yaml` (**feito**, já saíram); `MotivoHumano.REDATOR_INDISPONIVEL` sem uso (enum mantido).
 - Escolha da 1.7: a rajada só com foto/arquivo vai ao humano; com áudio junto, o turno segue para transcrever.
 - **Banco bloqueado no ensaio** (revisão da PARADA 1, 2026-11-11, causa verificada nos `servico.log` dos ensaios 0306, 0940
   e 0948): os 500 `database is locked` (11 no total) são todos `INSERT INTO cliente`, a corrida do 1º contato entre dois

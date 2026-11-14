@@ -62,8 +62,6 @@ class Chatwoot(Protocol):
 
     def mudar_status(self, conversa_id: int, status: Status) -> None: ...
 
-    def gravar_atributos(self, conversa_id: int, dados: dict) -> None: ...
-
     def baixar_anexo(
         self, url: str, *, aceitos: Collection[str], max_bytes: int, prazo_s: float
     ) -> AnexoBaixado | FalhaDownload:
@@ -172,9 +170,6 @@ class ChatwootHttp:
         _exigir_status(status)
         self._post(conversa_id, "toggle_status", {"status": status})
 
-    def gravar_atributos(self, conversa_id: int, dados: dict) -> None:
-        self._post(conversa_id, "custom_attributes", {"custom_attributes": dados})
-
     def baixar_anexo(
         self, url: str, *, aceitos: Collection[str], max_bytes: int, prazo_s: float
     ) -> AnexoBaixado | FalhaDownload:
@@ -270,9 +265,6 @@ class ChatwootFalso:
     def mudar_status(self, conversa_id: int, status: Status) -> None:
         _exigir_status(status)
         self.chamadas.append(("mudar_status", conversa_id, status))
-
-    def gravar_atributos(self, conversa_id: int, dados: dict) -> None:
-        self.chamadas.append(("gravar_atributos", conversa_id, dict(dados)))
 
     def baixar_anexo(
         self, url: str, *, aceitos: Collection[str], max_bytes: int, prazo_s: float

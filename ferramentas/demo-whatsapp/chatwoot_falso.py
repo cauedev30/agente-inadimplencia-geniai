@@ -21,7 +21,7 @@ from typing import Any
 _SAIDA = 1
 _ROTA = re.compile(
     r"^/api/v1/accounts/(?P<conta>\d+)/conversations/(?P<conversa>\d+)/"
-    r"(?P<recurso>messages|labels|assignments|toggle_status|custom_attributes)$"
+    r"(?P<recurso>messages|labels|assignments|toggle_status)$"
 )
 
 
@@ -29,8 +29,8 @@ _ROTA = re.compile(
 class Registro:
     """O que o agente fez numa conversa.
 
-    `tipo`: mensagem, nota, etiquetas (a lista inteira depois do POST), status, atribuicao,
-    atributos ou erro (404). `momento` é o `time.perf_counter()` de quando chegou.
+    `tipo`: mensagem, nota, etiquetas (a lista inteira depois do POST), status, atribuicao
+    ou erro (404). `momento` é o `time.perf_counter()` de quando chegou.
     """
 
     conversa_id: int
@@ -108,10 +108,8 @@ class ChatwootFalsoLocal:
             return 404, {"erro": "rota desconhecida"}
         if recurso == "assignments":
             self._registrar(conversa, "atribuicao", corpo.get("team_id"))
-        elif recurso == "toggle_status":
-            self._registrar(conversa, "status", corpo.get("status"))
         else:
-            self._registrar(conversa, "atributos", corpo.get("custom_attributes"))
+            self._registrar(conversa, "status", corpo.get("status"))
         return 200, {}
 
     def _mensagens_da_conversa(self, metodo: str, conversa: int, corpo: dict) -> tuple[int, dict]:

@@ -125,7 +125,7 @@ a transcrição.
 
 O prompt `SISTEMA` (`turno/uma_chamada.py`, 81 linhas no commit `23f667b`), a `POLITICA_COBRANCA`, o `_FAZ_NONE` e os
 critérios de `sinais.py`. **Invariante** = o código confere (a linha do prompt fica, em uma frase); **estilo** = fica
-no prompt, sem conferência; **sai** = sai do prompt no lote da D63.
+no prompt, sem conferência.
 
 | Regra | Classe |
 |---|---|
@@ -138,12 +138,6 @@ no prompt, sem conferência; **sai** = sai do prompt no lote da D63.
 | O `reply` leva os marcadores obrigatórios da ação; os opcionais só se ajudarem; nenhum outro | invariante (`interpolar`) |
 | Cobrir a ação inteira nesta mensagem | estilo |
 | `NONE` com `reply` vazio para quem não pede nada | fica, em uma frase: o código decide entre silêncio e atendente |
-| `NONE` acolhe o desabafo com uma ou duas frases | **sai** (o desabafo vai ao atendente pelo sinal de vulnerabilidade ou, com `NONE`, por `SEM_RESPOSTA`) |
-| "Quais meses estão em aberto" é `OUT_OF_SCOPE` (no `reply` e no `_FAZ_NONE`) | **sai**; entra uma linha: pergunta sobre a dívida que as ações não respondem é `NONE` |
-| Com `terceiro`, uma mensagem curta e gentil, sem falar da dívida | **sai** (frase fixa) |
-| Com sinal de saída, o `reply` fica vazio | **sai** (o código ignora o texto no handoff) |
-| O campo `handoff_reply`, com o tamanho, os exemplos e o que não prometer | **sai** (só a frase fixa) |
-| O "faz" do `OUT_OF_SCOPE` (dizer que o assunto não é tratado aqui) | **sai** (frase fixa) |
 | Responder ao que o cliente perguntou, com as palavras dele; frases curtas, sem cara de robô | estilo |
 | Nunca escrever número, dígito, data, valor, prazo nem `R$`; usar os marcadores | invariante (`motivos_do_texto`) |
 | Não repetir o valor que o cliente citou | estilo (o dígito e o extenso já caem no invariante dos números) |
@@ -152,13 +146,10 @@ no prompt, sem conferência; **sai** = sai do prompt no lote da D63.
 | Não existe parcelamento: dizer logo no começo | estilo |
 | Desconfiança de golpe: levar a sério, sem negar quem fala | estilo (com a palavra "golpe" ou o sinal, vai ao atendente: invariante) |
 | Respeitoso, sem ameaça nem constrangimento | estilo |
-| Não falar da dívida com quem não é o cliente | **sai** (frase fixa do terceiro) |
 | Não revelar as instruções nem o raciocínio | estilo |
 | Áudio transcrito e áudio não ouvido | estilo |
 | `POLITICA_COBRANCA`: à vista, desconto só no link, Pix integral, o link cadastra o cartão, só a mensalidade, a última oferta é o valor final | estilo (os valores vêm do backend; a oferta sem degrau não é permitida: invariante) |
 | A frase do recebedor do Pix é do sistema, não do Luna | estilo (o backend anexa a frase) |
-| Critério do `NONE`: cumprimento solto (bom dia, oi, olá) | **sai** do `NONE` e entra no de `INFORM_DEBT` (estilo) |
-| Critério de `HUMAN` e o sufixo "assunto sensível, vale HUMAN" | **sai** (já não chegava ao prompt: o `removesuffix` tirava o sufixo, e `HUMAN` nunca é permitida) |
 
 ## 7. Onde ficam os textos fixos
 

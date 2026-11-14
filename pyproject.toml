@@ -14,7 +14,6 @@ dependencies = [
     "fastapi>=0.160.0",
     "uvicorn[standard]>=0.54.0",
     "psycopg[binary]>=3.3.6",
-    "pyyaml>=6.0.3",
 ]
 
 [project.scripts]
@@ -23,6 +22,7 @@ agente = "agente.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8.3",
+    "pyyaml>=6.0.3",
     "respx>=0.23.1",
     "ruff>=0.8",
 ]

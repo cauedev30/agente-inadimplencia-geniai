@@ -6,7 +6,7 @@ Uso, de dentro de repo/ (com a demo parada: a máquina tem pouca memória):
 O modo teste (D56, o cardápio de 5 casos e os comandos `/caso`, `/paguei`, `/nota`) tem política e
 roteiros próprios, só com dado inventado:
     python -m uv run python ferramentas/demo-whatsapp/ensaiar.py --kit <kit>
-        --teste ferramentas/demo-whatsapp/politica-teste-ensaio.toml
+        --teste deploy/dev2/politica-teste.exemplo.toml
         --roteiros ferramentas/demo-whatsapp/roteiros/teste.yaml
 Com `--teste` não há carteira: o caso nasce no 1º contato.
 
@@ -280,11 +280,11 @@ _CARDAPIO = re.compile(r'^cardapio\s*=\s*"([^"]+)"[^\n]*$', re.MULTILINE)
 
 def _cardapio_do_ensaio(texto_da_politica: str, politica: Path) -> tuple[str, Path]:
     """A política de teste com o `cardapio` trocado para o arquivo que o ensaio copia para `saida`
-    (o caminho original é relativo à pasta da política, que não é a da saída)."""
+    (o cardápio é o da raiz do repo, que é onde o compose do dev2 o monta)."""
     achados = _CARDAPIO.findall(texto_da_politica)
     if len(achados) != 1:
         raise ErroDaDemo(f"{politica}: precisa de exatamente uma linha `cardapio = '...'`")
-    origem = politica.parent / achados[0]
+    origem = _PASTA.parents[1] / achados[0]
     if not origem.is_file():
         raise ErroDaDemo(f"{politica}: o cardápio {origem} não existe")
     nova = _CARDAPIO.sub(
@@ -951,7 +951,7 @@ def formatar_relatorio(resultados: list[ResultadoRoteiro], quando: str = "") -> 
     linhas += _erros_do_log(resultados)
     for numero, r in enumerate(resultados, start=1):
         linhas += [f"## {numero}. {r.roteiro.nome}: {r.ok}/{r.total} OK", ""]
-        linhas.append(f"Telefone inventado {r.telefone}; régua {r.roteiro.regua.value}.")
+        linhas.append(f"Telefone inventado {r.telefone}.")
         linhas.append("")
         for passo in r.passos:
             linhas += _linhas_do_passo(passo)

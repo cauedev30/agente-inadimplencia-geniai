@@ -85,9 +85,9 @@ def valores(numeros: Numeros) -> dict[str, str]:
         "mensalidades": str(numeros.mensalidades),
     }
     if numeros.link_ctn is not None:
-        # O desconto só vale no link (D34): sem link, não há valor com desconto para citar.
-        preenchidos["valor_final"] = formatar_reais(numeros.valor_final_centavos)
+        # O desconto só vale no link (D34) e com degrau: sem isso, não há valor com desconto.
         if numeros.degrau > 0:
+            preenchidos["valor_final"] = formatar_reais(numeros.valor_final_centavos)
             preenchidos["desconto"] = formatar_reais(numeros.desconto_centavos)
         preenchidos["link_ctn"] = numeros.link_ctn
     if numeros.br_code is not None:
