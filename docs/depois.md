@@ -246,3 +246,31 @@ entra com título em palavras, sem série numerada. O que não entrou:
   com os casos do ensaio como proteção. **ANTES DE ESCALAR**.
 - **Cada regra num documento só**: `arquitetura.md` e `spec.md` repetem regras da `politicas.md`; ao tocar neles,
   trocar a repetição por um ponteiro. **NÃO SERVE**.
+
+## Da auditoria geral (2026-11-14)
+
+Fonte: `AUDITORIA-GERAL.md` sobre `e1086c0`; triagem em `specs/2026-11-14-triagem-auditoria-geral.md` do workspace.
+
+- **A conversa resolvida volta ao robô** (`api/chatwoot_webhook.py`, `turno/handoff.py`): a conversa nova do mesmo
+  telefone nasce sem humano, teto nem histórico, e o Pendente do Chatwoot devolve ao robô. O humano, o teto e o degrau
+  passam a valer para a cobrança. Conferir no celular como o Chatwoot reabre. **ANTES DO PILOTO REAL**.
+- **A cobrança paga renasce na importação** (`carteira/importar.py`): sem cobrança nova para quem tem PAGA recente
+  com pagamento nosso. **ANTES DO PILOTO REAL**.
+- **Quem pagou e volta a dever fica ignorado na mesma conversa** (`api/chatwoot_webhook.py`): a mensagem vai à
+  cobrança ATIVA do telefone. **ANTES DO PILOTO REAL**.
+- **Trava contra peça falsa com dado real** (`api/principal.py`, `cli.py`): CTN real com Pix, escrita ou disparador
+  falsos não sobe, e o `disparar` recusa o disparador falso. **ANTES DO PILOTO REAL**.
+- **A máscara do log não pega o telefone sem `+`** (`logs.py`): junto do AUD-21. **ANTES DO PILOTO REAL**.
+- **Os meses da baixa:** pergunta na T9 (`duvidas.md`, item 15). **ANTES DO PILOTO REAL**.
+- **Pix sem reconciliação, disparador sem id de entrega, assinatura do webhook só em hex minúsculo e segredo sem
+  tamanho mínimo, totais das baixas fora do log, time do atendente:** **ANTES DO PILOTO REAL**.
+- **Cortesia no teto vira handoff** (`turno/gates.py`), **áudio rotulado `[Audio]`** (`turno/transcricao.py`),
+  **confirmação fora das 24h no disparador falso** (`pagamento/concluir.py`), **"recebo dia 10" vai ao atendente**
+  (C5), **vulnerabilidade antes do desconto** (`turno/sinais.py`), **"uma mensalidade" reprovada**
+  (`turno/redacao.py`): **TESTE MEDE**.
+- **Caso de 1 mensalidade no cardápio** no lugar do caso 4 (a régua R1/R2 e o singular não são testados): mexe no
+  cardápio, no roteiro e na D61. **TESTE MEDE**.
+- **Limpeza antes do banco do piloto, um lote só (cerca de −1.200 linhas):** as migrações numa só, sem webchat,
+  `objecoes_sem_desconto` e enums antigos; os laudos `p`/`c` e a nota do handoff em frase; os handoffs repetidos numa
+  função; o reinício duplicado; o ensaio sem `--teste` e o lançador do `subir.py`; o M2; as rotas e os `Protocol`
+  repetidos; os métodos do Pix sem leitor; o CSV (G5). **Depois das notas dos testadores.**

@@ -360,6 +360,8 @@ ficou sem resposta, para o dev (a leitura é só GET; a escrita segue falsa):
     1 matrícula repetida** (09/11). São pessoas passadas do corte, cadastro velho ou erro de carga?
 14. **`jp` é o JP Sul?**
 15. **Escrita:** link de pagamento e de cadastro do cartão, baixa e webhook. Há ambiente de teste?
+    E o Pix de 3 meses vira **uma baixa por mês** (com o `mes_ref`) ou uma só? A leitura casa uma baixa com
+    um mês; com uma só, os outros meses seguem em aberto (auditoria geral, 2026-11-14).
 16. **Cota da chave e IP fixo** quando o agente estiver no `dev2`: um retrato custa 58 chamadas e cerca de
     2.900 linhas (a página é de 50 e a API ignora `limite` maior), e a cota é de 20.000 linhas por dia.
 17. **Por LGPD, uma chave que não veja endereço e e-mail** (o agente usa matrícula, nome, telefone, CPF e
