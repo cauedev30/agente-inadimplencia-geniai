@@ -37,7 +37,7 @@ Os cinco casos têm os mesmos 5 passos. Troque `<n>`, `<nome>` e `<dívida>` pel
 | 1 | `/caso <n>` | `[TESTE] Agora você é o caso <n>: ... Mande Oi para começar.` | aparece CPF; vem outro número de caso |
 | 2 | `Oi` | a abertura: "Oi, `<nome>`", com a `<dívida>` | outro nome ou outro valor; nenhuma resposta |
 | 3 | `Quanto eu estou devendo?` | a `<dívida>` exata | outro valor; "com desconto" sem citar o valor do desconto; vai ao atendente |
-| 4 | `Pagar com Pix` | o Pix de `<dívida>` com a chave `29.760.112/0001-22` (não pague) | outro valor; sem a chave; vai ao atendente |
+| 4 | `Pagar com Pix` | o Pix de `<dívida>` com a chave `29760112000122` (não pague) | outro valor; sem a chave; vai ao atendente |
 | 5 | `/paguei` | "Simulando a confirmação do banco: Pix de R$ `<dívida>`" e, alguns segundos depois, "Recebemos o seu pagamento" | a confirmação não chega em 2 min; chega 2 vezes; o valor muda |
 
 No **caso 2**, o link do cartão (`[TESTE]`) pode vir antes do Pix, porque o Bruno tende ao cartão. Isso não é

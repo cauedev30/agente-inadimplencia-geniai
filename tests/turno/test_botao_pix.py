@@ -216,10 +216,8 @@ def test_o_toque_responde_a_mensagem_fixa_sem_chamar_nenhum_llm(sessao, ligada, 
     assert deps.llm_turno.pedidos == []
     [pix] = deps.pix.cobrancas.values()
     [texto] = deps.chatwoot.enviadas(555)
-    vence = pix.expira_em.astimezone(deps.politica.janela.zona).strftime("%d/%m às %H:%M")
     assert texto == TEXTO_DO_PIX.format(
         valor_pix=formatar_reais(ligada.cobranca.divida_centavos),
-        pix_vencimento=vence,
         pix_copia_e_cola=pix.br_code,
     )
     turno = sessao.scalars(select(Turno)).one()

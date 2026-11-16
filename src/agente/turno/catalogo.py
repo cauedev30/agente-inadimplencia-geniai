@@ -142,10 +142,16 @@ def e_cortesia(textos: Sequence[str]) -> bool:
 
 # A resposta ao toque em "Pagar com Pix" (D26, D59): fixa, com os marcadores que o `interpolar`
 # preenche com o Pix do backend. Conta no teto como qualquer mensagem (D40). A frase do recebedor
-# entra depois (`anexar_recebedor`), e o código vai sozinho no fim, para o cliente copiar.
+# entra depois (`anexar_recebedor`). O formato é o da mensagem que o atendente da operação copia e
+# cola hoje (a Lohanny, 2026-11-16), sem os emojis.
 TEXTO_DO_PIX = (
-    "Aqui está o seu Pix de {valor_pix}, válido até {pix_vencimento}. "
-    "Copie o código abaixo e cole no app do seu banco para pagar:\n\n{pix_copia_e_cola}"
+    "Aqui está a chave Pix para o pagamento!\n\n"
+    "Chave Pix (CNPJ): {pix_copia_e_cola}\n"
+    "Valor: {valor_pix}\n"
+    "Referente: mensalidades em atraso do Cartão de Todos\n\n"
+    "Assim que fizer o pagamento, me envie o comprovante para que eu possa confirmar. "
+    "Agradecemos!\n\n"
+    "Obs.: pagamento para continuar utilizando o benefício."
 )
 
 

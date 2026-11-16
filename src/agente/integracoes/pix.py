@@ -91,8 +91,9 @@ class PixFalso:
 
 
 # A chave Pix CNPJ real do recebedor (decisions/2026-11-11-pix-real-e-chave-cnpj.md do workspace):
-# estática, sem valor nem vencimento. Identificador público, não segredo.
-CHAVE_PIX_CNPJ = "29.760.112/0001-22"
+# estática, sem valor nem vencimento; só dígitos, como a operação manda, para colar no banco.
+# Identificador público, não segredo.
+CHAVE_PIX_CNPJ = "29760112000122"
 
 
 class PixDeTeste(PixFalso):
