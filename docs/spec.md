@@ -53,7 +53,7 @@ métrica de custo.
 
 | O que | Até quando | Hoje |
 |---|---|---|
-| Pix do banco | T1 | `PixFalso`; no teste, o texto `[TESTE] aqui viria o código Pix…` |
+| Pix do banco | T1 | `PixFalso`; no teste, a chave Pix CNPJ real, sem conferência do pagamento (só o `/paguei`) |
 | Link de pagamento e de cadastro do cartão, baixa e webhook do CTN | T9 | `CTNFalso`; no teste, `[TESTE]` |
 | Disparador da abertura (template) | T4 | `DisparadorFalso`; no teste, a abertura sai como resposta ao 1º contato |
 

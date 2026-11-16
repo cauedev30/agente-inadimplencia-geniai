@@ -5,7 +5,7 @@
 # Cada roteiro é um testador do piloto, com telefone inventado próprio, que nasce no caso 1 (o
 # `caso_padrao`); os roteiros dos casos 2 a 5 começam com `/caso <n>`. O 1º "Oi" recebe a abertura
 # com o valor do caso (as mensalidades x R$ 33,40: R$ 100,20, R$ 133,60, R$ 167,00 e R$ 200,40).
-# "Pagar com Pix" é o toque no botão: o Pix fixo, sem o Luna, com o código `[TESTE]`. `/paguei`
+# "Pagar com Pix" é o toque no botão: o Pix fixo, sem o Luna, com a chave Pix CNPJ real. `/paguei`
 # confirma o Pix; a confirmação do agente sai de uma rotina, depois do turno (`mensagem_tem` espera).
 #
 # `espera.acao` compara com `turno.acao_principal`; `texto_tem` olha o texto do agente no turno e
@@ -27,7 +27,7 @@
       espera:
         acao: GENERATE_PIX
         resultado: ENVIADO
-        texto_tem: ["100,20", "[TESTE]"]
+        texto_tem: ["100,20", "29.760.112/0001-22"]
     - cliente: "/paguei"
       espera:
         acao: "TESTE:PAGUEI"
@@ -54,7 +54,7 @@
       espera:
         acao: GENERATE_PIX
         resultado: ENVIADO
-        texto_tem: ["100,20", "[TESTE]"]
+        texto_tem: ["100,20", "29.760.112/0001-22"]
     - cliente: "/paguei"
       espera:
         acao: "TESTE:PAGUEI"
@@ -81,7 +81,7 @@
       espera:
         acao: GENERATE_PIX
         resultado: ENVIADO
-        texto_tem: ["133,60", "[TESTE]"]
+        texto_tem: ["133,60", "29.760.112/0001-22"]
     - cliente: "/paguei"
       espera:
         acao: "TESTE:PAGUEI"
@@ -108,7 +108,7 @@
       espera:
         acao: GENERATE_PIX
         resultado: ENVIADO
-        texto_tem: ["167,00", "[TESTE]"]
+        texto_tem: ["167,00", "29.760.112/0001-22"]
     - cliente: "/paguei"
       espera:
         acao: "TESTE:PAGUEI"
@@ -135,7 +135,7 @@
       espera:
         acao: GENERATE_PIX
         resultado: ENVIADO
-        texto_tem: ["200,40", "[TESTE]"]
+        texto_tem: ["200,40", "29.760.112/0001-22"]
     - cliente: "/paguei"
       espera:
         acao: "TESTE:PAGUEI"

@@ -10,8 +10,6 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Protocol
 
-from agente.dominio.dinheiro import formatar_reais
-
 
 class StatusPix(StrEnum):
     PENDENTE = "PENDENTE"
@@ -92,9 +90,15 @@ class PixFalso:
         self.pagos.add(txid)
 
 
+# A chave Pix CNPJ real do recebedor (decisions/2026-11-11-pix-real-e-chave-cnpj.md do workspace):
+# estática, sem valor nem vencimento. Identificador público, não segredo.
+CHAVE_PIX_CNPJ = "29.760.112/0001-22"
+
+
 class PixDeTeste(PixFalso):
-    """O Pix do modo teste (D56): o txid e o resto são os do falso, mas o "copia e cola" é um texto
-    `[TESTE]` que diz o valor. Nada vai a um banco."""
+    """O Pix do modo teste (D56): o txid e o resto são os do falso, mas no lugar do "copia e cola"
+    vai a chave Pix CNPJ real (o Cauê, 2026-11-16). Nada consulta um banco: quem paga por ela paga
+    de verdade, e só o `/paguei` confirma."""
 
     def criar_cobranca(
         self, txid: str, valor_centavos: int, validade: timedelta, devedor_nome: str
@@ -102,7 +106,7 @@ class PixDeTeste(PixFalso):
         cobranca = super().criar_cobranca(txid, valor_centavos, validade, devedor_nome)
         cobranca = replace(
             cobranca,
-            br_code=f"[TESTE] aqui viria o código Pix de {formatar_reais(valor_centavos)}.",
+            br_code=CHAVE_PIX_CNPJ,
         )
         self.cobrancas[txid] = cobranca
         return cobranca

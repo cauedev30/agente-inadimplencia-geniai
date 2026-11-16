@@ -496,7 +496,7 @@ def test_o_pix_de_teste_mantem_o_txid_e_troca_o_br_code():
     pix = PixDeTeste()
     cobranca = pix.criar_cobranca("txid-1", 10020, timedelta(hours=24), "Ana")
     assert cobranca.txid == "txid-1"
-    assert cobranca.br_code == ("[TESTE] aqui viria o código Pix de R$ 100,20.")
+    assert cobranca.br_code == "29.760.112/0001-22"
     assert pix.cobrancas["txid-1"] == cobranca
     assert pix.consultar("txid-1") is StatusPix.PENDENTE
     pix.simular_pagamento("txid-1")
@@ -513,8 +513,8 @@ def test_o_pix_de_teste_recusa_valor_invalido_e_txid_repetido():
 
 
 def test_a_interpolacao_deixa_o_texto_de_teste_do_pix_e_do_link_sair_inteiro():
-    # `interpolar` só recusa o que está FORA dos marcadores: o valor, o "R$" e a "/" do texto de
-    # teste, que entram pelo marcador, saem como estão.
+    # `interpolar` só recusa o que está FORA dos marcadores: a chave do Pix, o valor, o "R$" e a "/"
+    # do texto de teste, que entram pelo marcador, saem como estão.
     pix = PixDeTeste().criar_cobranca("t", 10020, timedelta(hours=1), "Ana")
     link = CTNEscritaDeTeste().gerar_link_pagamento(SIM_1, 10020, cobranca_id=1)
     numeros = Numeros(
@@ -533,7 +533,7 @@ def test_a_interpolacao_deixa_o_texto_de_teste_do_pix_e_do_link_sair_inteiro():
     texto = interpolar("Pix: {pix_copia_e_cola}. Ou pague aqui: {link_ctn}", numeros)
 
     assert texto == f"Pix: {pix.br_code}. Ou pague aqui: {link.url}"
-    assert "[TESTE] aqui viria o código Pix de R$ 100,20" in texto
+    assert "Pix: 29.760.112/0001-22." in texto
     assert "[TESTE] aqui viria o link de pagamento de R$ 100,20" in texto
 
 
