@@ -253,7 +253,8 @@ Fonte: `AUDITORIA-GERAL.md` sobre `e1086c0`; triagem em `specs/2026-11-14-triage
 
 - **A conversa resolvida volta ao robô** (`api/chatwoot_webhook.py`, `turno/handoff.py`): a conversa nova do mesmo
   telefone nasce sem humano, teto nem histórico, e o Pendente do Chatwoot devolve ao robô. O humano, o teto e o degrau
-  passam a valer para a cobrança. Conferir no celular como o Chatwoot reabre. **ANTES DO PILOTO REAL**.
+  passam a valer para a cobrança. Conferido no celular em 2026-11-16: resolvida, o Chatwoot abre **outra** conversa, e
+  o agente responde nela como robô. **ANTES DO PILOTO REAL**.
 - **A cobrança paga renasce na importação** (`carteira/importar.py`): sem cobrança nova para quem tem PAGA recente
   com pagamento nosso. **ANTES DO PILOTO REAL**.
 - **Quem pagou e volta a dever fica ignorado na mesma conversa** (`api/chatwoot_webhook.py`): a mensagem vai à
@@ -264,7 +265,8 @@ Fonte: `AUDITORIA-GERAL.md` sobre `e1086c0`; triagem em `specs/2026-11-14-triage
 - **Os meses da baixa:** pergunta na T9 (`duvidas.md`, item 15). **ANTES DO PILOTO REAL**.
 - **Pix sem reconciliação, disparador sem id de entrega, assinatura do webhook só em hex minúsculo e segredo sem
   tamanho mínimo, totais das baixas fora do log, time do atendente:** **ANTES DO PILOTO REAL**.
-- **Cortesia no teto vira handoff** (`turno/gates.py`), **áudio rotulado `[Audio]`** (`turno/transcricao.py`),
+- **Cortesia no teto vira handoff** (`turno/gates.py`), **áudio rotulado `[Audio]`** (`turno/transcricao.py`; falhou
+  no teste de 2026-11-16, ver abaixo),
   **confirmação fora das 24h no disparador falso** (`pagamento/concluir.py`), **"recebo dia 10" vai ao atendente**
   (C5), **vulnerabilidade antes do desconto** (`turno/sinais.py`), **"uma mensalidade" reprovada**
   (`turno/redacao.py`): **TESTE MEDE**.
@@ -274,3 +276,19 @@ Fonte: `AUDITORIA-GERAL.md` sobre `e1086c0`; triagem em `specs/2026-11-14-triage
   `objecoes_sem_desconto` e enums antigos; os laudos `p`/`c` e a nota do handoff em frase; os handoffs repetidos numa
   função; o reinício duplicado; o ensaio sem `--teste` e o lançador do `subir.py`; o M2; as rotas e os `Protocol`
   repetidos; os métodos do Pix sem leitor; o CSV (G5). **Depois das notas dos testadores.**
+
+## Do teste manual do Cauê (2026-11-16)
+
+Os 5 casos passaram nos 25 passos no `dev2` (`7585dbd`): valores, nomes, Pix `[TESTE]` e `/paguei`, sem erro no log.
+
+- **O gateway põe o texto `[Audio]` na mensagem do áudio** (`turno/transcricao.py`, `pedido_de_texto`): o agente toma
+  o rótulo por texto do cliente. Com a transcrição desligada, o áudio foi ao atendente (`SEM_RESPOSTA`) em vez do pedido
+  de texto; com ela ligada, o Luna recebe `[Audio] [áudio transcrito: ...]`. Tratar `[Audio]` com anexo de áudio como
+  rótulo, igual ao `[Image]`. **Falhou de verdade: lote único (3.5).**
+- **Áudio curto mal transcrito vai ao atendente:** 2,1 s viraram "Quanto tu deseja?" e o Luna não escolheu ação; com
+  4,7 s ("Oi, boa tarde. Eu queria saber quanto eu estou devendo."), INFORM_DEBT certo. **TESTE MEDE**.
+- **"Você está com 3 em aberto"**, sem "mensalidades", em 4 das 6 respostas ao "quanto devo". Estilo. **TESTE MEDE**.
+- **O "quanto devo" já manda o Pix**, e o "Pagar com Pix" manda de novo. **TESTE MEDE**.
+- **No `/paguei`, o "Recebemos o seu pagamento" chega antes do "[TESTE] Simulando..."**: só no teste. **NÃO SERVE**.
+- **O gateway entregou uma mensagem como `[unknown]`, sem anexo** (11:54, o Chatwoot gravou assim): o Cauê acha que
+  foi o texto "/caso1". Se for, o gateway estragou um texto. Com o dev (o gateway não é nosso).

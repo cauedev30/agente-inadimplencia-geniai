@@ -45,10 +45,23 @@ falha: siga para o passo 4.
 
 ## Depois dos 5 casos (2 min cada)
 
+**A. O áudio.** No `dev2` a transcrição está ligada desde 2026-11-16 (D43): o agente ouve o áudio e responde
+como se fosse texto. Fale uma frase inteira, devagar; um áudio de 2 s pode ser mal ouvido e ir ao atendente.
+
+| # | Envie | Esperado | É falha se |
+|---|---|---|---|
+| A1 | `/caso 1` | `[TESTE] Agora você é o caso 1: R3, pagava no cartão. Mande Oi para começar.` | outro caso |
+| A2 | `Oi` | "Oi, Ana! Vi 3 mensalidades em aberto, R$ 100,20 no total." | outro valor; sem resposta |
+| A3 | **áudio** de uns 5 s: "Oi, eu queria saber quanto que eu estou devendo" | uma resposta com R$ 100,20 | vai ao atendente; sem resposta em 2 min |
+
+**B. Resolver no Chatwoot e escrever de novo.**
+
 | # | Faça | Esperado | É falha se |
 |---|---|---|---|
-| A | `/caso 1`, `Oi` e depois um **áudio** curto | o agente pede para escrever | nenhuma resposta, ou o Chatwoot mostra só `[Audio]` sem o pedido (anote qual dos dois) |
-| B | No Chatwoot, **resolva** a conversa e escreva `Oi` de novo no celular | a conversa volta a Pendente, ou nasce outra | nenhuma resposta (anote qual das duas aconteceu) |
+| B1 | `/caso 1` e depois `Oi` | a abertura da Ana com R$ 100,20 | sem resposta |
+| B2 | No Chatwoot (inbox 280), abra a conversa e clique em **Resolver** | a conversa some da lista de abertas | — |
+| B3 | No celular: `Quanto eu estou devendo?` | R$ 100,20 | sem resposta em 2 min |
+| B4 | Olhe o Chatwoot | nasce outra conversa (a resolvida continua resolvida), e o agente responde nela | a mesma conversa reabre |
 
 ## O que ainda não funciona (não é defeito)
 
