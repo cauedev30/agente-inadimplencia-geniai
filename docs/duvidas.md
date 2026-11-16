@@ -193,6 +193,10 @@ falta responder:
    A D4 previa a conta de cada franquia. **Respondida em parte em 2026-11-16 (o Cauê):** a chave Pix CNPJ
    `29.760.112/0001-22` é de uma unidade franqueada, não da sede; se é a João Pessoa Sul, *a confirmar*.
 
+**2026-11-16 (o Cauê):** no teste fica a **chave Pix CNPJ estática**, como a operação a mandou. Se o Cartão de Todos tem
+integração Pix com algum banco, o Cauê perguntou à Lorrane (gestão do CDT); *sem resposta*. Até ela responder, o código
+do Pix dinâmico fica como está; ele só sai (Lote B) se a resposta for que não há integração.
+
 ### T2. Servidor de produção
 
 Em qual servidor o serviço roda (D1), e quem é o responsável por ele?
