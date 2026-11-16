@@ -85,8 +85,7 @@ DESCRICAO_ACOES = {
     "INFORM_DEBT": "apresentar o valor em aberto, sem desconto",
     "OFFER_DISCOUNT": "oferecer o valor com desconto, que só vale no link do cartão",
     "SEND_CTN_LINK": "mandar o link em que o cliente paga e já cadastra o cartão",
-    # O modelo é a mensagem que o atendente da operação manda hoje (a Lohanny, 2026-11-16), a mesma
-    # do toque no botão: o Luna a adapta ao que o cliente disse, sem ser fixa.
+    # O modelo é o mesmo texto do toque no botão (`TEXTO_DO_PIX`); o Luna o adapta, sem ser fixa.
     "GENERATE_PIX": (
         "mandar a chave Pix do valor integral, tendo como base esta mensagem, adaptada ao que o "
         f"cliente disse e com as mesmas linhas de chave, valor e referente: {TEXTO_DO_PIX!r}; se o "

@@ -35,15 +35,12 @@ class Numeros:
     link_ctn: str | None = None
     valor_pix_centavos: int | None = None
     br_code: str | None = None
-    pix_vence_em: datetime | None = None
     forma: FormaPagamento | None = None
 
     def como_dict(self) -> dict:
         """Para o `turno.numeros`, em JSON e sem os campos vazios."""
         dados = asdict(self)
         dados["acoes"] = [acao.value for acao in self.acoes]
-        if self.pix_vence_em is not None:
-            dados["pix_vence_em"] = self.pix_vence_em.isoformat()
         if self.forma is not None:
             dados["forma"] = self.forma.value
         return {nome: valor for nome, valor in dados.items() if valor is not None}
@@ -131,7 +128,6 @@ def executar(
         extras |= {
             "valor_pix_centavos": divida,
             "br_code": vigente.br_code,
-            "pix_vence_em": vigente.expira_em.astimezone(politica.janela.zona),
             "forma": FormaPagamento.PIX,
         }
     if "forma" in extras:

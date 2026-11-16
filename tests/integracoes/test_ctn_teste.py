@@ -527,7 +527,6 @@ def test_a_interpolacao_deixa_o_texto_de_teste_do_pix_e_do_link_sair_inteiro():
         link_ctn=link.url,
         valor_pix_centavos=10020,
         br_code=pix.br_code,
-        pix_vence_em=datetime(2026, 11, 11, 10, tzinfo=UTC),
     )
 
     texto = interpolar("Pix: {pix_copia_e_cola}. Ou pague aqui: {link_ctn}", numeros)

@@ -74,7 +74,6 @@ MARCADORES = (
     "link_ctn",
     "valor_pix",
     "pix_copia_e_cola",
-    "pix_vencimento",
 )
 
 
@@ -93,7 +92,6 @@ def valores(numeros: Numeros) -> dict[str, str]:
     if numeros.br_code is not None:
         preenchidos["valor_pix"] = formatar_reais(numeros.valor_pix_centavos)
         preenchidos["pix_copia_e_cola"] = numeros.br_code
-        preenchidos["pix_vencimento"] = numeros.pix_vence_em.strftime("%d/%m às %H:%M")
     return preenchidos
 
 

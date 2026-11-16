@@ -1,7 +1,7 @@
 """O backend executa as ações e produz todo número que vai ao cliente (tarefa 5.1)."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -87,13 +87,6 @@ def test_o_pix_e_sempre_integral_mesmo_com_degrau(conversa, politica):
     assert pix.valor_centavos == numeros.valor_pix_centavos == 10020
     assert numeros.br_code == pix.br_code
     assert (numeros.forma, conversa.forma_enviada) == (FormaPagamento.PIX,) * 2
-
-
-def test_o_vencimento_do_pix_vem_no_fuso_da_janela(conversa, politica):
-    numeros = executar([Acao.GENERATE_PIX], conversa.cobranca, conversa, _deps(politica), AGORA)
-
-    assert numeros.pix_vence_em == AGORA + timedelta(hours=politica.pix_validade_horas)
-    assert numeros.pix_vence_em.tzinfo == politica.janela.zona
 
 
 def test_o_pix_grava_o_pagamento_pendente(sessao, conversa, politica):

@@ -1,6 +1,5 @@
 """Os marcadores do LLM e a interpolação pelo backend (tarefa 5.2): número errado não entra."""
 
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -29,7 +28,6 @@ def _numeros(*acoes, degrau=0, divida=10020):
         campos |= {
             "valor_pix_centavos": divida,
             "br_code": "00020126FALSOabc10020",
-            "pix_vence_em": datetime(2026, 10, 27, 10, 5, tzinfo=JP),
         }
     return Numeros(
         acoes=acoes,
@@ -58,12 +56,10 @@ def test_formata_o_milhar_e_as_mensalidades():
     )
 
 
-def test_o_pix_sai_com_o_copia_e_cola_e_o_vencimento():
+def test_o_pix_sai_com_o_valor_e_a_chave():
     numeros = _numeros(Acao.GENERATE_PIX)
-    texto = "Pix de {valor_pix}, vale até {pix_vencimento}: {pix_copia_e_cola}"
-    assert interpolar(texto, numeros) == (
-        "Pix de R$ 100,20, vale até 27/10 às 10:05: 00020126FALSOabc10020"
-    )
+    texto = "Pix de {valor_pix}: {pix_copia_e_cola}"
+    assert interpolar(texto, numeros) == "Pix de R$ 100,20: 00020126FALSOabc10020"
 
 
 def test_o_r_70_cru_escrito_pelo_llm_e_barrado():

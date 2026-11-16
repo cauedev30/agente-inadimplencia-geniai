@@ -134,7 +134,7 @@ def test_a_previa_traz_os_valores_de_mentira(conversa, politica):
     assert link.br_code is None
 
     pix = previa_numeros([Acao.GENERATE_PIX], conversa, conversa.cobranca, politica, AGORA)
-    assert (pix.br_code, pix.pix_vence_em) == ("PREVIA", AGORA)
+    assert pix.br_code == "PREVIA"
     assert pix.valor_pix_centavos == conversa.cobranca.divida_centavos
     assert pix.forma is FormaPagamento.PIX
     assert pix.link_ctn is None
