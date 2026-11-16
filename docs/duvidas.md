@@ -190,7 +190,8 @@ falta responder:
 3. ~~É um Pix fixo de verdade ou uma cobrança gerada por cliente?~~ **Respondida → D22:** cobrança
    gerada por cliente.
 4. O dinheiro cai na conta **da franquia João Pessoa Sul** ou na do **Cartão de Todos (franqueadora)**?
-   A D4 previa a conta de cada franquia.
+   A D4 previa a conta de cada franquia. **Respondida em parte em 2026-11-16 (o Cauê):** a chave Pix CNPJ
+   `29.760.112/0001-22` é de uma unidade franqueada, não da sede; se é a João Pessoa Sul, *a confirmar*.
 
 ### T2. Servidor de produção
 
