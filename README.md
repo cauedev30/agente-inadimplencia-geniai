@@ -27,7 +27,7 @@ fora dela está em [`docs/depois.md`](docs/depois.md).
 | [`docs/duvidas.md`](docs/duvidas.md) | Perguntas em aberto, separadas por quem responde, cada uma com o padrão usado até a resposta |
 | [`docs/depois.md`](docs/depois.md) | O que ficou fora da linha de chegada: os achados da auditoria e as pendências |
 | [`docs/politicas.md`](docs/politicas.md) | As regras do agente, em um lugar só: invariantes, políticas e estilo |
-| [`docs/roteiro-dos-testadores.md`](docs/roteiro-dos-testadores.md) | O que se pede ao Luciano e à Lohanny no teste |
+| [`docs/roteiro-do-teste-manual.md`](docs/roteiro-do-teste-manual.md) | O roteiro do teste manual (o Cauê, no celular, nos 5 casos); o Luciano e a Lohanny fazem o teste livre |
 | [`deploy/dev2/LEIAME.md`](deploy/dev2/LEIAME.md) | Como o `dev2` roda e como operar o teste |
 | [`docs/integracoes.md`](docs/integracoes.md) | Guia para ligar os sistemas reais (T1 a T11): o que precisamos, onde entra e o teste de cada um |
 
