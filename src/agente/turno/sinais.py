@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from agente.tipos import Laudo, MotivoHumano
 from agente.turno.acoes import Acao
+from agente.turno.catalogo import TEXTO_DO_PIX
 
 # O que cada sinal quer dizer, como o prompt o descreve ao Luna.
 SINAIS_DO_PROMPT: dict[str, str] = {
@@ -84,9 +85,13 @@ DESCRICAO_ACOES = {
     "INFORM_DEBT": "apresentar o valor em aberto, sem desconto",
     "OFFER_DISCOUNT": "oferecer o valor com desconto, que só vale no link do cartão",
     "SEND_CTN_LINK": "mandar o link em que o cliente paga e já cadastra o cartão",
+    # O modelo é a mensagem que o atendente da operação manda hoje (a Lohanny, 2026-11-16), a mesma
+    # do toque no botão: o Luna a adapta ao que o cliente disse, sem ser fixa.
     "GENERATE_PIX": (
-        "mandar o Pix copia e cola do valor integral; se o histórico já tem uma oferta com "
-        "desconto, dizer que no Pix vale o valor integral e que o desconto só vale pelo link"
+        "mandar a chave Pix do valor integral, tendo como base esta mensagem, adaptada ao que o "
+        f"cliente disse e com as mesmas linhas de chave, valor e referente: {TEXTO_DO_PIX!r}; se o "
+        "histórico já tem uma oferta com desconto, dizer que no Pix vale o valor integral e que o "
+        "desconto só vale pelo link"
     ),
     "OUT_OF_SCOPE": "o sistema responde com uma frase pronta; o reply fica vazio",
 }

@@ -88,7 +88,7 @@ GLOSSARIO_MARCADORES: dict[str, str] = {
     ),
     "link_ctn": "o link em que o cliente paga e já cadastra o cartão; vem com SEND_CTN_LINK",
     "valor_pix": "o valor do Pix, sempre o integral; vem com GENERATE_PIX",
-    "pix_copia_e_cola": "o código Pix copia e cola; vem com GENERATE_PIX",
+    "pix_copia_e_cola": "a chave Pix (CNPJ), para copiar e colar no banco; vem com GENERATE_PIX",
     "pix_vencimento": "até quando o Pix vale; vem com GENERATE_PIX",
 }
 
