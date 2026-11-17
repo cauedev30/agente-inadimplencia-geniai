@@ -1,6 +1,7 @@
 # Arquitetura do agente
 
-Reescrita em 2026-11-11 (D59, D60, D61). Saíram do código e ficam na tag `antes-do-enxugamento`: o pipeline do Jev
+Reescrita em 2026-11-11 (D59, D60, D61) e revista em 2026-11-17 (o Luna responde a tudo o que é da cobrança e redige a
+passagem ao atendente; revisa a D63, ver [`politicas.md`](politicas.md)). Saíram do código e ficam na tag `antes-do-enxugamento`: o pipeline do Jev
 (leitura, decisão e validação), a simulação e a comparação de redatores.
 Sem efeito pelas três decisões: o modo sombra e o webchat.
 Onde esta página e as decisões divergirem, valem as decisões ([`decisoes.md`](decisoes.md)). A
@@ -12,13 +13,15 @@ estados; 4: ações; 5: backend; 9: falhas).
 **O Luna lê e escreve; o código confere e executa.**
 
 - O **Luna** (`gpt-6-luna`, D42) lê a conversa e devolve, numa chamada só, os sinais da mensagem do cliente, a ação do
-  turno e o texto da resposta, que só existe nas 4 ações de cobrança (D59, D63). Ele não redige o encaminhamento ao
-  humano: todo handoff leva só a frase fixa. Não recebe nenhum valor em dinheiro, link nem código Pix: escreve
-  **marcadores** (`{divida}`, `{valor_final}`, `{link_ctn}`, `{pix_copia_e_cola}`…).
+  turno e o texto da resposta (D59). O texto vale nas ações com texto (as 4 de cobrança, `ANSWER` e `OUT_OF_SCOPE`) e
+  na **passagem ao atendente**, que ele redige quando um sinal ou o tom manda ao humano (D63, revista em 2026-11-17: o
+  Luna responde a tudo o que é da cobrança, e toda resposta leva ao pagamento). Não recebe nenhum valor em dinheiro,
+  link nem código Pix: escreve **marcadores** (`{divida}`, `{valor_final}`, `{link_ctn}`, `{pix_copia_e_cola}`…).
 - O **backend** faz as contas e executa: a dívida (D24), o degrau do desconto (D35), a propensão ao cartão (D36), o Pix e
   o link do CTN. Troca cada marcador pelo valor certo.
 - O **código** confere tudo o que o Luna devolveu: a ação é permitida, os marcadores são os da ação, o texto não traz
-  dígito nem valor solto, os gatilhos de humano e a guarda de palavra-chave vencem o texto, e o teto vale (D33).
+  dígito nem valor solto, a passagem não traz número, link nem marcador, o cliente sai da resposta com um meio de
+  pagamento vigente, os gatilhos de humano e a guarda de palavra-chave vencem o texto, e o teto vale (D33).
 
 ## O turno, em uma linha
 
@@ -67,16 +70,19 @@ São certezas, não probabilidades, e por isso ficam em código.
 
 ## 2. A chamada ao Luna e o handoff
 
-**A chamada** (`turno/uma_chamada.py`). A entrada traz o primeiro nome, a régua, o degrau, a forma já enviada, as ações
-permitidas (cada uma com "quando usar", "o que o texto faz" e os marcadores), as regras da cobrança, o histórico e a
-rajada. A saída é um JSON em esquema estrito (`json_schema`) com os sinais, o tom, a ação e o `reply`. O `reply` só tem
-texto nas 4 ações de cobrança (D63); saída inválida ou ação fora do enum conta como falha de integração (3 tentativas,
-depois `INTEGRACAO_INDISPONIVEL`).
+**A chamada** (`turno/uma_chamada.py`). A entrada traz o primeiro nome, a régua, o degrau, a forma já enviada, o meio de
+pagamento vigente (`meio_vigente`: o Pix ou o link que o cliente ainda pode usar, ou nulo), se ele paga Pix todo mês
+(`paga_pix_todo_mes`), as ações permitidas (cada uma com "quando usar", "o que o texto faz" e os marcadores), as regras
+da cobrança, o histórico e a rajada. A saída é um JSON em esquema estrito (`json_schema`) com os sinais (entre eles o
+`sem_resposta`), o tom, a ação e o `reply`. O `reply` vale nas ações com texto e na passagem ao atendente, e fica vazio
+no `NONE` e no terceiro; a temperatura é 0,7, fixa. Saída inválida ou ação fora do enum conta como falha de integração
+(3 tentativas, depois `INTEGRACAO_INDISPONIVEL`).
 
-**A decisão** é do código: vence a primeira regra que bate. A guarda de palavra-chave (golpe ou golpista, advogado,
-Procon, processo ou processar, atendente, humano, "falar com alguém") vem antes da chamada e manda ao atendente **sem
-chamar o Luna**. Depois da chamada: um sinal de saída, o tom irritado ou hostil, o pedido de humano, o terceiro, a ação
-fora das permitidas e, por fim, a ação com o que vai junto (seção 4).
+**A decisão** é do código: vence a primeira regra que bate. A guarda de palavra-chave (golpe ou golpista; advogado,
+Procon ou processar) vem antes da chamada e manda ao atendente **sem chamar o Luna**. "Humano", "atendente", "falar com
+alguém" e "processo" não são palavra-chave: vão ao Luna, que marca o sinal. Depois da chamada: um sinal de saída, o tom
+irritado ou hostil, o pedido de humano, o terceiro, o `sem_resposta`, a ação fora das permitidas e, por fim, a ação com
+o que vai junto (seção 4).
 
 | Sinal | Motivo |
 |---|---|
@@ -89,16 +95,23 @@ fora das permitidas e, por fim, a ação com o que vai junto (seção 4).
 | `atrito_clinica` | `ATRITO` |
 | `quer_conta_energia` | `ENERGISA` (a troca é manual, D30) |
 | `quer_humano` | `PEDIU_HUMANO` |
+| `sem_resposta` (pede algo da cobrança que as regras e as ações não cobrem: quais meses, vencimento, boleto) | `SEM_RESPOSTA` |
 | tom `irritado` ou `hostil` | `TOM` |
 
-O `terceiro` (quem escreve não é o devedor) não vai ao humano: recebe uma frase fixa, sem falar da dívida (D63). As
-outras saídas fixas (fora do assunto, `NONE`, cortesia) estão na tabela de [`politicas.md`](politicas.md).
+O `vulnerabilidade` é só a situação grave (doença séria, luto, acidente, crise); a falta de dinheiro comum vai ao
+`OFFER_DISCOUNT` ou à `ANSWER`. O `terceiro` (quem escreve não é o devedor) não vai ao humano: recebe uma frase fixa, sem
+falar da dívida (D63). As outras saídas fixas (`NONE`, cortesia, o fora do assunto reprovado) estão na tabela de
+[`politicas.md`](politicas.md).
 
 **O handoff.** Toda saída do robô passa a conversa a um atendente **na mesma conversa do WhatsApp** (D60): uma nota
 privada com o motivo, a etiqueta, a atribuição ao time (`AGENTE_CHATWOOT_TIME_HUMANO`) e o status aberto. O estado vira
-`ATENDIMENTO_HUMANO`. Quando há mensagem ao cliente, ela é só a fixa *"Para resolver da melhor forma, um atendente da
-unidade vai continuar com você aqui mesmo, nesta conversa."*, sem texto do Luna (D63). Quem desconfia de golpe recebe uma
-frase própria (D44). Fica sem mensagem ao cliente a volta ao humano de quem já recebeu a 6ª ou o aviso de cobrança
+`ATENDIMENTO_HUMANO`. Quando há mensagem ao cliente, ela é a **passagem redigida pelo Luna** (uma ou duas frases que acolhem o que o cliente
+disse e avisam que um atendente da unidade continua nesta conversa), gravada com origem `AGENTE` e fora do teto. O código
+confere a passagem (`conferir_passagem`: sem número, link nem marcador, com a palavra "atendente"); reprovada, sai a
+fixa *"Para resolver da melhor forma, um atendente da unidade vai continuar com você aqui mesmo, nesta conversa."*, sem
+2ª chamada. O **jurídico** e o **golpe** levam sempre a frase fixa (o golpe tem a própria, D44), assim como o `NONE`
+fora da cortesia, o texto reprovado e a 6ª. A foto sem texto leva uma frase fixa própria (*"Recebi o seu arquivo. Um
+atendente da unidade vai conferir…"*). A passagem não leva Pix nem link. Fica sem mensagem ao cliente a volta ao humano de quem já recebeu a 6ª ou o aviso de cobrança
 quitada, e o caso das 24h vencidas. Outros motivos: `SEM_RESPOSTA`, `TETO`, `AUDIO`, `VALIDACAO`, `FORA_DAS_24H`,
 `INTEGRACAO_INDISPONIVEL`, `ERRO_INTERNO` e `PAGAMENTO_DIVERGENTE`. O rodízio entre os atendentes é a atribuição automática do Chatwoot (*a confirmar* na conta do
 JP Sul, D60).
@@ -124,14 +137,22 @@ O Luna escolhe uma **ação principal**; o código anexa o que vai junto, por um
 
 | Ação | O que faz | O código anexa |
 |---|---|---|
-| `INFORM_DEBT` | apresenta o débito total, sem desconto (D29) | o link do CTN se o cliente é propenso ao cartão; o Pix se não é (D36) |
-| `OFFER_DISCOUNT` | libera o próximo degrau (D35); só existe se há degrau seguinte | o link do CTN, já com o desconto (D34) |
+| `INFORM_DEBT` | apresenta o débito total, sem desconto (D29): a 1ª apresentação da dívida | o link do CTN se o cliente é propenso ao cartão; o Pix se não é (D36); nada, se já tem um meio vigente |
+| `OFFER_DISCOUNT` | libera o próximo degrau (D35); só existe se há degrau seguinte; atende também quem diz que está sem dinheiro | o link do CTN, já com o desconto (D34) |
 | `SEND_CTN_LINK` | manda o link: paga e cadastra o cartão (D30) | nada |
-| `GENERATE_PIX` | gera o Pix do valor integral (D22, D34) | nada |
-| `OUT_OF_SCOPE` | sai a frase fixa do fora do assunto; o Luna não redige | nada |
-| `NONE` | sem texto: cortesia fica em silêncio; o resto vai ao atendente (`SEM_RESPOSTA`) | nada |
+| `GENERATE_PIX` | gera o Pix do valor integral (D22, D34); atende também quem não quer ou não pode usar o cartão | nada |
+| `ANSWER` | responde a dúvida ou o comentário sobre a cobrança com as regras da política, sem mudar o degrau nem gerar nada; sempre permitida | como a `INFORM_DEBT`: o meio de pagamento, só se não há um vigente |
+| `OUT_OF_SCOPE` | o Luna redige a volta ao assunto, sem afirmar nada sobre o que foi perguntado; reprovado 2 vezes, sai a frase fixa, sem anexo nem atendente | como a `INFORM_DEBT` |
+| `NONE` | sem texto: só confirmação ou agradecimento; cortesia fica em silêncio, o resto vai ao atendente (`SEM_RESPOSTA`) | nada |
 
 Na régua sem desconto (NR, R1, R2) não há `OFFER_DISCOUNT`. Esgotados os degraus, a última oferta é o valor final.
+
+**O meio de pagamento vigente** (`meio_vigente`, `turno/executar.py`) é a última forma enviada nesta conversa que ainda
+vale: o Pix de valor igual à dívida que não vence antes de `pix_reaproveitar_minimo_minutos`, ou o link pendente sem
+vencimento ou ainda não vencido. Conversa nova começa sem meio. Com um vigente, `INFORM_DEBT`, `ANSWER` e `OUT_OF_SCOPE`
+não repetem o bloco (o texto aponta para o que já foi enviado); sem ele, o código anexa o Pix ou o link, e o texto leva
+os marcadores. Reenviar o Pix que ainda vale não cria cobrança nova. O descarte de uma mensagem pendente esquece a forma
+enviada quando a mensagem descartada a levava.
 
 ## 5. O backend calcula, o Luna redige
 
@@ -152,7 +173,14 @@ O texto do Luna é conferido contra uma prévia dos números, antes de qualquer 
 obrigatórios da ação estão presentes, os outros só valem se o turno tem o valor deles (os opcionais com valor, como
 `{mensalidades}` e `{valor_pix}`, também são aceitos), nenhum marcador desconhecido, e não há dígito, valor ou link
 solto. Reprovou: **2 tentativas**, a
-2ª dizendo ao Luna o motivo. Sem texto aprovado, a conversa vai ao atendente (`VALIDACAO`), sem resposta segura (D63).
+2ª dizendo ao Luna o motivo. Sem texto aprovado, a conversa vai ao atendente (`VALIDACAO`), com a frase fixa, sem resposta
+segura (D63); o `OUT_OF_SCOPE` é a exceção: sai a frase fixa do fora do assunto, sem anexo e sem atendente. Na `ANSWER` e
+no `OUT_OF_SCOPE`, os marcadores são `{divida}` e `{mensalidades}` (opcionais); com degrau liberado, também
+`{valor_final}` e `{desconto}`; com o anexo, os do Pix ou do link ficam obrigatórios; sem o anexo, `{link_ctn}` e os do
+Pix são reprovados.
+
+A **passagem** ao atendente tem o conferidor próprio (`conferir_passagem`): texto não vazio, sem número, link nem
+marcador, com a palavra "atendente". Reprovada, não ganha 2ª tentativa: sai a frase fixa.
 
 ## 7. Custo e latência
 
@@ -172,8 +200,9 @@ link viram `[TESTE] …`; `/paguei` simula a confirmação do banco; `/nota` gra
   `integracao_tentativas` (3); depois, o humano (`INTEGRACAO_INDISPONIVEL`). Sem o Luna o turno não responde
   por conta própria: esgotadas as tentativas, a conversa vai ao humano.
 - **Erro de código:** 3 tentativas (`erro_interno_tentativas`) e o humano (`ERRO_INTERNO`).
-- **A guarda de palavra-chave** (golpe, jurídico, pedido de humano) leva ao humano na hora, com a frase fixa, mesmo com
-  o Luna fora do ar.
+- **A guarda de palavra-chave** (golpe, golpista, advogado, Procon, processar) leva ao humano na hora, com a frase fixa,
+  mesmo com o Luna fora do ar. O pedido de humano ("quero falar com um atendente") depende do Luna: fora do ar, o turno
+  vai ao humano depois das 3 tentativas.
 - **LGPD:** o histórico da conversa vai à OpenAI a cada turno. O serviço só sobe com dado real e a OpenAI juntos se
   `AGENTE_LLM_DADOS_REAIS_LIBERADOS=true`, depois da conferência da retenção de dados (T6, D42).
 

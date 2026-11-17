@@ -2,8 +2,9 @@
 
 Agente de IA que cobra, pelo WhatsApp, os clientes inadimplentes das franquias do Cartão de Todos que
 usam o disparador da GeniAI. O objetivo é o cliente pagar com o menor número de mensagens possível. Uma
-chamada ao Luna (`gpt-6-luna`) lê a conversa, escolhe a ação e redige o texto; o código confere a ação, os
-valores, os gatilhos de humano e o teto, e o backend calcula os valores e gera o Pix.
+chamada ao Luna (`gpt-6-luna`) lê a conversa, escolhe a ação e redige o texto (inclusive a resposta às dúvidas e a
+passagem ao atendente); o código confere a ação, os valores, os gatilhos de humano e o teto, e o backend calcula os
+valores e gera o Pix.
 
 A primeira franquia é o **Cartão de Todos João Pessoa Sul**.
 
@@ -60,10 +61,15 @@ uv run agente importar carteira.csv --campanha outubro   # importa a carteira de
 uv run agente disparar --campanha outubro                 # dispara as aberturas (disparador falso até a T4)
 uv run agente importar-ctn [--data AAAA-MM-DD] [--meses-minimos N] [--simular]   # a carteira do dia, pelo retrato do CTN (AGENTE_CTN_API_KEY)
 uv run agente notas-teste [--desde AAAA-MM-DD] [--saida arquivo.md]   # as notas (/nota) dos testadores, em Markdown
+uv run agente resumo-turnos [--desde AAAA-MM-DD] [--ate AAAA-MM-DD] [--saida arquivo.md]   # contagens dos turnos por saída, motivo e pagamento
 ```
 
 O `disparar` só abre conversa com os telefones do piloto. O `importar-ctn` só lê o CTN (`GET`) e a saída traz
 só contagens; as opções e os códigos de saída estão em [`docs/integracoes.md`](docs/integracoes.md).
+O `resumo-turnos` só lê o banco e não traz texto de cliente nem telefone: conta os turnos por saída (texto do Luna,
+mensagem fixa, atendente, silêncio), o atendente por motivo (e quantas passagens foram do Luna ou fixas), o que o código
+reprovou e em quantas conversas o cliente recebeu o meio de pagamento já na 1ª resposta. Sem `--desde`, lê a tabela
+inteira.
 
 ## Deploy
 
@@ -97,7 +103,7 @@ O Luna é o `gpt-6-luna` da OpenAI (D42) e o áudio do cliente é transcrito pel
 
 - `AGENTE_LLM_API_KEY` liga o Luna (obrigatória). `AGENTE_LLM_URL`, `AGENTE_LLM_MODELO` e
   `AGENTE_LLM_CORPO_EXTRA` já vêm com os padrões do Luna. O Luna recusa a temperatura sem o
-  `reasoning_effort: "none"`, que o corpo extra padrão manda;
+  `reasoning_effort: "none"`, que o corpo extra padrão manda; a temperatura é 0,7, fixa no código (não há variável);
 - `AGENTE_TRANSCRICAO_URL` e `AGENTE_TRANSCRICAO_API_KEY` ligam a transcrição, e
   `AGENTE_TRANSCRICAO_MODELO` troca o modelo. Com só uma das duas, o serviço não sobe e diz qual falta;
 - `AGENTE_LLM_DADOS_REAIS_LIBERADOS` (padrão `false`) trava a subida com dado real de cliente indo à

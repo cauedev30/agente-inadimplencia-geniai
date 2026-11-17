@@ -29,9 +29,13 @@ métrica de custo.
   cadastra o cartão (D30). O desconto só vale no link; o Pix é sempre o valor integral (D34).
 - **Passa a conversa a um atendente** quando o caso não é do robô (seção 4), na mesma conversa do WhatsApp (D60).
 - Em cada mensagem do cliente, **uma chamada ao Luna** (`gpt-6-luna`, D42) lê a conversa, escolhe a ação e redige o
-  texto (D59), só nas 4 ações de cobrança; o resto tem frase fixa ou vai ao atendente (D63). O **código confere**: a ação é permitida, os valores vêm do backend (o texto só traz marcadores), os
-  gatilhos de humano, a guarda de palavra-chave e o teto. Quem decide o que pode ser dito é o código; o Luna não
-  calcula nem inventa valor. O desenho está em [`arquitetura.md`](arquitetura.md).
+  texto (D59). Ele **responde a tudo o que é da cobrança** (dúvida, desabafo, dificuldade de pagar, fora do assunto) e
+  **redige a passagem ao atendente**; toda resposta leva ao pagamento, e o código anexa o Pix ou o link quando o cliente
+  ainda não tem um meio vigente. Continuam fixos: a abertura, a resposta ao botão Pix, a confirmação de pagamento, a 6ª
+  mensagem, o jurídico, o golpe e o terceiro (D63, revista em 2026-11-17; ver [`politicas.md`](politicas.md)). O **código
+  confere**: a ação é permitida, os valores vêm do backend (o texto só traz marcadores), a passagem não traz número nem
+  link, os gatilhos de humano, a guarda de palavra-chave e o teto. Quem decide o que pode ser dito é o código; o Luna
+  não calcula nem inventa valor. O desenho está em [`arquitetura.md`](arquitetura.md).
 
 ## 3. Escopo
 
@@ -82,7 +86,10 @@ A linha de chegada atual, provisória até a G4 trazer a meta de negócio. Está
    reprova só o turno em `ERRO`, o turno faltando, a divergência em passo sem LLM (toque no Pix, `/paguei`, `/caso`) e
    o fim de um roteiro que diverge.
    A divergência em passo com LLM e as linhas `ERROR` do log vão listadas no relatório, que o Cauê lê; a suíte
-   determinística é o portão, o ensaio com o Luna real é relatório;
+   determinística é o portão, o ensaio com o Luna real é relatório. O ensaio do `autonomia.yaml`
+   (`ferramentas/demo-whatsapp/roteiros/`) tem de passar em 3 rodadas: a conversa do desconto
+   (`desconto-so-no-cartao`) e os 4 roteiros de dúvidas (`duvidas-1` a `duvidas-4`), todos `ENVIADO` e sem atendente. Os
+   outros roteiros dele (a pessoa, o "não quero cartão", a dificuldade, o `link-seguro`) vão ao relatório, que o Cauê lê;
 3. o Cauê fez o roteiro exato no celular e ele passou;
 4. o Luciano e a Lohanny testaram os 5 casos em até 3 dias úteis;
 5. as correções que bloqueiam, tiradas da lista da Lohanny (as `/nota`), saíram num lote só, e o resto foi para
