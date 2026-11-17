@@ -153,7 +153,7 @@ def test_conta_o_atendente_por_motivo_e_por_passagem(varios_turnos, politica):
     assert "VALIDACAO: 1" in texto
     assert "passagem redigida pelo Luna: 1" in texto
     assert "passagem com a frase fixa: 1" in texto
-    assert "sem passagem do Luna (gate, palavra-chave ou texto reprovado): 2" in texto
+    assert "sem passagem do Luna (gate ou texto reprovado): 2" in texto
 
 
 def test_conta_as_reprovacoes(varios_turnos, politica):

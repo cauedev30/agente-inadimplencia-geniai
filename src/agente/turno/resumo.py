@@ -170,7 +170,7 @@ def resumo_dos_turnos(
         "",
         f"- passagem redigida pelo Luna: {passagens['LLM']}",
         f"- passagem com a frase fixa: {passagens['FIXA']}",
-        "- sem passagem do Luna (gate, palavra-chave ou texto reprovado): "
+        "- sem passagem do Luna (gate ou texto reprovado): "
         f"{len(atendente) - passagens['LLM'] - passagens['FIXA']}",
         "",
         "## Reprovações",
