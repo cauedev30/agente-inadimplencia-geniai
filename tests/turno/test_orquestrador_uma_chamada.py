@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass, replace
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import select
@@ -107,6 +108,43 @@ def test_o_turno_fecha_enviado_com_o_texto_do_luna_e_o_pix_do_backend(
     [mensagem] = _do_agente(sessao)
     assert (mensagem.texto, mensagem.conta_no_teto) == (texto, True)
     assert sessao.scalars(select(Pagamento)).one().referencia == pix.txid
+
+
+REPLY_SO_A_DIVIDA = "Seu valor em aberto é {divida}."
+
+
+def test_o_2o_quanto_devo_sai_sem_o_pix_e_sem_pagamento_novo(sessao, ligada, cliente, politica):
+    deps = _deps(politica, [_bruto(), _bruto(reply=REPLY_SO_A_DIVIDA)])
+
+    assert cliente("quanto eu devo?", deps) is ResultadoTurno.ENVIADO
+    assert cliente("e quanto é mesmo?", deps) is ResultadoTurno.ENVIADO
+
+    [pix] = deps.pix.cobrancas.values()
+    [primeira, segunda] = deps.chatwoot.enviadas(555)
+    assert pix.br_code in primeira
+    assert "R$ 100,20" in segunda and pix.br_code not in segunda
+    assert len(sessao.scalars(select(Pagamento)).all()) == 1
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.acoes_anexadas) == ("INFORM_DEBT", [])
+    assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
+    entrada = json.loads(deps.llm_turno.pedidos[1][1])
+    assert entrada["meio_vigente"] == "PIX"
+
+
+def test_com_o_pix_vencido_o_2o_quanto_devo_reanexa_o_pix(sessao, ligada, cliente, politica):
+    deps = _deps(politica, [_bruto(), _bruto()])
+    cliente("quanto eu devo?", deps)
+    antigo = sessao.scalars(select(Pagamento)).one()
+    antigo.expira_em = SEGUNDA_10H - timedelta(days=2)
+    sessao.flush()
+
+    assert cliente("e quanto é mesmo?", deps) is ResultadoTurno.ENVIADO
+
+    assert len(deps.pix.cobrancas) == 2
+    [_, segunda] = deps.chatwoot.enviadas(555)
+    assert antigo.br_code not in segunda and "R$ 100,20" in segunda
+    assert len(sessao.scalars(select(Pagamento)).all()) == 2
+    assert json.loads(deps.llm_turno.pedidos[1][1])["meio_vigente"] is None
 
 
 def test_as_novas_da_rajada_vao_em_novas_e_as_anteriores_em_conversa(
@@ -463,7 +501,9 @@ def test_o_pagamento_durante_a_geracao_do_link_desfaz_a_acao_e_nada_sai(
 
 
 def test_com_5_no_teto_sai_a_6a_fixa_e_o_llm_nao_e_chamado(sessao, ligada, cliente, politica):
-    deps = _deps(politica, [_bruto()] * politica.teto_resolucao)
+    # Só a 1ª resposta leva o Pix: dali em diante ele já vale e o texto vai sem ele.
+    sem_pix = _bruto(reply=REPLY_SO_A_DIVIDA)
+    deps = _deps(politica, [_bruto(), *[sem_pix] * (politica.teto_resolucao - 1)])
     for _ in range(politica.teto_resolucao):
         assert cliente("quanto eu devo?", deps) is ResultadoTurno.ENVIADO
     chamadas = len(deps.llm_turno.pedidos)

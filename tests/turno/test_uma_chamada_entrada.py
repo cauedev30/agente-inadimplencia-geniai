@@ -1,16 +1,17 @@
 """A entrada do turno de uma chamada: a política, as ações permitidas e a prévia (D47, E1.2)."""
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 
+from agente.db.modelos import Pagamento
 from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.pix import PixFalso
 from agente.politica import Regua
-from agente.tipos import FormaPagamento
+from agente.tipos import FormaPagamento, StatusPagamento
 from agente.turno.acoes import Acao, anexar
 from agente.turno.executar import executar
 from agente.turno.redacao import MARCADORES, marcadores_do_turno
@@ -95,7 +96,7 @@ def test_o_humano_nunca_e_uma_acao_permitida(conversa, politica):
 @pytest.mark.parametrize("acao", TODAS)
 def test_a_previa_bate_com_o_executar(conversa, politica, acao, propenso):
     conversa.cobranca.propenso_cartao = propenso
-    acoes = [acao, *anexar(acao, conversa.cobranca)]
+    acoes = [acao, *anexar(acao, conversa.cobranca, tem_meio_vigente=False)]
 
     previa = previa_numeros(acoes, conversa, conversa.cobranca, politica, AGORA)
     real = executar(acoes, conversa.cobranca, conversa, _deps(politica), AGORA)
@@ -223,7 +224,11 @@ def test_cada_acao_traz_os_marcadores_da_previa(conversa, politica, propenso):
     for item in entrada.acoes:
         acao = Acao(item["acao"])
         previa = previa_numeros(
-            [acao, *anexar(acao, conversa.cobranca)], conversa, conversa.cobranca, politica, AGORA
+            [acao, *anexar(acao, conversa.cobranca, tem_meio_vigente=False)],
+            conversa,
+            conversa.cobranca,
+            politica,
+            AGORA,
         )
         obrigatorios, opcionais = marcadores_do_turno(previa)
         assert item["marcadores_obrigatorios"] == obrigatorios
@@ -240,6 +245,50 @@ def test_o_inform_debt_leva_o_link_so_de_quem_e_propenso(conversa, politica):
     assert obrigatorios(_entrada(conversa, politica)) == ["divida", "pix_copia_e_cola"]
     conversa.cobranca.propenso_cartao = True
     assert obrigatorios(_entrada(conversa, politica)) == ["divida", "link_ctn"]
+
+
+def _com_pix_vigente(conversa):
+    conversa.cobranca.pagamentos.append(
+        Pagamento(
+            forma=FormaPagamento.PIX,
+            valor_centavos=conversa.cobranca.divida_centavos,
+            referencia="TX-1",
+            status=StatusPagamento.PENDENTE,
+            criado_em=AGORA,
+            expira_em=AGORA + timedelta(hours=5),
+            br_code="000201BR",
+        )
+    )
+    conversa.forma_enviada = FormaPagamento.PIX
+
+
+def test_a_entrada_traz_o_meio_vigente_e_no_json(conversa, politica):
+    assert _entrada(conversa, politica).meio_vigente is None
+    assert json.loads(_entrada(conversa, politica).como_json())["meio_vigente"] is None
+
+    _com_pix_vigente(conversa)
+
+    entrada = _entrada(conversa, politica)
+    assert entrada.meio_vigente == "PIX"
+    assert json.loads(entrada.como_json())["meio_vigente"] == "PIX"
+
+
+@pytest.mark.parametrize("propenso", [False, True])
+def test_com_meio_vigente_o_inform_debt_so_exige_a_divida(conversa, politica, propenso):
+    conversa.cobranca.propenso_cartao = propenso
+    _com_pix_vigente(conversa)
+
+    [item] = [a for a in _entrada(conversa, politica).acoes if a["acao"] == "INFORM_DEBT"]
+
+    assert item["marcadores_obrigatorios"] == ["divida"]
+
+
+def test_com_meio_vigente_o_desconto_continua_com_o_link(conversa, politica):
+    _com_pix_vigente(conversa)
+
+    [item] = [a for a in _entrada(conversa, politica).acoes if a["acao"] == "OFFER_DISCOUNT"]
+
+    assert "link_ctn" in item["marcadores_obrigatorios"]
 
 
 def test_as_chaves_do_glossario_sao_as_dos_marcadores(conversa, politica):

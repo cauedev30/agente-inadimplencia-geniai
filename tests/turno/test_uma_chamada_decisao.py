@@ -43,8 +43,8 @@ def _saida(**mudancas) -> SaidaTurno:
     return ler_saida(_bruto(**mudancas))
 
 
-def _decidir(cobranca, permitidas=PERMITIDAS, **mudancas) -> Veredito:
-    return decidir(_saida(**mudancas), permitidas, cobranca)
+def _decidir(cobranca, permitidas=PERMITIDAS, *, tem_meio_vigente=False, **mudancas) -> Veredito:
+    return decidir(_saida(**mudancas), permitidas, cobranca, tem_meio_vigente=tem_meio_vigente)
 
 
 # ler_saida e SaidaTurno
@@ -220,6 +220,14 @@ def test_inform_debt_leva_o_link_de_quem_e_propenso_e_o_pix_de_quem_nao_e(conver
     assert veredito == Veredito(None, Acao.INFORM_DEBT, (Acao.SEND_CTN_LINK,), False, "acao")
     cobranca.propenso_cartao = False
     assert _decidir(cobranca, acao="INFORM_DEBT").anexos == (Acao.GENERATE_PIX,)
+
+
+def test_inform_debt_com_meio_vigente_nao_leva_anexo(conversa):
+    cobranca = conversa.cobranca
+    for propenso in (True, False):
+        cobranca.propenso_cartao = propenso
+        veredito = _decidir(cobranca, acao="INFORM_DEBT", tem_meio_vigente=True)
+        assert veredito == Veredito(None, Acao.INFORM_DEBT, (), False, "acao")
 
 
 def test_offer_discount_leva_o_link_e_none_vai_sem_anexos(conversa):

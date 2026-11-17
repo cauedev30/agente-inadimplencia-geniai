@@ -1,11 +1,12 @@
 """O laço das tentativas do turno de uma chamada, com o LLM falso (D47, E1.4)."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from agente.db.modelos import Pagamento
 from agente.integracoes.llm_turno import LLMTurnoFalso, LLMTurnoIndisponivel
-from agente.tipos import MotivoHumano
+from agente.tipos import FormaPagamento, MotivoHumano, StatusPagamento
 from agente.turno.acoes import Acao
 from agente.turno.uma_chamada import (
     SINAIS,
@@ -65,6 +66,51 @@ def test_a_valida_com_inform_debt_sai_aprovada_em_uma_chamada(conversa, politica
     assert len(llm.pedidos) == 1
     assert previa.chamadas == [(Acao.INFORM_DEBT, Acao.GENERATE_PIX)]
     assert TENTATIVAS_UMA_CHAMADA == 2
+
+
+def test_com_meio_vigente_o_inform_debt_vai_sem_anexo_e_so_com_a_divida(conversa, politica):
+    conversa.cobranca.pagamentos.append(
+        Pagamento(
+            forma=FormaPagamento.PIX,
+            valor_centavos=conversa.cobranca.divida_centavos,
+            referencia="TX-1",
+            status=StatusPagamento.PENDENTE,
+            criado_em=AGORA,
+            expira_em=AGORA + timedelta(hours=5),
+            br_code="000201BR",
+        )
+    )
+    conversa.forma_enviada = FormaPagamento.PIX
+    reply = "Seu valor em aberto é {divida}."
+
+    resolucao, _, previa = _resolver(conversa, politica, [_bruto(reply=reply)])
+
+    assert resolucao.reply == reply
+    assert resolucao.veredito.acao is Acao.INFORM_DEBT
+    assert resolucao.veredito.anexos == ()
+    assert previa.chamadas == [(Acao.INFORM_DEBT,)]
+
+
+def test_com_meio_vigente_o_texto_com_o_pix_e_reprovado(conversa, politica):
+    conversa.cobranca.pagamentos.append(
+        Pagamento(
+            forma=FormaPagamento.PIX,
+            valor_centavos=conversa.cobranca.divida_centavos,
+            referencia="TX-1",
+            status=StatusPagamento.PENDENTE,
+            criado_em=AGORA,
+            expira_em=AGORA + timedelta(hours=5),
+            br_code="000201BR",
+        )
+    )
+    conversa.forma_enviada = FormaPagamento.PIX
+
+    resolucao, _, _ = _resolver(conversa, politica, [_bruto(), _bruto()])
+
+    assert resolucao.reply is None
+    assert [t.reprovadas for t in resolucao.tentativas] == [
+        ("marcador_sem_valor:pix_copia_e_cola",)
+    ] * 2
 
 
 def test_texto_com_digito_e_reprovado_e_reprovado_de_novo_sai_sem_texto_nem_motivo(

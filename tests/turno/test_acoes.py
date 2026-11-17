@@ -16,20 +16,32 @@ def _cobranca(regua=Regua.R3, mensalidades=3, propenso=False):
     )
 
 
-# Tabela de anexos (D37).
+# Tabela de anexos (D37), com e sem meio de pagamento vigente (plano de autonomia, tarefa 1.2).
 
 
-def test_inform_debt_do_propenso_leva_o_link():
-    assert anexar(Acao.INFORM_DEBT, _cobranca(propenso=True)) == [Acao.SEND_CTN_LINK]
+@pytest.mark.parametrize("acao", [Acao.INFORM_DEBT, Acao.ANSWER])
+def test_sem_meio_vigente_o_propenso_leva_o_link(acao):
+    anexos = anexar(acao, _cobranca(propenso=True), tem_meio_vigente=False)
+    assert anexos == [Acao.SEND_CTN_LINK]
 
 
-def test_inform_debt_do_nao_propenso_leva_o_pix():
-    assert anexar(Acao.INFORM_DEBT, _cobranca(propenso=False)) == [Acao.GENERATE_PIX]
+@pytest.mark.parametrize("acao", [Acao.INFORM_DEBT, Acao.ANSWER])
+def test_sem_meio_vigente_o_nao_propenso_leva_o_pix(acao):
+    anexos = anexar(acao, _cobranca(propenso=False), tem_meio_vigente=False)
+    assert anexos == [Acao.GENERATE_PIX]
+
+
+@pytest.mark.parametrize("acao", [Acao.INFORM_DEBT, Acao.ANSWER])
+@pytest.mark.parametrize("propenso", [True, False])
+def test_com_meio_vigente_a_informacao_e_a_resposta_vao_sem_anexo(acao, propenso):
+    assert anexar(acao, _cobranca(propenso=propenso), tem_meio_vigente=True) == []
 
 
 @pytest.mark.parametrize("propenso", [True, False])
-def test_offer_discount_sempre_leva_o_link(propenso):
-    assert anexar(Acao.OFFER_DISCOUNT, _cobranca(propenso=propenso)) == [Acao.SEND_CTN_LINK]
+@pytest.mark.parametrize("tem_meio", [True, False])
+def test_offer_discount_sempre_leva_o_link(propenso, tem_meio):
+    anexos = anexar(Acao.OFFER_DISCOUNT, _cobranca(propenso=propenso), tem_meio_vigente=tem_meio)
+    assert anexos == [Acao.SEND_CTN_LINK]
 
 
 @pytest.mark.parametrize(
@@ -37,5 +49,6 @@ def test_offer_discount_sempre_leva_o_link(propenso):
     [Acao.SEND_CTN_LINK, Acao.GENERATE_PIX, Acao.OUT_OF_SCOPE, Acao.NONE, Acao.HUMAN],
 )
 @pytest.mark.parametrize("propenso", [True, False])
-def test_as_outras_acoes_vao_sem_anexo(acao, propenso):
-    assert anexar(acao, _cobranca(propenso=propenso)) == []
+@pytest.mark.parametrize("tem_meio", [True, False])
+def test_as_outras_acoes_vao_sem_anexo(acao, propenso, tem_meio):
+    assert anexar(acao, _cobranca(propenso=propenso), tem_meio_vigente=tem_meio) == []

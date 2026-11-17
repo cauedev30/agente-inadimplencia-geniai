@@ -314,7 +314,11 @@ def test_o_audio_que_chega_durante_a_transcricao_nao_gasta_o_pedido_de_texto(
 
 
 def test_o_audio_antigo_aparece_no_historico_dos_turnos_seguintes(sessao, ligada, politica):
-    deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"))
+    # O Pix do 1º turno já vale no 2º: a resposta do Luna vai sem ele.
+    llm = LLMTurnoFalso(
+        respostas=[_bruto(), _bruto(reply="Seu valor em aberto é {divida}.")], registrar=True
+    )
+    deps = _deps(politica, transcritor=TranscritorFalso("quanto eu devo?"), llm=llm)
     _cliente(sessao, ligada, anexos=[_audio()])
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
     agora = SEGUNDA_10H + timedelta(minutes=5)

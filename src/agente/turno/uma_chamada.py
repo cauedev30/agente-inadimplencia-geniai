@@ -23,7 +23,7 @@ from agente.integracoes.llm_turno import LLMTurno, LLMTurnoIndisponivel
 from agente.politica import Politica
 from agente.tipos import FormaPagamento, Laudo, MotivoHumano
 from agente.turno.acoes import Acao, anexar
-from agente.turno.executar import Numeros
+from agente.turno.executar import Numeros, meio_vigente
 from agente.turno.redacao import (
     RedacaoInvalida,
     _sem_acento,
@@ -175,6 +175,8 @@ class EntradaTurno:
     varias_mensalidades: bool
     # As chaves `degrau_atual`, `ha_degrau_seguinte` e `forma_enviada`.
     oferta: dict
+    # O meio de pagamento que o cliente ainda pode usar ("PIX" ou "LINK_CTN"), ou None.
+    meio_vigente: str | None
     # Uma por ação permitida: `acao`, `quando`, `faz`, `marcadores_obrigatorios` e
     # `marcadores_opcionais`.
     acoes: tuple[dict, ...]
@@ -205,11 +207,11 @@ def montar_entrada(
     agora: datetime,
 ) -> EntradaTurno:
     permitidas = acoes_permitidas(conversa, cobranca, politica)
+    meio = meio_vigente(conversa, agora, politica)
     acoes = []
     for acao in permitidas:
-        previa = previa_numeros(
-            [acao, *anexar(acao, cobranca)], conversa, cobranca, politica, agora
-        )
+        anexos = anexar(acao, cobranca, tem_meio_vigente=meio is not None)
+        previa = previa_numeros([acao, *anexos], conversa, cobranca, politica, agora)
         obrigatorios, opcionais = marcadores_do_turno(previa)
         acoes.append(
             {
@@ -233,6 +235,7 @@ def montar_entrada(
             "ha_degrau_seguinte": any(a["acao"] == "OFFER_DISCOUNT" for a in acoes),
             "forma_enviada": conversa.forma_enviada.value if conversa.forma_enviada else None,
         },
+        meio_vigente=meio.value if meio else None,
         acoes=tuple(acoes),
         politica=regras,
         glossario=dict(GLOSSARIO_MARCADORES),
@@ -446,7 +449,13 @@ def veredito_da_palavra_chave(guarda: tuple[MotivoHumano, str]) -> Veredito:
     return Veredito(motivo, None, (), False, f"palavra_chave:{palavra}")
 
 
-def decidir(saida: SaidaTurno, permitidas: Sequence[Acao], cobranca: Cobranca) -> Veredito:
+def decidir(
+    saida: SaidaTurno,
+    permitidas: Sequence[Acao],
+    cobranca: Cobranca,
+    *,
+    tem_meio_vigente: bool,
+) -> Veredito:
     """A primeira regra que bate vence: o sinal de saída, o tom, o pedido de humano, o terceiro, a
     ação fora das permitidas e, por fim, a ação com os anexos da D37. A palavra-chave vem antes,
     no orquestrador, sem chamar o Luna."""
@@ -462,7 +471,13 @@ def decidir(saida: SaidaTurno, permitidas: Sequence[Acao], cobranca: Cobranca) -
     permitida = next((acao for acao in permitidas if acao.value == saida.acao), None)
     if permitida is None:
         return Veredito(None, None, (), False, f"acao_fora:{saida.acao}")
-    return Veredito(None, permitida, tuple(anexar(permitida, cobranca)), False, "acao")
+    return Veredito(
+        None,
+        permitida,
+        tuple(anexar(permitida, cobranca, tem_meio_vigente=tem_meio_vigente)),
+        False,
+        "acao",
+    )
 
 
 # O laço das tentativas
@@ -550,7 +565,12 @@ def resolver_turno(
         except ValueError:
             # Só o tipo do erro: a mensagem do pydantic traz o texto que o Luna escreveu.
             raise LLMTurnoIndisponivel("a saída do LLM não valida") from None
-        veredito = decidir(saida, entrada.permitidas, cobranca)
+        veredito = decidir(
+            saida,
+            entrada.permitidas,
+            cobranca,
+            tem_meio_vigente=entrada.meio_vigente is not None,
+        )
         resolucao.saida, resolucao.veredito = saida, veredito
         if veredito.motivo is not None or sem_efeito(veredito):
             resolucao.motivo = veredito.motivo

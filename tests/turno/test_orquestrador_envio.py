@@ -218,7 +218,10 @@ def test_o_reenvio_que_cai_fora_da_janela_espera_ela_abrir(sessao, ligada, polit
 def test_a_mensagem_do_cliente_que_chegou_na_espera_ainda_ganha_o_seu_turno(
     sessao, ligada, politica
 ):
-    deps = _deps_com(politica, ChatwootInstavel(antes={1}))
+    # O Pix do 1º turno já vale quando o 2º começa (a pendente o reenvia), então a 2ª resposta
+    # vai sem ele.
+    respostas = [_bruto(), _bruto(reply="Seu valor em aberto é {divida}.")]
+    deps = _deps_com(politica, ChatwootInstavel(antes={1}), respostas)
     _pergunta(sessao, ligada)
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
