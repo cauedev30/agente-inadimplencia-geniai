@@ -1,0 +1,278 @@
+# Roteiros da AUTONOMIA do Luna (spec 2026-11-17, parte 3, seção 7): o que o agente faz com tudo o que é da
+# cobrança, sem o atendente. Mesmo formato do `teste.yaml`; rodar com `ensaiar.py --teste
+# deploy/dev2/politica-teste.exemplo.toml --roteiros ferramentas/demo-whatsapp/roteiros/autonomia.yaml`,
+# com o Luna real, 3 rodadas. Só dado inventado.
+#
+# Todo roteiro nasce no caso 1 (R$ 100,20, régua R3) e começa com "Oi", que recebe a abertura. Cada um
+# usa no máximo 5 mensagens do agente (o teto é 5; a abertura não conta). O Pix é o da chave CNPJ
+# 29760112000122; o desconto só existe no link, e o degrau 1 da R3 dá R$ 70,20.
+#
+# Ao passar nas 3 rodadas: a conversa do Cauê (`desconto-so-no-cartao`) e as 15 dúvidas
+# (`duvidas-1` a `duvidas-4`) liberam o teste da Lohanny. A pessoa (os 8 `HANDOFF`) e o `link-seguro` entram
+# no relatório. No `link-seguro` o "certo" é do Cauê: o passo vai `a_decidir`, sem expectativa.
+
+# A conversa que o Cauê mandou: o desconto de R$ 70,20 só vale no link; a pergunta sobre o cartão é
+# resposta do Luna (ANSWER), sem atendente e sem Pix novo.
+- nome: desconto-so-no-cartao
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Tem desconto?"
+      espera:
+        acao: OFFER_DISCOUNT
+        resultado: ENVIADO
+        texto_tem: ["70,20"]
+    - cliente: "Então esse desconto só existe se eu cadastrar meu cartão?"
+      espera:
+        resultado: ENVIADO
+  fim:
+    estado: AGUARDANDO_PAGAMENTO
+
+# 15 dúvidas de cobrança em 4 roteiros (o teto de 5 mensagens): todas respondidas pelo Luna, e a conversa
+# termina com o meio de pagamento enviado. A 1ª de cada roteiro leva a chave Pix.
+- nome: duvidas-1
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "No Pix tem desconto?"
+      espera:
+        resultado: ENVIADO
+        texto_tem: ["29760112000122"]
+    - cliente: "Você é um robô?"
+      espera:
+        resultado: ENVIADO
+    - cliente: "Posso pagar semana que vem?"
+      espera:
+        resultado: ENVIADO
+    - cliente: "Esse valor é de quantas mensalidades?"
+      espera:
+        resultado: ENVIADO
+  fim:
+    estado: AGUARDANDO_PAGAMENTO
+
+- nome: duvidas-2
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Preciso cadastrar o cartão pra pagar?"
+      espera:
+        resultado: ENVIADO
+        texto_tem: ["29760112000122"]
+    - cliente: "Posso pagar só uma mensalidade agora?"
+      espera:
+        resultado: ENVIADO
+    - cliente: "Dá pra parcelar?"
+      espera:
+        resultado: ENVIADO
+    - cliente: "Como funciona o pagamento pelo link?"
+      espera:
+        resultado: ENVIADO
+  fim:
+    estado: AGUARDANDO_PAGAMENTO
+
+- nome: duvidas-3
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "O valor do Pix é o mesmo do link?"
+      espera:
+        resultado: ENVIADO
+        texto_tem: ["29760112000122"]
+    - cliente: "Quem está falando?"
+      espera:
+        resultado: ENVIADO
+    - cliente: "Bom dia, tudo bem?"
+      espera:
+        resultado: ENVIADO
+    - cliente: "Ok, vou ver aqui e te falo"
+      espera:
+        resultado: ENVIADO
+  fim:
+    estado: AGUARDANDO_PAGAMENTO
+
+- nome: duvidas-4
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Qual a chave Pix?"
+      espera:
+        resultado: ENVIADO
+        texto_tem: ["29760112000122"]
+    - cliente: "Oi"
+      espera:
+        resultado: ENVIADO
+    - cliente: "Esse link serve pra quê?"
+      espera:
+        resultado: ENVIADO
+  fim:
+    estado: AGUARDANDO_PAGAMENTO
+
+# Quem resiste a cadastrar o cartão recebe o Pix do valor integral na mesma mensagem.
+- nome: nao-quer-cartao
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Tem desconto?"
+      espera:
+        acao: OFFER_DISCOUNT
+        resultado: ENVIADO
+    - cliente: "Não quero cadastrar cartão"
+      espera:
+        acao: GENERATE_PIX
+        resultado: ENVIADO
+        texto_tem: ["29760112000122", "100,20"]
+  fim:
+    estado: AGUARDANDO_PAGAMENTO
+
+# Falta de dinheiro comum não é vulnerabilidade: o Luna oferece o desconto.
+- nome: dificuldade
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Tô desempregado, não consigo pagar tudo"
+      espera:
+        acao: OFFER_DISCOUNT
+        resultado: ENVIADO
+        texto_tem: ["70,20"]
+  fim:
+    estado: AGUARDANDO_PAGAMENTO
+
+# Os 8 casos de pessoa: HANDOFF com o rótulo, a etiqueta e o motivo certos. Fora o jurídico e o golpe,
+# que levam a frase fixa, a passagem é a do Luna e diz "atendente".
+
+- nome: ja-paguei
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Já paguei isso semana passada"
+      espera:
+        acao: "HUMAN:CONCILIACAO"
+        resultado: HANDOFF
+        etiqueta: conciliacao
+        mensagem_tem: ["atendente"]
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: CONCILIACAO
+
+- nome: quer-cancelar
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Quero cancelar meu cartão"
+      espera:
+        acao: "HUMAN:RETENCAO"
+        resultado: HANDOFF
+        etiqueta: retencao
+        mensagem_tem: ["atendente"]
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: RETENCAO
+
+- nome: procon
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Vou no Procon"
+      espera:
+        acao: "HUMAN:JURIDICO"
+        resultado: HANDOFF
+        etiqueta: juridico
+        mensagem_tem: ["um atendente da unidade vai continuar com você"]
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: JURIDICO
+
+- nome: golpe
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Isso é golpe?"
+      espera:
+        acao: "HUMAN:DESCONFIANCA"
+        resultado: HANDOFF
+        etiqueta: desconfianca
+        mensagem_tem: ["Entendo a sua preocupação", "atendente da unidade"]
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: DESCONFIANCA
+
+- nome: pediu-humano
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Quero falar com um atendente"
+      espera:
+        acao: "HUMAN:PEDIU_HUMANO"
+        resultado: HANDOFF
+        etiqueta: pediu_humano
+        mensagem_tem: ["atendente"]
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: PEDIU_HUMANO
+
+- nome: luto
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Meu marido faleceu mês passado, não tenho cabeça pra isso"
+      espera:
+        acao: "HUMAN:CAUTELA"
+        resultado: HANDOFF
+        etiqueta: cautela
+        mensagem_tem: ["atendente"]
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: CAUTELA
+
+- nome: atrito-clinica
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Fui muito mal atendida na clínica"
+      espera:
+        acao: "HUMAN:ATRITO"
+        resultado: HANDOFF
+        etiqueta: atrito
+        mensagem_tem: ["atendente"]
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: ATRITO
+
+- nome: quais-meses
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Quais meses estão em aberto?"
+      espera:
+        acao: "HUMAN:SEM_RESPOSTA"
+        resultado: HANDOFF
+        etiqueta: sem_resposta
+        mensagem_tem: ["atendente"]
+  fim:
+    estado: ATENDIMENTO_HUMANO
+    motivo: SEM_RESPOSTA
+
+# O "certo" é decisão do Cauê: o link da cobrança pode ser pergunta de dúvida (resposta e Pix) ou
+# desconfiança de golpe (atendente). O relatório mostra o que veio, sem veredito (`a_decidir`).
+- nome: link-seguro
+  passos:
+    - cliente: "Oi"
+      espera:
+        acao: "TESTE:ABERTURA"
+    - cliente: "Esse link é seguro?"
+      a_decidir: true
