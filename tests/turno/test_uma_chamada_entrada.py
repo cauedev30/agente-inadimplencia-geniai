@@ -357,15 +357,15 @@ def test_as_chaves_do_glossario_sao_as_dos_marcadores(conversa, politica):
     assert "R$" not in json.dumps(GLOSSARIO_MARCADORES, ensure_ascii=False)
 
 
-def test_a_politica_traz_as_dez_regras_e_o_recebedor_so_se_preenchido(conversa, politica):
-    assert len(POLITICA_COBRANCA) == 10
+def test_a_politica_traz_as_nove_regras_e_o_recebedor_so_se_preenchido(conversa, politica):
+    assert len(POLITICA_COBRANCA) == 9
     assert _entrada(conversa, politica).politica == POLITICA_COBRANCA
 
     com_recebedor = politica.model_copy(update={"pix_recebedor": "Recebedor Fictício"})
     regras = _entrada(conversa, com_recebedor).politica
-    assert regras[:10] == POLITICA_COBRANCA and len(regras) == 11
-    assert "recebedor" in regras[10].lower()
-    assert "Recebedor Fictício" not in regras[10]
+    assert regras[:9] == POLITICA_COBRANCA and len(regras) == 10
+    assert "recebedor" in regras[9].lower()
+    assert "Recebedor Fictício" not in regras[9]
 
 
 def test_a_politica_traz_as_regras_da_secao_8_da_spec():
@@ -373,7 +373,8 @@ def test_a_politica_traz_as_regras_da_secao_8_da_spec():
     # Promessa de pagamento: o cliente paga quando puder, pedindo o meio de novo; nada é registrado.
     assert "quando puder" in texto and "pedindo o pix ou o link de novo" in texto
     assert "não registra promessa" in texto and "prazo" in texto
-    assert "boleto" in texto and "conta de energia" in texto
+    # Boleto e conta de energia vão ao atendente pelos sinais (sem_resposta, quer_conta_energia).
+    assert "boleto" not in texto and "energia" not in texto
     assert "paga pix todo mês" in texto and "manualmente" in texto
     assert "corte" in texto and "cancelamento" in texto and "atraso" in texto
 
@@ -465,7 +466,8 @@ def test_o_none_e_so_cortesia_e_na_duvida_e_answer():
 
 def test_os_criterios_das_acoes_dizem_a_regra_da_spec():
     assert "primeira apresentação da dívida" in CRITERIOS_DA_ACAO[Acao.INFORM_DEBT]
-    assert "ANSWER" in CRITERIOS_DA_ACAO[Acao.INFORM_DEBT]
+    # Depois da 1ª apresentação, a pergunta sobre valor é ANSWER: a regra mora só no critério dela.
+    assert "depois de a dívida já ter sido informada" in CRITERIOS_DA_ACAO[Acao.ANSWER]
     assert "desempregado" in CRITERIOS_DA_ACAO[Acao.OFFER_DISCOUNT]
     assert "não quer ou não pode usar o cartão" in CRITERIOS_DA_ACAO[Acao.GENERATE_PIX]
 

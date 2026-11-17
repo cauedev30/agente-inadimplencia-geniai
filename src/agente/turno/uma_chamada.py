@@ -69,7 +69,6 @@ POLITICA_COBRANCA: tuple[str, ...] = (
     "desconto.",
     "O cliente pode pagar quando puder, pedindo o Pix ou o link de novo nesta conversa; você não "
     "registra promessa de pagamento nem segura prazo ou desconto.",
-    "Boleto e conta de energia não são feitos por aqui.",
     "Com o cartão cadastrado, quem paga Pix todo mês não precisa mais pagar manualmente.",
     "Não fale de corte, cancelamento nem de qualquer consequência do atraso.",
 )

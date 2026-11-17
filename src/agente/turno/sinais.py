@@ -14,7 +14,7 @@ from agente.turno.catalogo import TEXTO_DO_PIX
 # O que cada sinal quer dizer, como o prompt o descreve ao Luna.
 SINAIS_DO_PROMPT: dict[str, str] = {
     "quer_retencao": "quer cancelar, encerrar a relação ou ameaça sair",
-    "risco_juridico": "cita Procon, advogado, processo, ação",
+    "risco_juridico": "cita Procon ou advogado, ou ameaça processar, abrir processo ou ação",
     "alega_pagamento": "afirma que já pagou",
     "contesta_divida": (
         "afirma que não deve essa dívida, que não é a pessoa cobrada ou que não reconhece o "
@@ -65,8 +65,7 @@ CRITERIOS_DA_ACAO = {
         "a primeira apresentação da dívida: o cliente pergunta quanto deve, não entendeu o valor, "
         "pergunta como pagar, pede parcelamento (a dívida é à vista), diz que quer pagar, sem "
         "escolher Pix nem cartão, ou só cumprimenta (bom dia, oi, olá) antes de a dívida ser "
-        "informada; depois dela, pergunta sobre valor ou condição é ANSWER; o sistema junta a "
-        "forma de pagamento"
+        "informada; o sistema junta a forma de pagamento"
     ),
     Acao.OFFER_DISCOUNT: (
         "o cliente acha caro, pede desconto ou um valor melhor, ou diz que não consegue pagar "
@@ -110,13 +109,12 @@ DESCRICAO_ACOES = {
         "o valor integral e que o desconto só vale pelo link"
     ),
     "ANSWER": (
-        "responder em uma ou duas frases com as regras da politica e terminar no próximo passo "
-        "para pagar; se o sistema anexar o Pix ou o link, incluí-lo"
+        "responder em uma ou duas frases com as regras da politica; se o sistema anexar o Pix ou "
+        "o link, incluí-lo"
     ),
     "OUT_OF_SCOPE": (
         "dizer em uma frase que este canal trata só da mensalidade em aberto (não afirme nada "
-        "sobre o assunto perguntado) e terminar no pagamento; se o sistema anexar o Pix ou o "
-        "link, incluí-lo"
+        "sobre o assunto perguntado); se o sistema anexar o Pix ou o link, incluí-lo"
     ),
 }
 
