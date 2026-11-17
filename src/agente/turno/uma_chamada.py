@@ -45,10 +45,11 @@ ORIGEM_UMA_CHAMADA = "luna:uma-chamada"
 # Os tons que o Luna pode devolver; o `cordial` não entra, porque vale `neutro`.
 TONS_UMA_CHAMADA = ("neutro", "impaciente", "irritado", "hostil")
 
-# Os sinais que levam ao humano, na ordem do `GATILHOS` (a ordem em que vencem), e os dois que o
-# turno novo acrescenta: o pedido explícito de humano e o terceiro (D47).
+# Os sinais que levam ao humano, na ordem do `GATILHOS` (a ordem em que vencem), e os três que o
+# turno novo acrescenta: o pedido explícito de humano, o terceiro (D47) e o que a cobrança não
+# responde (`sem_resposta`).
 SINAIS_DE_SAIDA: tuple[str, ...] = tuple(GATILHOS.values())
-SINAIS: tuple[str, ...] = (*SINAIS_DE_SAIDA, "quer_humano", "terceiro")
+SINAIS: tuple[str, ...] = (*SINAIS_DE_SAIDA, "quer_humano", "terceiro", "sem_resposta")
 
 # O link de mentira da prévia: nunca chega ao cliente, só serve para conferir o texto.
 LINK_DE_PREVIA = "https://previa.invalid/link"
@@ -357,6 +358,7 @@ class SaidaTurno(BaseModel):
     quer_conta_energia: StrictBool
     quer_humano: StrictBool
     terceiro: StrictBool
+    sem_resposta: StrictBool
     tom: Literal["neutro", "impaciente", "irritado", "hostil"]
     acao: StrictStr
     reply: Annotated[StrictStr, Field(max_length=1000)]
@@ -418,6 +420,7 @@ def palavra_chave(textos: Sequence[str]) -> tuple[MotivoHumano, str] | None:
 MOTIVO_DO_SINAL: dict[str, MotivoHumano] = {
     **{sinal: motivo for motivo, sinal in GATILHOS.items()},
     "quer_humano": MotivoHumano.PEDIU_HUMANO,
+    "sem_resposta": MotivoHumano.SEM_RESPOSTA,
 }
 
 _TONS_DE_SAIDA = ("irritado", "hostil")
@@ -457,9 +460,9 @@ def decidir(
     *,
     tem_meio_vigente: bool,
 ) -> Veredito:
-    """A primeira regra que bate vence: o sinal de saída, o tom, o pedido de humano, o terceiro, a
-    ação fora das permitidas e, por fim, a ação com os anexos da D37. A palavra-chave vem antes,
-    no orquestrador, sem chamar o Luna."""
+    """A primeira regra que bate vence: o sinal de saída, o tom, o pedido de humano, o terceiro, o
+    que a cobrança não responde (`sem_resposta`), a ação fora das permitidas e, por fim, a ação com
+    os anexos da D37. A palavra-chave vem antes, no orquestrador, sem chamar o Luna."""
     for sinal in SINAIS_DE_SAIDA:
         if getattr(saida, sinal):
             return Veredito(MOTIVO_DO_SINAL[sinal], None, (), False, f"sinal:{sinal}")
@@ -469,6 +472,8 @@ def decidir(
         return Veredito(MotivoHumano.PEDIU_HUMANO, None, (), False, "sinal:quer_humano")
     if saida.terceiro:
         return Veredito(None, None, (), True, "sinal:terceiro")
+    if saida.sem_resposta:
+        return Veredito(MotivoHumano.SEM_RESPOSTA, None, (), False, "sinal:sem_resposta")
     permitida = next((acao for acao in permitidas if acao.value == saida.acao), None)
     if permitida is None:
         return Veredito(None, None, (), False, f"acao_fora:{saida.acao}")

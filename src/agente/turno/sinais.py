@@ -25,13 +25,20 @@ SINAIS_DO_PROMPT: dict[str, str] = {
         "desconfia que a cobrança é golpe ou pede prova de que a mensagem é mesmo do "
         "Cartão de Todos"
     ),
-    "vulnerabilidade": "desemprego, doença, luto, dificuldade",
+    "vulnerabilidade": (
+        "situação grave: doença séria, luto, acidente ou crise; a falta de dinheiro comum "
+        "(desemprego, mês apertado) não é este sinal"
+    ),
     "atrito_clinica": "reclama da clínica ou do atendimento da rede",
     "quer_conta_energia": "quer pagar na conta de energia (Energisa)",
     "quer_humano": (
         "pede para falar com uma pessoa, um atendente ou a equipe, ou recusa falar com um robô"
     ),
     "terceiro": "quem escreve não é o devedor",
+    "sem_resposta": (
+        "pede algo da cobrança que as regras da politica e as ações não cobrem (quais meses estão "
+        "em aberto, vencimento, boleto, prorrogação)"
+    ),
 }
 
 # Os gatilhos de saída, na ordem em que vencem; o tom vem depois, na decisão do turno.

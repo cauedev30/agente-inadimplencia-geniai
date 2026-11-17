@@ -62,8 +62,8 @@ def test_as_constantes_acompanham_os_gatilhos():
     assert ORIGEM_UMA_CHAMADA == "luna:uma-chamada"
     assert TONS_UMA_CHAMADA == ("neutro", "impaciente", "irritado", "hostil")
     assert SINAIS_DE_SAIDA == tuple(GATILHOS.values())
-    assert SINAIS == (*SINAIS_DE_SAIDA, "quer_humano", "terceiro")
-    assert len(SINAIS) == 10
+    assert SINAIS == (*SINAIS_DE_SAIDA, "quer_humano", "terceiro", "sem_resposta")
+    assert len(SINAIS) == 11
 
 
 # acoes_permitidas

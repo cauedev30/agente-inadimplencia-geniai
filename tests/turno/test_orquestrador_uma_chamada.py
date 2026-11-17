@@ -183,7 +183,7 @@ def test_os_laudos_vao_em_jev1_e_jev2_com_a_origem_do_turno_novo(sessao, ligada,
 
     jev1 = _laudos(sessao, BatchJev.JEV1)
     assert [laudo.pergunta for laudo in jev1] == [*SINAIS, "tom"]
-    assert len(jev1) == 11
+    assert len(jev1) == 12
     assert {laudo.origem for laudo in _laudos(sessao, BatchJev.JEV2) + jev1} == {ORIGEM_UMA_CHAMADA}
     assert next(laudo for laudo in jev1 if laudo.pergunta == "tom").valor == "impaciente"
     assert (jev1[0].probabilidade, jev1[0].confianca) == (1.0, 1.0)
@@ -216,6 +216,28 @@ def test_o_sinal_que_levou_ao_humano_e_o_laudo_da_transicao_e_da_nota(
     assert (causa.batch, causa.pergunta, causa.valor) == (BatchJev.JEV1, "contesta_divida", True)
     nota = next(c[2] for c in deps.chatwoot.chamadas if c[0] == "nota_privada")
     assert "CONTESTACAO" in nota and "contesta_divida" in nota
+
+
+def test_o_sem_resposta_vai_ao_atendente_com_a_etiqueta_e_o_laudo_da_causa(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica, [_bruto(acao="ANSWER", sem_resposta=True, reply="")])
+
+    assert cliente("quais meses estão em aberto?", deps) is ResultadoTurno.HANDOFF
+
+    assert ligada.motivo_humano is MotivoHumano.SEM_RESPOSTA
+    assert ligada.estado is EstadoConversa.ATENDIMENTO_HUMANO
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+    assert next(c[2] for c in deps.chatwoot.chamadas if c[0] == "etiquetar") == ["sem_resposta"]
+    turno = _turno(sessao)
+    assert turno.acao_principal == "HUMAN:SEM_RESPOSTA"
+    assert (turno.redacao["saida"], turno.redacao["causa"]) == ("HANDOFF", "sinal:sem_resposta")
+    transicao = sessao.scalars(select(Transicao).order_by(Transicao.id.desc())).first()
+    causa = sessao.get(LaudoGravado, transicao.laudo_id)
+    assert (causa.batch, causa.pergunta, causa.valor) == (BatchJev.JEV1, "sem_resposta", True)
+    nota = next(c[2] for c in deps.chatwoot.chamadas if c[0] == "nota_privada")
+    assert "SEM_RESPOSTA" in nota and "sem_resposta" in nota
+    assert deps.pix.cobrancas == {} and sessao.scalars(select(Pagamento)).all() == []
 
 
 # Quem quer pagar, paga

@@ -165,6 +165,23 @@ def test_o_esquema_sem_degrau_nao_tem_o_desconto_e_e_estrito(conversa, politica)
     assert set(esquema["properties"]) == set(SaidaTurno.model_fields)
 
 
+def test_o_esquema_traz_o_sem_resposta_como_booleano_obrigatorio(conversa, politica):
+    esquema = esquema_da_saida(acoes_permitidas(conversa, conversa.cobranca, politica))
+
+    assert esquema["properties"]["sem_resposta"] == {"type": "boolean"}
+    assert "sem_resposta" in esquema["required"]
+
+
+def test_o_sem_resposta_volta_com_o_motivo_sem_nova_tentativa(conversa, politica):
+    resolucao, llm, previa = _resolver(
+        conversa, politica, [_bruto(acao="ANSWER", sem_resposta=True, reply="")]
+    )
+
+    assert resolucao.motivo is MotivoHumano.SEM_RESPOSTA
+    assert resolucao.reply is None and resolucao.veredito.causa == "sinal:sem_resposta"
+    assert len(llm.pedidos) == 1 and previa.chamadas == []
+
+
 def test_llm_fora_sem_guarda_levanta_para_as_tentativas_com_espera(conversa, politica):
     with pytest.raises(LLMTurnoIndisponivel, match="o LLM respondeu 500"):
         _resolver(conversa, politica, [LLMTurnoIndisponivel("o LLM respondeu 500")])

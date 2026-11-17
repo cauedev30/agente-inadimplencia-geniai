@@ -23,6 +23,7 @@ PERMITIDAS = (
     Acao.OFFER_DISCOUNT,
     Acao.SEND_CTN_LINK,
     Acao.GENERATE_PIX,
+    Acao.ANSWER,
     Acao.OUT_OF_SCOPE,
     Acao.NONE,
 )
@@ -55,6 +56,7 @@ def test_as_constantes_e_o_inverso_do_gatilhos():
     assert MOTIVO_DO_SINAL == {
         **{sinal: motivo for motivo, sinal in GATILHOS.items()},
         "quer_humano": MotivoHumano.PEDIU_HUMANO,
+        "sem_resposta": MotivoHumano.SEM_RESPOSTA,
     }
     assert MotivoHumano.PEDIU_HUMANO.value == "PEDIU_HUMANO"
 
@@ -195,6 +197,32 @@ def test_o_sinal_vence_o_tom_e_o_tom_vence_o_quer_humano(conversa):
 def test_o_quer_humano_leva_ao_pediu_humano(conversa):
     veredito = _decidir(conversa.cobranca, quer_humano=True, terceiro=True)
     assert veredito == Veredito(MotivoHumano.PEDIU_HUMANO, None, (), False, "sinal:quer_humano")
+
+
+def test_o_sem_resposta_leva_ao_motivo_sem_resposta(conversa):
+    veredito = _decidir(conversa.cobranca, sem_resposta=True, acao="ANSWER")
+    assert veredito == Veredito(MotivoHumano.SEM_RESPOSTA, None, (), False, "sinal:sem_resposta")
+
+
+def test_o_sem_resposta_nao_e_sinal_de_saida_e_vem_depois_do_terceiro(conversa):
+    assert "sem_resposta" not in SINAIS_DE_SAIDA
+    veredito = _decidir(conversa.cobranca, sem_resposta=True, terceiro=True)
+    assert veredito == Veredito(None, None, (), True, "sinal:terceiro")
+
+
+def test_o_sinal_de_saida_o_tom_e_o_quer_humano_vencem_o_sem_resposta(conversa):
+    cobranca = conversa.cobranca
+    saida = _decidir(cobranca, sem_resposta=True, alega_pagamento=True)
+    assert saida.motivo is MotivoHumano.CONCILIACAO
+    tom = _decidir(cobranca, sem_resposta=True, tom="irritado")
+    assert (tom.motivo, tom.causa) == (MotivoHumano.TOM, "tom:irritado")
+    humano = _decidir(cobranca, sem_resposta=True, quer_humano=True)
+    assert humano.motivo is MotivoHumano.PEDIU_HUMANO
+
+
+def test_o_sem_resposta_vence_a_acao_fora_das_permitidas(conversa):
+    veredito = _decidir(conversa.cobranca, SEM_DESCONTO, sem_resposta=True, acao="OFFER_DISCOUNT")
+    assert veredito.causa == "sinal:sem_resposta"
 
 
 def test_impaciente_nao_sai(conversa):
