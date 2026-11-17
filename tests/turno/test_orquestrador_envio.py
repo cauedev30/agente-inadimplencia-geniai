@@ -16,6 +16,8 @@ from agente.integracoes.chatwoot import ChatwootFalso
 from agente.tipos import (
     EstadoConversa,
     EstadoEnvio,
+    FormaPagamento,
+    Modo,
     MotivoHumano,
     OrigemMensagem,
     ResultadoTurno,
@@ -23,7 +25,7 @@ from agente.tipos import (
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.entrega import entregue
 from agente.turno.handoff import devolver_ao_robo
-from agente.turno.orquestrador import processar_turno
+from agente.turno.orquestrador import _descartar, processar_turno
 
 from .auxiliares import _bruto, _deps
 from .test_orquestrador_falhas import PixFora
@@ -539,3 +541,29 @@ def test_a_chave_descartada_nao_conta_como_meio_enviado_quando_o_robo_reassume(
     assert pix.br_code in deps.chatwoot.enviadas(555)[-1]
     assert len(sessao.scalars(select(Pagamento)).all()) == 1
     assert len(deps.pix.cobrancas) == 1
+
+
+def test_descartar_mensagem_sem_meio_nao_apaga_o_meio_que_ja_saiu(sessao, ligada, politica):
+    deps = _deps_com(politica, ChatwootInstavel(antes=set()), [_bruto()])
+    _pergunta(sessao, ligada)
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.ENVIADO
+    assert ligada.forma_enviada is FormaPagamento.PIX
+    # Uma mensagem do agente sem Pix nem link, gerada por um turno sem `forma`, fica pendente.
+    sem_meio = registrar_mensagem(
+        sessao, ligada.id, OrigemMensagem.AGENTE, "sem meio", None, True, SEGUNDA_10H
+    )
+    sessao.add(
+        Turno(
+            conversa_id=ligada.id,
+            modo=Modo.ATIVO,
+            resultado=ResultadoTurno.ENVIADO,
+            texto_enviado="sem meio",
+            numeros={"acoes": ["ANSWER"]},
+            redacao={},
+        )
+    )
+    sessao.flush()
+
+    _descartar(sessao, sem_meio)
+
+    assert ligada.forma_enviada is FormaPagamento.PIX

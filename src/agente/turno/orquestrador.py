@@ -379,8 +379,6 @@ def _descartar(sessao: Session, mensagem: Mensagem) -> None:
     """
     mensagem.envio = EstadoEnvio.DESCARTADA
     mensagem.conta_no_teto = False
-    # A chave que ia nela nunca saiu: sem isso o `meio_vigente` a daria como enviada.
-    mensagem.conversa.forma_enviada = None
     turno = sessao.scalars(
         select(Turno)
         .where(
@@ -392,6 +390,10 @@ def _descartar(sessao: Session, mensagem: Mensagem) -> None:
         .order_by(Turno.id.desc())
     ).first()
     if turno is not None:
+        if "forma" in turno.numeros:
+            # O Pix ou o link que ia nela nunca saiu: sem isso o `meio_vigente` o daria como
+            # enviado. Descartar uma mensagem sem meio não apaga o meio que já saiu antes.
+            mensagem.conversa.forma_enviada = None
         turno.resultado = ResultadoTurno.DESCARTADO
         turno.texto_enviado = None
         turno.redacao = {**turno.redacao, "envio": EstadoEnvio.DESCARTADA.value}
