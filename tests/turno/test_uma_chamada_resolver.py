@@ -8,6 +8,7 @@ from agente.db.modelos import Pagamento
 from agente.integracoes.llm_turno import LLMTurnoFalso, LLMTurnoIndisponivel
 from agente.tipos import FormaPagamento, MotivoHumano, StatusPagamento
 from agente.turno.acoes import Acao
+from agente.turno.catalogo import MOTIVOS_DE_FRASE_FIXA
 from agente.turno.uma_chamada import (
     SINAIS,
     TENTATIVAS_UMA_CHAMADA,
@@ -15,6 +16,7 @@ from agente.turno.uma_chamada import (
     SaidaTurno,
     TentativaUmaChamada,
     acoes_permitidas,
+    conferir_passagem,
     esquema_da_saida,
     montar_entrada,
     previa_numeros,
@@ -278,3 +280,91 @@ def test_alega_pagamento_com_reply_nulo_vai_a_conciliacao_sem_falhar(conversa, p
     assert resolucao.motivo is MotivoHumano.CONCILIACAO
     assert resolucao.veredito.causa == "sinal:alega_pagamento"
     assert len(llm.pedidos) == 1
+
+
+# A passagem ao atendente: o `reply` do Luna quando um sinal ou o tom manda ao humano
+
+PASSAGEM = "Entendi, Ana. Um atendente da unidade vai continuar com você aqui, nesta conversa."
+
+
+def test_os_motivos_de_frase_fixa_sao_o_juridico_e_a_desconfianca():
+    assert MOTIVOS_DE_FRASE_FIXA == {MotivoHumano.JURIDICO, MotivoHumano.DESCONFIANCA}
+
+
+def test_passagem_valida_fica_na_resolucao_em_uma_chamada(conversa, politica):
+    resolucao, llm, previa = _resolver(
+        conversa, politica, [_bruto(alega_pagamento=True, acao="NONE", reply=PASSAGEM)]
+    )
+
+    assert resolucao.motivo is MotivoHumano.CONCILIACAO
+    assert resolucao.passagem == PASSAGEM
+    assert resolucao.reply is None
+    assert resolucao.tentativas == [TentativaUmaChamada("NONE", PASSAGEM, ())]
+    assert len(llm.pedidos) == 1 and previa.chamadas == []
+    assert resolucao.como_dict("HANDOFF")["passagem"] == "LLM"
+
+
+@pytest.mark.parametrize(
+    ("reply", "motivo"),
+    [
+        ("Um atendente confere os 100 reais com você.", "valor_em_digitos"),
+        ("Um atendente confere o R$ com você.", "valor_em_digitos"),
+        ("Um atendente confere os cem reais com você.", "valor_por_extenso"),
+        ("Um atendente ajuda em https://ctn.invalid/x", "link_nao_autorizado"),
+        ("Um atendente confere {divida} com você.", "marcador_na_passagem"),
+        ("Em instantes continuamos por aqui.", "sem_atendente"),
+        ("", "texto_vazio"),
+        ("  \n", "texto_vazio"),
+    ],
+)
+def test_passagem_reprovada_cai_na_fixa_sem_segunda_chamada(conversa, politica, reply, motivo):
+    resolucao, llm, _ = _resolver(
+        conversa, politica, [_bruto(quer_humano=True, acao="NONE", reply=reply), _bruto()]
+    )
+
+    assert resolucao.motivo is MotivoHumano.PEDIU_HUMANO
+    assert resolucao.passagem is None
+    assert len(llm.pedidos) == 1
+    assert motivo in resolucao.tentativas[0].reprovadas
+    assert resolucao.como_dict("HANDOFF")["passagem"] == "FIXA"
+
+
+@pytest.mark.parametrize(
+    ("texto", "reprovadas"),
+    [
+        (PASSAGEM, []),
+        ("Atendente da unidade continua com você.", []),
+        ("UM ATENDENTE VAI CONTINUAR", []),
+        ("Um atendente vai te ajudar com o pagamento de março.", []),
+        ("Um atendente confere os 100 reais.", ["valor_em_digitos"]),
+        ("", ["texto_vazio"]),
+        ("Um atendente confere {divida}.", ["marcador_na_passagem"]),
+        ("Um atendente confere { isso.", ["marcador_malformado", "marcador_na_passagem"]),
+        ("Vamos continuar daqui.", ["sem_atendente"]),
+    ],
+)
+def test_conferir_passagem(texto, reprovadas):
+    assert conferir_passagem(texto) == reprovadas
+
+
+@pytest.mark.parametrize(
+    ("sinal", "motivo"),
+    [("risco_juridico", MotivoHumano.JURIDICO), ("desconfia_golpe", MotivoHumano.DESCONFIANCA)],
+)
+def test_juridico_e_golpe_ficam_sem_passagem_mesmo_com_texto_valido(
+    conversa, politica, sinal, motivo
+):
+    resolucao, llm, _ = _resolver(
+        conversa, politica, [_bruto(**{sinal: True}, acao="NONE", reply=PASSAGEM)]
+    )
+
+    assert resolucao.motivo is motivo
+    assert resolucao.passagem is None
+    assert len(llm.pedidos) == 1
+    assert resolucao.como_dict("HANDOFF")["passagem"] == "FIXA"
+
+
+def test_sem_motivo_o_como_dict_nao_traz_a_passagem(conversa, politica):
+    resolucao, _, _ = _resolver(conversa, politica, [_bruto()])
+
+    assert "passagem" not in resolucao.como_dict("LLM")

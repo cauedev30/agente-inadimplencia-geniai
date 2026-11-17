@@ -23,12 +23,14 @@ from agente.integracoes.llm_turno import LLMTurno, LLMTurnoIndisponivel
 from agente.politica import Politica
 from agente.tipos import FormaPagamento, Laudo, MotivoHumano
 from agente.turno.acoes import Acao, anexar
+from agente.turno.catalogo import MOTIVOS_DE_FRASE_FIXA
 from agente.turno.executar import Numeros, meio_vigente
 from agente.turno.redacao import (
     RedacaoInvalida,
     _sem_acento,
     interpolar,
     marcadores_do_turno,
+    motivos_do_texto,
 )
 from agente.turno.sinais import (
     CRITERIOS_DA_ACAO,
@@ -506,6 +508,9 @@ class ResolucaoTurno:
     # O texto com os marcadores, já aprovado na prévia; None fora das ações de cobrança.
     reply: str | None = None
     motivo: MotivoHumano | None = None
+    # O `reply` do Luna como passagem ao atendente, aprovado: sai no lugar da frase fixa do handoff.
+    # None: a frase fixa (jurídico, golpe, palavra-chave, ou passagem reprovada).
+    passagem: str | None = None
     tentativas: list[TentativaUmaChamada] = field(default_factory=list)
 
     def como_dict(self, saida: str) -> dict:
@@ -520,6 +525,8 @@ class ResolucaoTurno:
         }
         if self.veredito is not None:
             dados["causa"] = self.veredito.causa
+        if self.motivo is not None:
+            dados["passagem"] = "LLM" if self.passagem else "FIXA"
         return dados
 
 
@@ -539,6 +546,22 @@ def _conferir_texto(
     return []
 
 
+def conferir_passagem(texto: str) -> list[str]:
+    """Os motivos de reprovar a passagem ao atendente; vazio, se passou.
+
+    A passagem não leva número, link nem marcador (quem assume é a pessoa) e precisa dizer que um
+    atendente continua a conversa.
+    """
+    if not texto.strip():
+        return ["texto_vazio"]
+    motivos = motivos_do_texto(texto)
+    if "{" in texto or "}" in texto:
+        motivos.append("marcador_na_passagem")
+    if "atendente" not in _sem_acento(texto).lower():
+        motivos.append("sem_atendente")
+    return motivos
+
+
 def resolver_turno(
     llm: LLMTurno,
     entrada: EntradaTurno,
@@ -550,6 +573,10 @@ def resolver_turno(
     Não toca no banco: a prévia vem de quem chama. A cada tentativa a decisão roda do começo, então
     um sinal que só aparece na 2ª também leva ao humano. O `NONE`, o `OUT_OF_SCOPE` e o terceiro
     voltam sem conferir o texto, que não é usado. Só o texto reprovado ganha nova tentativa.
+
+    Com motivo de atendente, o `reply` é a passagem: aprovada em `conferir_passagem`, vai em
+    `resolucao.passagem`; reprovada, o motivo fica na tentativa e o handoff sai com a frase fixa,
+    sem 2ª chamada. O jurídico e o golpe nunca levam passagem.
 
     O Luna fora do ar, a saída que não valida e a ação fora das permitidas levantam
     `LLMTurnoIndisponivel`: com o esquema estrito, a saída fora do formato é defeito da integração,
@@ -574,7 +601,14 @@ def resolver_turno(
         resolucao.saida, resolucao.veredito = saida, veredito
         if veredito.motivo is not None or sem_efeito(veredito):
             resolucao.motivo = veredito.motivo
-            resolucao.tentativas.append(TentativaUmaChamada(saida.acao, saida.reply, ()))
+            reprovadas_da_passagem: list[str] = []
+            if veredito.motivo is not None and veredito.motivo not in MOTIVOS_DE_FRASE_FIXA:
+                reprovadas_da_passagem = conferir_passagem(saida.reply)
+                if not reprovadas_da_passagem:
+                    resolucao.passagem = saida.reply
+            resolucao.tentativas.append(
+                TentativaUmaChamada(saida.acao, saida.reply, tuple(reprovadas_da_passagem))
+            )
             return resolucao
         if veredito.acao is None:
             # Sem o valor: é texto que o Luna escreveu, e a mensagem vai ao log.

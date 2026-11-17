@@ -18,6 +18,19 @@ TEXTO_CANAL_EXTERNO = (
     "nesta conversa."
 )
 
+# A frase da foto ou do arquivo sem texto: o Luna não lê imagem, então ela é fixa, e leva o aviso de
+# que um atendente confere.
+TEXTO_ARQUIVO_RECEBIDO = (
+    "Recebi o seu arquivo. Um atendente da unidade vai conferir e continuar com você aqui mesmo, "
+    "nesta conversa."
+)
+
+# Os motivos em que o cliente recebe sempre a frase fixa, mesmo que o Luna escreva uma passagem: o
+# jurídico e o golpe não ganham texto livre.
+MOTIVOS_DE_FRASE_FIXA: frozenset[MotivoHumano] = frozenset(
+    {MotivoHumano.JURIDICO, MotivoHumano.DESCONFIANCA}
+)
+
 
 # A tabela de políticas: o que o agente faz em cada situação fora do caminho do pagamento. Uma
 # linha nova muda só a saída; detectar a situação continua sendo trabalho de um sinal, gate ou ação.
@@ -33,9 +46,10 @@ class Frase:
 
 @dataclass(frozen=True)
 class Atendente:
-    """A saída é o atendente, com este motivo, e a frase fixa do handoff."""
+    """A saída é o atendente, com este motivo, e a frase fixa do handoff, ou a `frase` própria."""
 
     motivo: MotivoHumano
+    frase: str | None = None
 
 
 class Situacao(StrEnum):
@@ -52,7 +66,7 @@ POLITICAS: dict[Situacao, Frase | Atendente] = {
     # O Luna não tem o que mandar e a mensagem não é cortesia: o cliente não fica sem resposta.
     Situacao.SEM_RESPOSTA: Atendente(MotivoHumano.SEM_RESPOSTA),
     # O Luna não lê imagem; foto ou arquivo sem texto em geral é comprovante: alguém confere.
-    Situacao.FOTO_SEM_TEXTO: Atendente(MotivoHumano.CONCILIACAO),
+    Situacao.FOTO_SEM_TEXTO: Atendente(MotivoHumano.CONCILIACAO, TEXTO_ARQUIVO_RECEBIDO),
     # O agente só trata da mensalidade: o resto ganha uma frase pronta, sem o Luna afirmar nada.
     Situacao.FORA_DO_ASSUNTO: Frase(
         "Esse assunto não é tratado por aqui. Esta conversa é sobre a sua mensalidade em aberto."
