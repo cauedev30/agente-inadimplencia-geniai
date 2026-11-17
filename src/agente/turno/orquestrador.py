@@ -467,24 +467,39 @@ def _cobranca_fechou_no_meio(sessao: Session, conversa: Conversa) -> bool:
 def _avaliacao_uma_chamada(resolucao: ResolucaoTurno) -> Avaliacao:
     """A avaliação do turno, para o `_fechar`.
 
-    A ação só entra quando o turno passou com ela. O terceiro e o que não passou ficam sem ação, e o
-    rótulo vai explícito (`_rotulo_uma_chamada`).
+    A ação só entra quando o turno passou com ela, e sem os anexos quando não há texto (a frase
+    pronta do fora do assunto não leva Pix nem link). O terceiro e o que não passou ficam sem ação,
+    e o rótulo vai explícito (`_rotulo_uma_chamada`).
     """
     if resolucao.motivo is not None:
         return Avaliacao(None, [], resolucao.motivo)
     veredito = resolucao.veredito
     if _passou(resolucao) and not veredito.terceiro:
-        return Avaliacao(veredito.acao, list(veredito.anexos), None)
+        anexos = list(veredito.anexos) if resolucao.reply is not None else []
+        return Avaliacao(veredito.acao, anexos, None)
     return Avaliacao(None, [], None)
 
 
+def _fora_do_assunto_sem_texto(resolucao: ResolucaoTurno) -> bool:
+    """O `OUT_OF_SCOPE` cujo texto não passou nas 2 tentativas: sai a frase pronta."""
+    veredito = resolucao.veredito
+    return (
+        resolucao.motivo is None
+        and resolucao.reply is None
+        and veredito is not None
+        and veredito.acao is Acao.OUT_OF_SCOPE
+    )
+
+
 def _passou(resolucao: ResolucaoTurno) -> bool:
-    """O turno tem o que fazer: um texto aprovado, ou a saída da tabela de políticas (o `NONE`,
-    o `OUT_OF_SCOPE` e o terceiro, cujo texto não é usado)."""
+    """O turno tem o que fazer: um texto aprovado, ou a saída da tabela de políticas (o `NONE`, o
+    terceiro e o fora do assunto sem texto aprovado)."""
     veredito = resolucao.veredito
     if veredito is None:
         return False
-    return resolucao.reply is not None or sem_efeito(veredito)
+    return (
+        resolucao.reply is not None or sem_efeito(veredito) or _fora_do_assunto_sem_texto(resolucao)
+    )
 
 
 def _rotulo_uma_chamada(resolucao: ResolucaoTurno) -> str:
@@ -573,15 +588,46 @@ def _nada_passou(
     )
 
 
+def _enviar_frase_pronta(
+    sessao: Session,
+    conversa: Conversa,
+    turno: Turno,
+    situacao: Situacao,
+    avaliacao: Avaliacao,
+    resolucao: ResolucaoTurno,
+    laudo_da_acao: int | None,
+    rotulo: str,
+    agora: datetime,
+) -> ResultadoTurno:
+    """A frase pronta da tabela de políticas (o terceiro, o fora do assunto sem texto aprovado):
+    o Luna não redige, nada é executado e o turno fecha como enviado."""
+    texto = _frase_da_politica(situacao)
+    _gravar_envio(sessao, conversa, texto, agora)
+    destino = proximo_estado(conversa.estado, None, False)
+    _mudar_estado(sessao, conversa, destino, laudo_da_acao, agora)
+    return _fechar(
+        sessao,
+        turno,
+        ResultadoTurno.ENVIADO,
+        avaliacao,
+        {},
+        agora,
+        texto_enviado=texto,
+        redacao=resolucao.como_dict("FRASE_FIXA"),
+        rotulo=rotulo,
+    )
+
+
 def _seguir(
     sessao: Session, conversa: Conversa, turno: Turno, deps: Dependencias, agora: datetime
 ) -> ResultadoTurno:
     """O turno de uma chamada ao Luna: o LLM lê, decide e redige; o backend executa e envia.
 
     A ordem: a palavra-chave (o atendente, sem o Luna), os laudos, a releitura da cobrança, o
-    humano, a frase pronta do fora do assunto e do terceiro, o `NONE` (silêncio só na cortesia) e
-    o savepoint da ação, que só vale se o texto aprovado sair. O texto já foi aprovado numa prévia
-    (`resolver_turno`), então a ação só roda depois dele. O estado nunca vai a `EM_RISCO`.
+    humano, a frase pronta do terceiro e do fora do assunto sem texto aprovado, o `NONE` (silêncio
+    só na cortesia) e o savepoint da ação, que só vale se o texto aprovado sair. O texto já foi
+    aprovado numa prévia (`resolver_turno`), então a ação só roda depois dele. O estado nunca vai a
+    `EM_RISCO`.
     """
     cobranca = conversa.cobranca
     historico, novas = _historico_e_novas(sessao, conversa.id, turno.mensagens_ids)
@@ -636,23 +682,12 @@ def _seguir(
         return _nada_passou(sessao, conversa, turno, avaliacao, resolucao, rotulo, deps, agora)
     veredito = resolucao.veredito
     laudo_da_acao = ids.get((BatchJev.JEV2, "acao"))
-    if veredito.terceiro or veredito.acao is Acao.OUT_OF_SCOPE:
-        # Fora da cobrança, a frase pronta da tabela: o Luna não redige, e nada é executado.
+    if veredito.terceiro or _fora_do_assunto_sem_texto(resolucao):
+        # Com o terceiro, a frase pronta da tabela, sem o Luna. Com o fora do assunto, ela é a
+        # reserva do texto reprovado 2 vezes: sem Pix, sem link e sem o atendente.
         situacao = Situacao.TERCEIRO if veredito.terceiro else Situacao.FORA_DO_ASSUNTO
-        texto = _frase_da_politica(situacao)
-        _gravar_envio(sessao, conversa, texto, agora)
-        destino = proximo_estado(conversa.estado, None, False)
-        _mudar_estado(sessao, conversa, destino, laudo_da_acao, agora)
-        return _fechar(
-            sessao,
-            turno,
-            ResultadoTurno.ENVIADO,
-            avaliacao,
-            {},
-            agora,
-            texto_enviado=texto,
-            redacao=resolucao.como_dict("FRASE_FIXA"),
-            rotulo=rotulo,
+        return _enviar_frase_pronta(
+            sessao, conversa, turno, situacao, avaliacao, resolucao, laudo_da_acao, rotulo, agora
         )
     if veredito.acao is Acao.NONE:
         if not e_cortesia(novas):

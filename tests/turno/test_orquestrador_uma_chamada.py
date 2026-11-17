@@ -596,29 +596,81 @@ def test_none_vazio_fora_da_cortesia_vai_ao_atendente_sem_resposta(
     assert _turno(sessao).acao_principal == "HUMAN:SEM_RESPOSTA"
 
 
-@pytest.mark.parametrize(
-    ("saida", "situacao", "rotulo"),
-    [
-        ({"terceiro": True}, Situacao.TERCEIRO, "TERCEIRO"),
-        ({"acao": "OUT_OF_SCOPE"}, Situacao.FORA_DO_ASSUNTO, "OUT_OF_SCOPE"),
-    ],
-)
-def test_o_terceiro_e_o_fora_do_assunto_recebem_a_frase_fixa_sem_o_texto_do_luna(
-    sessao, ligada, cliente, politica, saida, situacao, rotulo
-):
-    deps = _deps(politica, [_bruto(reply="Texto do Luna que não pode sair.", **saida)])
+def test_o_terceiro_recebe_a_frase_fixa_sem_o_texto_do_luna(sessao, ligada, cliente, politica):
+    deps = _deps(politica, [_bruto(reply="Texto do Luna que não pode sair.", terceiro=True)])
 
-    assert cliente("qual o horário da clínica?", deps) is ResultadoTurno.ENVIADO
+    assert cliente("quem fala é o filho dele", deps) is ResultadoTurno.ENVIADO
 
-    frase = POLITICAS[situacao].texto
+    frase = POLITICAS[Situacao.TERCEIRO].texto
     assert deps.chatwoot.enviadas(555) == [frase]
     [mensagem] = _do_agente(sessao)
     assert (mensagem.texto, mensagem.conta_no_teto) == (frase, True)
     turno = _turno(sessao)
-    assert (turno.acao_principal, turno.texto_enviado) == (rotulo, frase)
+    assert (turno.acao_principal, turno.texto_enviado) == ("TERCEIRO", frase)
     assert turno.redacao["saida"] == "FRASE_FIXA" and turno.numeros == {}
     assert deps.pix.cobrancas == {} and deps.ctn.links == {}
     assert sessao.scalars(select(Pagamento)).all() == []
+
+
+REPLY_FORA = (
+    "Por aqui eu só trato da sua mensalidade de {divida}.\n"
+    "Para pagar, use o Pix CNPJ: {pix_copia_e_cola}"
+)
+
+
+def test_o_fora_do_assunto_na_1a_resposta_sai_com_o_texto_do_luna_e_o_pix(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica, [_bruto(acao="OUT_OF_SCOPE", reply=REPLY_FORA)])
+
+    assert cliente("qual o horário da clínica?", deps) is ResultadoTurno.ENVIADO
+
+    [pix] = deps.pix.cobrancas.values()
+    [texto] = deps.chatwoot.enviadas(555)
+    assert texto.startswith("Por aqui eu só trato da sua mensalidade de R$ 100,20.")
+    assert pix.br_code in texto
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.acoes_anexadas) == ("OUT_OF_SCOPE", ["GENERATE_PIX"])
+    assert turno.redacao["saida"] == "LLM" and turno.texto_enviado == texto
+    assert sessao.scalars(select(Pagamento)).one().referencia == pix.txid
+    assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
+
+
+def test_o_fora_do_assunto_com_o_pix_vigente_sai_sem_repetir_o_pix(
+    sessao, ligada, cliente, politica
+):
+    reply = "Por aqui eu só trato da sua mensalidade. O Pix que enviei continua valendo."
+    deps = _deps(politica, [_bruto(), _bruto(acao="OUT_OF_SCOPE", reply=reply)])
+    cliente("quanto eu devo?", deps)
+
+    assert cliente("qual o horário da clínica?", deps) is ResultadoTurno.ENVIADO
+
+    [_, segunda] = deps.chatwoot.enviadas(555)
+    assert segunda == reply
+    assert len(sessao.scalars(select(Pagamento)).all()) == 1
+    assert (_turno(sessao).acao_principal, _turno(sessao).acoes_anexadas) == ("OUT_OF_SCOPE", [])
+
+
+def test_o_fora_do_assunto_reprovado_duas_vezes_sai_com_a_frase_fixa_sem_anexo_nem_handoff(
+    sessao, ligada, cliente, politica
+):
+    ruim = _bruto(acao="OUT_OF_SCOPE", reply="A clínica abre às 8h.")
+    deps = _deps(politica, [ruim, ruim])
+
+    assert cliente("qual o horário da clínica?", deps) is ResultadoTurno.ENVIADO
+
+    frase = POLITICAS[Situacao.FORA_DO_ASSUNTO].texto
+    assert deps.chatwoot.enviadas(555) == [frase]
+    [mensagem] = _do_agente(sessao)
+    assert (mensagem.texto, mensagem.conta_no_teto) == (frase, True)
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.acoes_anexadas) == ("OUT_OF_SCOPE", [])
+    assert (turno.resultado, turno.texto_enviado) == (ResultadoTurno.ENVIADO, frase)
+    assert turno.redacao["saida"] == "FRASE_FIXA" and turno.numeros == {}
+    assert len(turno.redacao["tentativas"]) == 2
+    assert deps.pix.cobrancas == {} and deps.ctn.links == {}
+    assert sessao.scalars(select(Pagamento)).all() == []
+    assert ligada.motivo_humano is None and ligada.estado is not EstadoConversa.ATENDIMENTO_HUMANO
 
 
 # O estado

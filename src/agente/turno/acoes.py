@@ -22,9 +22,10 @@ class Acao(StrEnum):
 def anexar(acao: Acao, cobranca: Cobranca, *, tem_meio_vigente: bool) -> list[Acao]:
     """A tabela fixa da D37: o que vai junto da ação principal na mesma mensagem.
 
-    A informação e a resposta só levam o meio de pagamento quando o cliente não tem um vigente.
+    A informação, a resposta e o fora do assunto só levam o meio de pagamento quando o cliente não
+    tem um vigente.
     """
-    if acao in (Acao.INFORM_DEBT, Acao.ANSWER):
+    if acao in (Acao.INFORM_DEBT, Acao.ANSWER, Acao.OUT_OF_SCOPE):
         if tem_meio_vigente:
             return []
         return [Acao.SEND_CTN_LINK if cobranca.propenso_cartao else Acao.GENERATE_PIX]

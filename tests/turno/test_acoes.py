@@ -19,21 +19,21 @@ def _cobranca(regua=Regua.R3, mensalidades=3, propenso=False):
 # Tabela de anexos (D37), com e sem meio de pagamento vigente (plano de autonomia, tarefa 1.2).
 
 
-@pytest.mark.parametrize("acao", [Acao.INFORM_DEBT, Acao.ANSWER])
+@pytest.mark.parametrize("acao", [Acao.INFORM_DEBT, Acao.ANSWER, Acao.OUT_OF_SCOPE])
 def test_sem_meio_vigente_o_propenso_leva_o_link(acao):
     anexos = anexar(acao, _cobranca(propenso=True), tem_meio_vigente=False)
     assert anexos == [Acao.SEND_CTN_LINK]
 
 
-@pytest.mark.parametrize("acao", [Acao.INFORM_DEBT, Acao.ANSWER])
+@pytest.mark.parametrize("acao", [Acao.INFORM_DEBT, Acao.ANSWER, Acao.OUT_OF_SCOPE])
 def test_sem_meio_vigente_o_nao_propenso_leva_o_pix(acao):
     anexos = anexar(acao, _cobranca(propenso=False), tem_meio_vigente=False)
     assert anexos == [Acao.GENERATE_PIX]
 
 
-@pytest.mark.parametrize("acao", [Acao.INFORM_DEBT, Acao.ANSWER])
+@pytest.mark.parametrize("acao", [Acao.INFORM_DEBT, Acao.ANSWER, Acao.OUT_OF_SCOPE])
 @pytest.mark.parametrize("propenso", [True, False])
-def test_com_meio_vigente_a_informacao_e_a_resposta_vao_sem_anexo(acao, propenso):
+def test_com_meio_vigente_a_informacao_a_resposta_e_o_fora_do_assunto_vao_sem_anexo(acao, propenso):
     assert anexar(acao, _cobranca(propenso=propenso), tem_meio_vigente=True) == []
 
 
@@ -46,7 +46,7 @@ def test_offer_discount_sempre_leva_o_link(propenso, tem_meio):
 
 @pytest.mark.parametrize(
     "acao",
-    [Acao.SEND_CTN_LINK, Acao.GENERATE_PIX, Acao.OUT_OF_SCOPE, Acao.NONE, Acao.HUMAN],
+    [Acao.SEND_CTN_LINK, Acao.GENERATE_PIX, Acao.NONE, Acao.HUMAN],
 )
 @pytest.mark.parametrize("propenso", [True, False])
 @pytest.mark.parametrize("tem_meio", [True, False])

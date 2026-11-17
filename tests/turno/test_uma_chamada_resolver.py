@@ -21,6 +21,7 @@ from agente.turno.uma_chamada import (
     montar_entrada,
     previa_numeros,
     resolver_turno,
+    sem_efeito,
 )
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
@@ -368,3 +369,66 @@ def test_sem_motivo_o_como_dict_nao_traz_a_passagem(conversa, politica):
     resolucao, _, _ = _resolver(conversa, politica, [_bruto()])
 
     assert "passagem" not in resolucao.como_dict("LLM")
+
+
+# O fora do assunto com texto do Luna (plano de autonomia, tarefa 2.3)
+
+REPLY_FORA = (
+    "Por aqui eu só trato da sua mensalidade de {divida}.\n"
+    "Para pagar, use o Pix CNPJ: {pix_copia_e_cola}"
+)
+
+
+def test_so_o_terceiro_e_o_none_ficam_sem_efeito(conversa, politica):
+    for saida, esperado in [
+        (_bruto(terceiro=True), True),
+        (_bruto(acao="NONE", reply=""), True),
+        (_bruto(acao="OUT_OF_SCOPE", reply=REPLY_FORA), False),
+        (_bruto(acao="ANSWER", reply=REPLY_FORA), False),
+    ]:
+        resolucao, _, _ = _resolver(conversa, politica, [saida])
+        assert sem_efeito(resolucao.veredito) is esperado
+
+
+def test_o_fora_do_assunto_com_texto_valido_sai_aprovado_com_o_anexo(conversa, politica):
+    resolucao, llm, previa = _resolver(
+        conversa, politica, [_bruto(acao="OUT_OF_SCOPE", reply=REPLY_FORA)]
+    )
+
+    assert resolucao.reply == REPLY_FORA and resolucao.motivo is None
+    assert resolucao.veredito.acao is Acao.OUT_OF_SCOPE
+    assert resolucao.veredito.anexos == (Acao.GENERATE_PIX,)
+    assert len(llm.pedidos) == 1
+    assert previa.chamadas == [(Acao.OUT_OF_SCOPE, Acao.GENERATE_PIX)]
+
+
+def test_o_fora_do_assunto_com_o_pix_vigente_sai_sem_anexo(conversa, politica):
+    conversa.cobranca.pagamentos.append(
+        Pagamento(
+            forma=FormaPagamento.PIX,
+            valor_centavos=conversa.cobranca.divida_centavos,
+            referencia="TX-1",
+            status=StatusPagamento.PENDENTE,
+            criado_em=AGORA,
+            expira_em=AGORA + timedelta(hours=5),
+            br_code="000201BR",
+        )
+    )
+    conversa.forma_enviada = FormaPagamento.PIX
+    reply = "Por aqui eu só trato da mensalidade. O Pix que enviei continua valendo."
+
+    resolucao, _, previa = _resolver(conversa, politica, [_bruto(acao="OUT_OF_SCOPE", reply=reply)])
+
+    assert resolucao.reply == reply and resolucao.veredito.anexos == ()
+    assert previa.chamadas == [(Acao.OUT_OF_SCOPE,)]
+
+
+def test_o_fora_do_assunto_reprovado_duas_vezes_sai_sem_texto_nem_motivo(conversa, politica):
+    ruim = _bruto(acao="OUT_OF_SCOPE", reply="A clínica abre às 8h. {divida}")
+
+    resolucao, llm, _ = _resolver(conversa, politica, [ruim, ruim])
+
+    assert resolucao.reply is None and resolucao.motivo is None
+    assert resolucao.veredito.acao is Acao.OUT_OF_SCOPE
+    assert len(llm.pedidos) == 2
+    assert all(t.reprovadas for t in resolucao.tentativas)

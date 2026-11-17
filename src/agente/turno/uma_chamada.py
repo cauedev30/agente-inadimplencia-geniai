@@ -1,7 +1,8 @@
 """O turno de uma chamada ao Luna: a entrada, o prompt, a saída, a palavra-chave e a decisão.
 
-O LLM lê a conversa uma vez e devolve os sinais, a ação e o texto num JSON só. O texto só vale nas
-4 ações de cobrança: fora delas, a saída é uma frase pronta ou o atendente, decididos no código.
+O LLM lê a conversa uma vez e devolve os sinais, a ação e o texto num JSON só. O texto vale nas
+ações com texto (as 4 de cobrança, a `ANSWER` e o `OUT_OF_SCOPE`) e como passagem ao atendente; no
+`NONE` e no terceiro a saída é decidida no código: o silêncio, o atendente ou uma frase pronta.
 O que é puro mora aqui; o que mexe no banco (gravar, enviar, passar ao humano) é do orquestrador.
 
 O LLM não recebe nenhum valor em dinheiro, nem link, nem código Pix: só marcadores. O histórico da
@@ -438,9 +439,9 @@ class Veredito:
 
 
 def sem_efeito(veredito: Veredito) -> bool:
-    """O turno não executa ação de cobrança e o texto do Luna não é usado: `NONE`, `OUT_OF_SCOPE`
-    ou o terceiro. A saída é a da tabela de políticas: a frase pronta, o silêncio ou o atendente."""
-    return veredito.terceiro or veredito.acao in (Acao.NONE, Acao.OUT_OF_SCOPE)
+    """O texto do Luna não é usado: só o `NONE` e o terceiro. A saída é a da tabela de políticas:
+    o silêncio, o atendente ou a frase pronta."""
+    return veredito.terceiro or veredito.acao is Acao.NONE
 
 
 def veredito_da_palavra_chave(guarda: tuple[MotivoHumano, str]) -> Veredito:
@@ -499,8 +500,8 @@ class TentativaUmaChamada:
 @dataclass
 class ResolucaoTurno:
     """O resultado do laço: o texto aprovado na prévia, ou o motivo de ir ao humano, ou nenhum dos
-    dois (o `NONE`, o `OUT_OF_SCOPE` e o terceiro, cujo texto não é usado, ou as tentativas que
-    acabaram sem texto: quem chama manda ao atendente)."""
+    dois (o `NONE` e o terceiro, cujo texto não é usado, ou as tentativas que acabaram sem texto:
+    quem chama manda ao atendente, ou, no `OUT_OF_SCOPE`, envia a frase pronta)."""
 
     # A última saída válida e o veredito dela.
     saida: SaidaTurno | None = None
@@ -571,8 +572,8 @@ def resolver_turno(
     """Chama o LLM até `TENTATIVAS_UMA_CHAMADA` vezes, até sair um texto aprovado ou um motivo.
 
     Não toca no banco: a prévia vem de quem chama. A cada tentativa a decisão roda do começo, então
-    um sinal que só aparece na 2ª também leva ao humano. O `NONE`, o `OUT_OF_SCOPE` e o terceiro
-    voltam sem conferir o texto, que não é usado. Só o texto reprovado ganha nova tentativa.
+    um sinal que só aparece na 2ª também leva ao humano. O `NONE` e o terceiro voltam sem conferir
+    o texto, que não é usado. Só o texto reprovado ganha nova tentativa.
 
     Com motivo de atendente, o `reply` é a passagem: aprovada em `conferir_passagem`, vai em
     `resolucao.passagem`; reprovada, o motivo fica na tentativa e o handoff sai com a frase fixa,

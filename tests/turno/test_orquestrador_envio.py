@@ -138,9 +138,10 @@ def test_a_intencao_esta_gravada_quando_o_chatwoot_recebe_o_envio(sessao, ligada
 
 
 def test_o_texto_igual_a_um_ja_entregue_nao_e_confundido_com_ele(sessao, ligada, politica):
-    # A mesma frase sai em dois turnos; a falha do 2º, antes de entregar, não adota o id do 1º.
-    fora_de_escopo = _bruto(acao="OUT_OF_SCOPE", reply="Esse assunto não é tratado por aqui.")
-    deps = _deps_com(politica, ChatwootInstavel(antes={2}), [fora_de_escopo, fora_de_escopo])
+    # A mesma frase (a do terceiro) sai em dois turnos; a falha do 2º, antes de entregar, não adota
+    # o id do 1º.
+    terceiro = _bruto(terceiro=True)
+    deps = _deps_com(politica, ChatwootInstavel(antes={2}), [terceiro, terceiro])
     _pergunta(sessao, ligada)
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
