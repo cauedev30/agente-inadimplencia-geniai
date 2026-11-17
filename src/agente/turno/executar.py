@@ -67,6 +67,26 @@ def pix_vigente(cobranca: Cobranca, agora: datetime, politica: Politica) -> Paga
     return None
 
 
+def meio_vigente(conversa: Conversa, agora: datetime, politica: Politica) -> FormaPagamento | None:
+    """O meio de pagamento que o cliente ainda pode usar, ou None.
+
+    Olha só a última forma enviada nesta conversa: conversa nova começa sem meio. O link sem
+    vencimento vale, porque o `CTNFalso` não dá prazo.
+    """
+    forma = conversa.forma_enviada
+    if forma is FormaPagamento.PIX:
+        return forma if pix_vigente(conversa.cobranca, agora, politica) else None
+    if forma is FormaPagamento.LINK_CTN:
+        for pagamento in conversa.cobranca.pagamentos:
+            if (
+                pagamento.forma is FormaPagamento.LINK_CTN
+                and pagamento.status is StatusPagamento.PENDENTE
+                and (pagamento.expira_em is None or pagamento.expira_em > agora)
+            ):
+                return forma
+    return None
+
+
 def executar(
     acoes: list[Acao],
     cobranca: Cobranca,

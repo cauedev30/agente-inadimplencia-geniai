@@ -1,13 +1,13 @@
 """O backend executa as ações e produz todo número que vai ao cliente (tarefa 5.1)."""
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 
 from agente.db.historico import registrar_mensagem
-from agente.db.modelos import Pagamento, Transicao
+from agente.db.modelos import Conversa, Pagamento, Transicao
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
@@ -21,7 +21,7 @@ from agente.tipos import (
     StatusPagamento,
 )
 from agente.turno.acoes import Acao
-from agente.turno.executar import executar, proximo_estado
+from agente.turno.executar import executar, meio_vigente, proximo_estado
 from agente.turno.orquestrador import Dependencias, processar_turno
 
 from ..conftest import piloto_com
@@ -209,3 +209,103 @@ def test_no_ativo_o_turno_grava_os_numeros_do_executar(sessao, ligada, politica)
 )
 def test_o_estado_depois_do_turno(atual, forma, risco, esperado):
     assert proximo_estado(atual, forma, risco) is esperado
+
+
+# O meio de pagamento vigente (plano de autonomia, tarefa 1.1): o que o cliente ainda pode usar.
+
+
+def _pagamento(conversa, forma, *, valor=10020, expira_em=None, status=None, ref="R-1"):
+    pagamento = Pagamento(
+        forma=forma,
+        valor_centavos=valor,
+        referencia=ref,
+        status=status or StatusPagamento.PENDENTE,
+        criado_em=AGORA,
+        expira_em=expira_em,
+        br_code="000201BR" if forma is FormaPagamento.PIX else None,
+    )
+    conversa.cobranca.pagamentos.append(pagamento)
+    return pagamento
+
+
+def test_sem_forma_enviada_nao_ha_meio_vigente(conversa, politica):
+    _pagamento(conversa, FormaPagamento.PIX, expira_em=AGORA + timedelta(hours=5))
+
+    assert conversa.forma_enviada is None
+    assert meio_vigente(conversa, AGORA, politica) is None
+
+
+def test_pix_valido_e_o_meio_vigente(conversa, politica):
+    _pagamento(conversa, FormaPagamento.PIX, expira_em=AGORA + timedelta(hours=5))
+    conversa.forma_enviada = FormaPagamento.PIX
+
+    assert meio_vigente(conversa, AGORA, politica) is FormaPagamento.PIX
+
+
+def test_pix_vencido_nao_e_meio_vigente(conversa, politica):
+    _pagamento(conversa, FormaPagamento.PIX, expira_em=AGORA - timedelta(minutes=1))
+    conversa.forma_enviada = FormaPagamento.PIX
+
+    assert meio_vigente(conversa, AGORA, politica) is None
+
+
+def test_pix_a_menos_do_minimo_de_vencer_nao_e_meio_vigente(conversa, politica):
+    minimo = politica.pix_reaproveitar_minimo_minutos
+    _pagamento(conversa, FormaPagamento.PIX, expira_em=AGORA + timedelta(minutes=minimo - 1))
+    conversa.forma_enviada = FormaPagamento.PIX
+
+    assert meio_vigente(conversa, AGORA, politica) is None
+
+
+def test_pix_de_valor_diferente_da_divida_nao_e_meio_vigente(conversa, politica):
+    _pagamento(conversa, FormaPagamento.PIX, valor=5000, expira_em=AGORA + timedelta(hours=5))
+    conversa.forma_enviada = FormaPagamento.PIX
+
+    assert meio_vigente(conversa, AGORA, politica) is None
+
+
+def test_link_pendente_sem_vencimento_e_meio_vigente(conversa, politica):
+    _pagamento(conversa, FormaPagamento.LINK_CTN, valor=7020)
+    conversa.forma_enviada = FormaPagamento.LINK_CTN
+
+    assert meio_vigente(conversa, AGORA, politica) is FormaPagamento.LINK_CTN
+
+
+def test_link_pendente_com_vencimento_futuro_e_meio_vigente(conversa, politica):
+    _pagamento(conversa, FormaPagamento.LINK_CTN, expira_em=AGORA + timedelta(minutes=1))
+    conversa.forma_enviada = FormaPagamento.LINK_CTN
+
+    assert meio_vigente(conversa, AGORA, politica) is FormaPagamento.LINK_CTN
+
+
+def test_link_vencido_nao_e_meio_vigente(conversa, politica):
+    _pagamento(conversa, FormaPagamento.LINK_CTN, expira_em=AGORA - timedelta(minutes=1))
+    conversa.forma_enviada = FormaPagamento.LINK_CTN
+
+    assert meio_vigente(conversa, AGORA, politica) is None
+
+
+def test_link_pago_nao_e_meio_vigente(conversa, politica):
+    _pagamento(conversa, FormaPagamento.LINK_CTN, status=StatusPagamento.PAGO)
+    conversa.forma_enviada = FormaPagamento.LINK_CTN
+
+    assert meio_vigente(conversa, AGORA, politica) is None
+
+
+def test_link_enviado_com_so_um_pix_vigente_nao_e_meio_vigente(conversa, politica):
+    # Olha só a última forma enviada nesta conversa.
+    _pagamento(conversa, FormaPagamento.PIX, expira_em=AGORA + timedelta(hours=5))
+    conversa.forma_enviada = FormaPagamento.LINK_CTN
+
+    assert meio_vigente(conversa, AGORA, politica) is None
+
+
+def test_conversa_nova_da_mesma_cobranca_nao_herda_o_pix(sessao, conversa, politica):
+    _pagamento(conversa, FormaPagamento.PIX, expira_em=AGORA + timedelta(hours=5))
+    conversa.forma_enviada = FormaPagamento.PIX
+    nova = Conversa(cobranca=conversa.cobranca, criada_em=AGORA)
+    sessao.add(nova)
+    sessao.flush()
+
+    assert meio_vigente(conversa, AGORA, politica) is FormaPagamento.PIX
+    assert meio_vigente(nova, AGORA, politica) is None
