@@ -370,3 +370,65 @@ def test_motivos_do_texto_sao_os_do_interpolar_fora_dos_marcadores(texto, espera
     except RedacaoInvalida as erro:
         # O interpolar soma os motivos dos marcadores depois destes quatro.
         assert erro.motivos[: len(esperados)] == esperados
+
+
+# Os marcadores da `ANSWER` (plano de autonomia, tarefa 1.3): a resposta e o fora do assunto citam o
+# valor com desconto do degrau já liberado, sem o link.
+
+
+def test_a_answer_no_degrau_zero_so_tem_a_divida_e_as_mensalidades():
+    numeros = _numeros(Acao.ANSWER)
+
+    obrigatorios, opcionais = marcadores_do_turno(numeros)
+
+    assert (obrigatorios, opcionais) == ([], ["divida", "mensalidades"])
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar("Com o desconto fica {valor_final}.", numeros)
+    assert erro.value.motivos == ["marcador_sem_valor:valor_final"]
+
+
+def test_a_answer_no_degrau_1_aceita_o_valor_final_e_o_desconto():
+    numeros = _numeros(Acao.ANSWER, degrau=1)
+
+    texto = interpolar("São {divida}; com {desconto} de desconto, {valor_final}.", numeros)
+
+    assert texto == "São R$ 100,20; com R$ 30,00 de desconto, R$ 70,20."
+    assert marcadores_do_turno(numeros)[1] == [
+        "divida",
+        "mensalidades",
+        "valor_final",
+        "desconto",
+    ]
+
+
+def test_o_out_of_scope_no_degrau_1_tambem_tem_o_valor_final():
+    numeros = _numeros(Acao.OUT_OF_SCOPE, degrau=1)
+
+    assert interpolar("Fica {valor_final}.", numeros) == "Fica R$ 70,20."
+
+
+def test_a_answer_sem_anexo_com_o_link_e_reprovada():
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar("Pague aqui: {link_ctn}", _numeros(Acao.ANSWER, degrau=1))
+    assert erro.value.motivos == ["marcador_sem_valor:link_ctn"]
+
+
+def test_a_answer_com_anexo_pix_exige_a_chave():
+    numeros = _numeros(Acao.ANSWER, Acao.GENERATE_PIX)
+
+    assert marcadores_do_turno(numeros)[0] == ["pix_copia_e_cola"]
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar("O valor é {divida}.", numeros)
+    assert erro.value.motivos == ["marcador_faltando:pix_copia_e_cola"]
+    texto = "O valor é {divida}.\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
+    assert interpolar(texto, numeros).endswith("00020126FALSOabc10020")
+
+
+def test_o_pix_sozinho_no_degrau_1_continua_sem_valor_final():
+    numeros = _numeros(Acao.GENERATE_PIX, degrau=1)
+
+    _, opcionais = marcadores_do_turno(numeros)
+    assert "valor_final" not in opcionais and "desconto" not in opcionais
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar("Fica {valor_final}.\nPix CNPJ: {pix_copia_e_cola}", numeros)
+    assert erro.value.motivos == ["marcador_sem_valor:valor_final"]
