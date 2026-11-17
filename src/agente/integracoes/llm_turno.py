@@ -80,7 +80,7 @@ class LLMTurnoOpenAI:
         url: str = URL_OPENAI,
         corpo_extra: dict | None = None,
         timeout: float = 15.0,
-        temperatura: float = 0.3,
+        temperatura: float = 0.7,
     ):
         self.modelo = modelo
         self.nome = f"openai:{modelo}"

@@ -55,7 +55,7 @@ def test_o_corpo_leva_o_response_format_o_modelo_e_a_temperatura(luna):
         "json_schema": {"name": "saida_turno", "strict": True, "schema": ESQUEMA},
     }
     assert corpo["model"] == MODELO
-    assert corpo["temperature"] == 0.3
+    assert corpo["temperature"] == 0.7
     assert corpo["messages"] == [
         {"role": "system", "content": "sistema"},
         {"role": "user", "content": "usuario"},
