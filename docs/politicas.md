@@ -153,7 +153,7 @@ que está sem dinheiro, antes de oferecer o desconto; distinguir a dificuldade d
 a dúvida junto do pedido na mesma mensagem; dizer que é o assistente virtual do Cartão de Todos a quem pergunta se é
 robô; na passagem, acolher o que o cliente disse sem opinar se ele tem razão; os critérios de cada sinal e do tom;
 "Oi" no meio da conversa (o Luna cumprimenta e segue de onde parou, `ANSWER`); ler o áudio transcrito sem comentar a
-transcrição. A temperatura do Luna é 0,7, fixa no código.
+transcrição. A temperatura do Luna é 0,7, fixa no código (o `AGENTE_LLM_CORPO_EXTRA` pode sobrescrevê-la).
 
 ## 6. As regras do prompt de hoje, uma a uma
 

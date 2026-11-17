@@ -135,5 +135,5 @@ handoff não conta.
 É falha se o handoff vier com valor, link ou sem a palavra "atendente" (o código devia ter trocado pela frase pronta).
 Promessa ("vou verificar", "já te retorno") o código não confere: anote com `/nota`.
 
-No teste livre do Luciano e da Lohanny, o handoff vai acontecer sempre que a conversa sair do que é da cobrança. Na
+No teste livre do Luciano e da Lohanny, o handoff vai acontecer sempre que o cliente cair num sinal de saída, pedir uma pessoa, ficar irritado ou hostil ou fizer uma pergunta sem resposta; o fora do assunto o Luna responde. Na
 produção seria igual; a diferença é que, no teste, ninguém responde depois do handoff.

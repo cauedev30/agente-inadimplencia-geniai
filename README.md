@@ -103,7 +103,7 @@ O Luna é o `gpt-6-luna` da OpenAI (D42) e o áudio do cliente é transcrito pel
 
 - `AGENTE_LLM_API_KEY` liga o Luna (obrigatória). `AGENTE_LLM_URL`, `AGENTE_LLM_MODELO` e
   `AGENTE_LLM_CORPO_EXTRA` já vêm com os padrões do Luna. O Luna recusa a temperatura sem o
-  `reasoning_effort: "none"`, que o corpo extra padrão manda; a temperatura é 0,7, fixa no código (não há variável);
+  `reasoning_effort: "none"`, que o corpo extra padrão manda; a temperatura é 0,7, fixa no código (sem variável própria; o corpo extra pode sobrescrevê-la);
 - `AGENTE_TRANSCRICAO_URL` e `AGENTE_TRANSCRICAO_API_KEY` ligam a transcrição, e
   `AGENTE_TRANSCRICAO_MODELO` troca o modelo. Com só uma das duas, o serviço não sobe e diz qual falta;
 - `AGENTE_LLM_DADOS_REAIS_LIBERADOS` (padrão `false`) trava a subida com dado real de cliente indo à

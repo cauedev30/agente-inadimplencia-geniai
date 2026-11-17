@@ -75,7 +75,7 @@ pagamento vigente (`meio_vigente`: o Pix ou o link que o cliente ainda pode usar
 (`paga_pix_todo_mes`), as ações permitidas (cada uma com "quando usar", "o que o texto faz" e os marcadores), as regras
 da cobrança, o histórico e a rajada. A saída é um JSON em esquema estrito (`json_schema`) com os sinais (entre eles o
 `sem_resposta`), o tom, a ação e o `reply`. O `reply` vale nas ações com texto e na passagem ao atendente, e fica vazio
-no `NONE` e no terceiro; a temperatura é 0,7, fixa. Saída inválida ou ação fora do enum conta como falha de integração
+no `NONE` e no terceiro; a temperatura é 0,7, fixa (sem variável própria; o `AGENTE_LLM_CORPO_EXTRA` pode sobrescrevê-la). Saída inválida ou ação fora do enum conta como falha de integração
 (3 tentativas, depois `INTEGRACAO_INDISPONIVEL`).
 
 **A decisão** é do código: vence a primeira regra que bate. A guarda de palavra-chave (golpe ou golpista; advogado,
@@ -105,11 +105,11 @@ falar da dívida (D63). As outras saídas fixas (`NONE`, cortesia, o fora do ass
 
 **O handoff.** Toda saída do robô passa a conversa a um atendente **na mesma conversa do WhatsApp** (D60): uma nota
 privada com o motivo, a etiqueta, a atribuição ao time (`AGENTE_CHATWOOT_TIME_HUMANO`) e o status aberto. O estado vira
-`ATENDIMENTO_HUMANO`. Quando há mensagem ao cliente, ela é a **passagem redigida pelo Luna** (uma ou duas frases que acolhem o que o cliente
+`ATENDIMENTO_HUMANO`. Nos handoffs que vêm da chamada (sinal, tom, `quer_humano`, `sem_resposta`), a mensagem ao cliente é a **passagem redigida pelo Luna** (uma ou duas frases que acolhem o que o cliente
 disse e avisam que um atendente da unidade continua nesta conversa), gravada com origem `AGENTE` e fora do teto. O código
 confere a passagem (`conferir_passagem`: sem número, link nem marcador, com a palavra "atendente"); reprovada, sai a
 fixa *"Para resolver da melhor forma, um atendente da unidade vai continuar com você aqui mesmo, nesta conversa."*, sem
-2ª chamada. O **jurídico** e o **golpe** levam sempre a frase fixa (o golpe tem a própria, D44), assim como o `NONE`
+2ª chamada. Os handoffs de gate e de falha (áudio, integração, erro interno, pagamento divergente) levam a frase fixa. O **jurídico** e o **golpe** levam sempre a frase fixa (o golpe tem a própria, D44), assim como o `NONE`
 fora da cortesia, o texto reprovado e a 6ª. A foto sem texto leva uma frase fixa própria (*"Recebi o seu arquivo. Um
 atendente da unidade vai conferir…"*). A passagem não leva Pix nem link. Fica sem mensagem ao cliente a volta ao humano de quem já recebeu a 6ª ou o aviso de cobrança
 quitada, e o caso das 24h vencidas. Outros motivos: `SEM_RESPOSTA`, `TETO`, `AUDIO`, `VALIDACAO`, `FORA_DAS_24H`,
