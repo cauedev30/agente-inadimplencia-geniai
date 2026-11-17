@@ -130,7 +130,6 @@ def test_a_ordem_das_palavras_chave():
     assert [motivo for _, motivo in PALAVRAS_CHAVE] == [
         MotivoHumano.DESCONFIANCA,
         MotivoHumano.JURIDICO,
-        MotivoHumano.PEDIU_HUMANO,
     ]
 
 
@@ -143,14 +142,8 @@ def test_a_ordem_das_palavras_chave():
         ("vou chamar meu advogado", MotivoHumano.JURIDICO, "advogado"),
         ("a advogada vai falar", MotivoHumano.JURIDICO, "advogada"),
         ("vou processar vocês", MotivoHumano.JURIDICO, "processar"),
-        ("vou abrir um processo", MotivoHumano.JURIDICO, "processo"),
-        ("Quero falar com um ATENDENTE", MotivoHumano.PEDIU_HUMANO, "atendente"),
-        ("quero um humano", MotivoHumano.PEDIU_HUMANO, "humano"),
-        ("preciso falar com alguém", MotivoHumano.PEDIU_HUMANO, "falar com alguem"),
         ("vou no Procon, isso é golpe", MotivoHumano.DESCONFIANCA, "golpe"),
-        ("quero um humano, vou no procon", MotivoHumano.JURIDICO, "procon"),
-        # O falso positivo medido na decisão 15: vai ao humano, que é o lado seguro.
-        ("como é o processo de pagamento?", MotivoHumano.JURIDICO, "processo"),
+        ("quero um atendente, vou no procon", MotivoHumano.JURIDICO, "procon"),
     ],
 )
 def test_a_palavra_chave_acha_o_motivo(texto, motivo, palavra):
@@ -158,7 +151,21 @@ def test_a_palavra_chave_acha_o_motivo(texto, motivo, palavra):
 
 
 @pytest.mark.parametrize(
-    "texto", ["processamento", "Bom dia", "quanto eu devo?", "o cartão está desumano", ""]
+    "texto",
+    [
+        "processamento",
+        "Bom dia",
+        "quanto eu devo?",
+        "o cartão está desumano",
+        "",
+        # O pedido de humano e a palavra "processo" são do Luna (quer_humano, risco_juridico):
+        # a palavra-chave só pega o que não tem dúvida (golpe, advogado, Procon, processar).
+        "você é humano?",
+        "Quero falar com um ATENDENTE",
+        "preciso falar com alguém",
+        "como é o processo de pagamento?",
+        "vou abrir um processo",
+    ],
 )
 def test_a_palavra_chave_nao_pega_o_que_nao_e(texto):
     assert palavra_chave([texto]) is None

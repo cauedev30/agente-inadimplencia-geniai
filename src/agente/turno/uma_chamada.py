@@ -388,20 +388,14 @@ def ler_saida(bruto: dict) -> SaidaTurno:
     return SaidaTurno.model_validate(bruto)
 
 
-# A palavra-chave vai ao atendente sem chamar o Luna: o que ela decide não depende da leitura
-# dele, e vale com ele fora do ar. Sobre o texto em minúsculas e sem acento, com `\b`, nesta ordem:
-# o golpe vence o jurídico, que vence o pedido de humano. "processos?" também pega "o processo de
-# pagamento": o falso positivo vai ao humano, que é o lado seguro.
+# A palavra-chave vai ao atendente sem chamar o Luna: só o que não deixa dúvida (golpe, advogado,
+# Procon, processar), e vale com ele fora do ar. Sobre o texto em minúsculas e sem acento, com `\b`,
+# nesta ordem: o golpe vence o jurídico. O pedido de humano e a palavra "processo" ficam com o Luna
+# (`quer_humano`, `risco_juridico`): "você é humano?" e "o processo de pagamento" não são pedido
+# de atendente nem ameaça.
 PALAVRAS_CHAVE: tuple[tuple[re.Pattern[str], MotivoHumano], ...] = (
     (re.compile(r"\b(?:golpes?|golpistas?)\b"), MotivoHumano.DESCONFIANCA),
-    (
-        re.compile(r"\b(?:advogad[oa]s?|procon|processos?|processar)\b"),
-        MotivoHumano.JURIDICO,
-    ),
-    (
-        re.compile(r"\b(?:atendentes?|human[oa]s?|falar com alguem)\b"),
-        MotivoHumano.PEDIU_HUMANO,
-    ),
+    (re.compile(r"\b(?:advogad[oa]s?|procon|processar)\b"), MotivoHumano.JURIDICO),
 )
 
 

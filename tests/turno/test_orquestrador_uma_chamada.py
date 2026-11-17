@@ -423,6 +423,51 @@ def test_o_pedido_de_humano_vai_ao_canal_externo_com_o_motivo_novo(
     assert _turno(sessao).acao_principal == "HUMAN:PEDIU_HUMANO"
 
 
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "você é humano?",
+        "quero falar com um atendente",
+        "falar com alguém",
+        "como é o processo de pagamento?",
+    ],
+)
+def test_o_pedido_de_humano_e_o_processo_de_pagamento_chegam_ao_luna(
+    sessao, ligada, cliente, politica, texto
+):
+    deps = _deps(politica, [_bruto()])
+
+    assert cliente(texto, deps) is ResultadoTurno.ENVIADO
+
+    assert len(deps.llm_turno.pedidos) == 1
+    assert ligada.motivo_humano is None
+
+
+def test_quem_pede_um_atendente_e_o_luna_marca_quer_humano_termina_em_pediu_humano(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica, [_bruto(quer_humano=True, acao="NONE", reply="")])
+
+    assert cliente("quero um atendente", deps) is ResultadoTurno.HANDOFF
+
+    assert len(deps.llm_turno.pedidos) == 1
+    assert ligada.motivo_humano is MotivoHumano.PEDIU_HUMANO
+    assert _turno(sessao).redacao["causa"] == "sinal:quer_humano"
+    assert _turno(sessao).acao_principal == "HUMAN:PEDIU_HUMANO"
+
+
+@pytest.mark.parametrize("texto", ["vou no Procon", "meu advogado", "vou processar vocês"])
+def test_o_juridico_vai_ao_atendente_sem_chamar_o_luna(sessao, ligada, cliente, politica, texto):
+    deps = _deps(politica, [_bruto()])
+
+    assert cliente(texto, deps) is ResultadoTurno.HANDOFF
+
+    assert deps.llm_turno.pedidos == []
+    assert ligada.motivo_humano is MotivoHumano.JURIDICO
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+    assert _turno(sessao).redacao["causa"].startswith("palavra_chave:")
+
+
 # A D44: golpe fica no WhatsApp, com a fixa do golpe
 
 
