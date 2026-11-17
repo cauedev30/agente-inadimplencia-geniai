@@ -36,8 +36,9 @@ SINAIS_DO_PROMPT: dict[str, str] = {
     ),
     "terceiro": "quem escreve não é o devedor",
     "sem_resposta": (
-        "pede algo da cobrança que as regras da politica e as ações não cobrem (quais meses estão "
-        "em aberto, vencimento, boleto)"
+        "pede uma informação ou um serviço da cobrança que as regras da politica e as ações não "
+        "cobrem (quais meses estão em aberto, vencimento, boleto); cumprimento, confirmação e "
+        "comentário nunca são este sinal"
     ),
 }
 

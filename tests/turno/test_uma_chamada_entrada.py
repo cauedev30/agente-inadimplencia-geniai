@@ -16,7 +16,7 @@ from agente.turno.acoes import Acao, anexar
 from agente.turno.catalogo import TEXTO_DO_PIX
 from agente.turno.executar import executar
 from agente.turno.redacao import MARCADORES, marcadores_do_turno
-from agente.turno.sinais import CRITERIOS_DA_ACAO, DESCRICAO_ACOES, GATILHOS
+from agente.turno.sinais import CRITERIOS_DA_ACAO, DESCRICAO_ACOES, GATILHOS, SINAIS_DO_PROMPT
 from agente.turno.uma_chamada import (
     _FAZ_NONE,
     GLOSSARIO_MARCADORES,
@@ -520,3 +520,14 @@ def test_com_reprovadas_antes_o_usuario_traz_os_motivos(conversa, politica):
     assert usuario.startswith(entrada.como_json())
     assert "valor_em_digitos" in usuario and "marcador_faltando:divida" in usuario
     assert "reprovada" in usuario
+
+
+def test_com_meio_vigente_o_sistema_manda_lembrar_sem_o_marcador():
+    # Ensaio de 2026-11-17: com o Pix já enviado, o Luna escrevia {pix_copia_e_cola} sem valor.
+    texto = " ".join(SISTEMA.split())
+    assert "sem escrever o marcador dele" in texto
+
+
+def test_cumprimento_e_comentario_nunca_sao_sem_resposta():
+    # Ensaio de 2026-11-17: "Oi" e "Ok, vou ver aqui" iam ao atendente como sem_resposta.
+    assert "cumprimento, confirmação e comentário nunca" in SINAIS_DO_PROMPT["sem_resposta"]
