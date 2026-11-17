@@ -13,9 +13,10 @@ from agente.integracoes.pix import PixFalso
 from agente.politica import Regua
 from agente.tipos import FormaPagamento, StatusPagamento
 from agente.turno.acoes import Acao, anexar
+from agente.turno.catalogo import TEXTO_DO_PIX
 from agente.turno.executar import executar
 from agente.turno.redacao import MARCADORES, marcadores_do_turno
-from agente.turno.sinais import GATILHOS
+from agente.turno.sinais import CRITERIOS_DA_ACAO, DESCRICAO_ACOES, GATILHOS
 from agente.turno.uma_chamada import (
     _FAZ_NONE,
     GLOSSARIO_MARCADORES,
@@ -310,6 +311,16 @@ def _com_pix_vigente(conversa):
     conversa.forma_enviada = FormaPagamento.PIX
 
 
+@pytest.mark.parametrize("propenso", [False, True])
+def test_a_entrada_traz_paga_pix_todo_mes_no_json(conversa, politica, propenso):
+    conversa.cobranca.propenso_cartao = propenso
+
+    entrada = _entrada(conversa, politica)
+
+    assert entrada.paga_pix_todo_mes is propenso
+    assert json.loads(entrada.como_json())["paga_pix_todo_mes"] is propenso
+
+
 def test_a_entrada_traz_o_meio_vigente_e_no_json(conversa, politica):
     assert _entrada(conversa, politica).meio_vigente is None
     assert json.loads(_entrada(conversa, politica).como_json())["meio_vigente"] is None
@@ -346,15 +357,31 @@ def test_as_chaves_do_glossario_sao_as_dos_marcadores(conversa, politica):
     assert "R$" not in json.dumps(GLOSSARIO_MARCADORES, ensure_ascii=False)
 
 
-def test_a_politica_traz_as_seis_regras_e_o_recebedor_so_se_preenchido(conversa, politica):
-    assert len(POLITICA_COBRANCA) == 6
+def test_a_politica_traz_as_dez_regras_e_o_recebedor_so_se_preenchido(conversa, politica):
+    assert len(POLITICA_COBRANCA) == 10
     assert _entrada(conversa, politica).politica == POLITICA_COBRANCA
 
     com_recebedor = politica.model_copy(update={"pix_recebedor": "Recebedor Fictício"})
     regras = _entrada(conversa, com_recebedor).politica
-    assert regras[:6] == POLITICA_COBRANCA and len(regras) == 7
-    assert "recebedor" in regras[6].lower()
-    assert "Recebedor Fictício" not in regras[6]
+    assert regras[:10] == POLITICA_COBRANCA and len(regras) == 11
+    assert "recebedor" in regras[10].lower()
+    assert "Recebedor Fictício" not in regras[10]
+
+
+def test_a_politica_traz_as_regras_da_secao_8_da_spec():
+    texto = " ".join(POLITICA_COBRANCA).lower()
+    # Promessa de pagamento: o cliente paga quando puder, pedindo o meio de novo; nada é registrado.
+    assert "quando puder" in texto and "pedindo o pix ou o link de novo" in texto
+    assert "não registra promessa" in texto and "prazo" in texto
+    assert "boleto" in texto and "conta de energia" in texto
+    assert "paga pix todo mês" in texto and "manualmente" in texto
+    assert "corte" in texto and "cancelamento" in texto and "atraso" in texto
+
+
+def test_a_politica_nao_traz_digito_valor_nem_link():
+    texto = " ".join(POLITICA_COBRANCA)
+    assert not any(letra.isdigit() for letra in texto)
+    assert "R$" not in texto and "http" not in texto
 
 
 def test_as_regras_da_politica_dizem_o_que_a_spec_manda():
@@ -389,6 +416,73 @@ def test_o_sistema_traz_as_regras_de_redacao_e_as_proibicoes():
     assert "Não existe parcelamento" in texto
     assert "varias_mensalidades" in texto
     assert "{mensalidades}" in texto
+
+
+def test_o_sistema_diz_o_objetivo_e_onde_o_reply_vale():
+    texto = " ".join(SISTEMA.split())
+    assert "O objetivo de toda mensagem é o pagamento, no menor número de mensagens" in texto
+    assert "ações com texto e na passagem ao atendente" in texto
+    assert "no NONE e no terceiro, fica vazio" in texto
+    assert "Termine no próximo passo para pagar" in texto and "meio_vigente" in texto
+
+
+def test_o_sistema_manda_escrever_a_passagem_ao_atendente():
+    texto = " ".join(SISTEMA.split())
+    passagem = texto.split("Passagem ao atendente")[1]
+    for sinal in ("sinal de saída", "quer_humano", "sem_resposta", "irritado ou hostil"):
+        assert sinal in passagem.split("Se perguntarem")[0]
+    assert "uma ou duas frases" in passagem and "um atendente da unidade" in passagem
+    assert "Sem marcador, sem valor, sem promessa" in passagem
+    assert "sem opinar se ele tem razão" in passagem
+
+
+def test_o_sistema_traz_as_regras_do_estilo_da_resposta():
+    texto = " ".join(SISTEMA.split())
+    assert "Dúvida junto de um pedido: a ação é a do pedido, e o texto responde à dúvida" in texto
+    assert "acolha em uma frase e use OFFER_DISCOUNT, se estiver na lista; senão, ANSWER" in texto
+    assert "assistente virtual do Cartão de Todos" in texto
+    assert "não repita frase que já está no histórico" in texto
+
+
+def test_o_sistema_explica_paga_pix_todo_mes_e_meio_vigente():
+    texto = " ".join(SISTEMA.split())
+    assert "paga_pix_todo_mes (o cliente costuma pagar por Pix todo mês" in texto
+    assert "meio_vigente (o Pix ou o link que ele ainda pode usar, ou null)" in texto
+
+
+def test_o_sistema_nao_diz_mais_que_o_texto_so_vale_nas_acoes_de_cobranca():
+    texto = " ".join(SISTEMA.split())
+    assert "só nas ações de cobrança" not in texto
+    assert "nas outras, ele fica vazio" not in texto
+    assert "leve a preocupação a sério" not in texto  # a linha do golpe: ele leva a frase fixa
+
+
+def test_o_none_e_so_cortesia_e_na_duvida_e_answer():
+    quando = CRITERIOS_DA_ACAO[Acao.NONE]
+    assert "só confirma que leu ou agradece" in quando and "Na dúvida, ANSWER" in quando
+    assert "pergunta" not in quando.replace("sem pergunta", "")
+
+
+def test_os_criterios_das_acoes_dizem_a_regra_da_spec():
+    assert "primeira apresentação da dívida" in CRITERIOS_DA_ACAO[Acao.INFORM_DEBT]
+    assert "ANSWER" in CRITERIOS_DA_ACAO[Acao.INFORM_DEBT]
+    assert "desempregado" in CRITERIOS_DA_ACAO[Acao.OFFER_DISCOUNT]
+    assert "não quer ou não pode usar o cartão" in CRITERIOS_DA_ACAO[Acao.GENERATE_PIX]
+
+
+def test_o_texto_do_pix_e_livre_so_as_3_linhas_de_dados_seguem_o_formato():
+    faz = DESCRICAO_ACOES["GENERATE_PIX"]
+    assert "texto é livre" in faz and "3 linhas de dados" in faz
+    assert "CNPJ" in faz and "nada depois" in faz
+    assert repr(TEXTO_DO_PIX) in faz
+    assert "{pix_copia_e_cola}" in GLOSSARIO_MARCADORES["pix_copia_e_cola"]
+    assert "CNPJ" in GLOSSARIO_MARCADORES["pix_copia_e_cola"]
+
+
+def test_o_fora_do_assunto_com_texto_diz_so_que_o_canal_e_da_mensalidade():
+    faz = DESCRICAO_ACOES["OUT_OF_SCOPE"]
+    assert "frase pronta" not in faz and "reply fica vazio" not in faz
+    assert "mensalidade" in faz and "não afirme nada" in faz.lower()
 
 
 def test_o_sistema_diz_que_desabafo_sem_aspereza_nao_e_irritado():

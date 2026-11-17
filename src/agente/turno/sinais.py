@@ -62,33 +62,37 @@ class LeituraJev1:
 # Quando cada ação se aplica. Um dict por ação, para a ordem dos critérios nunca desalinhar do enum.
 CRITERIOS_DA_ACAO = {
     Acao.INFORM_DEBT: (
-        "o cliente pergunta quanto deve, não entendeu o valor ou pede que o expliquem, pergunta "
-        "como pagar, pede parcelamento (a dívida é à vista), diz que quer pagar, sem escolher "
-        "Pix nem cartão, ou só cumprimenta (bom dia, oi, olá); o sistema junta a forma de "
-        "pagamento"
+        "a primeira apresentação da dívida: o cliente pergunta quanto deve, não entendeu o valor, "
+        "pergunta como pagar, pede parcelamento (a dívida é à vista), diz que quer pagar, sem "
+        "escolher Pix nem cartão, ou só cumprimenta (bom dia, oi, olá) antes de a dívida ser "
+        "informada; depois dela, pergunta sobre valor ou condição é ANSWER; o sistema junta a "
+        "forma de pagamento"
     ),
     Acao.OFFER_DISCOUNT: (
-        "o cliente acha caro, diz que não consegue pagar tudo, pede desconto ou um valor melhor, "
-        "mesmo que já tenha pedido antes; se já recebeu uma oferta, só quando a recusa ou pede "
-        "menos; o sistema decide se há desconto"
+        "o cliente acha caro, pede desconto ou um valor melhor, ou diz que não consegue pagar "
+        "tudo, que está sem dinheiro, desempregado ou com o mês apertado, mesmo que já tenha "
+        "pedido antes; se já recebeu uma oferta, só quando a recusa ou pede menos; o sistema "
+        "decide se há desconto"
     ),
     Acao.SEND_CTN_LINK: (
         "o cliente pede o link, quer pagar no cartão de crédito ou aceita a oferta com desconto "
         "já enviada (o desconto só vale pelo link), mesmo com condição como 'se tiver desconto eu "
         "pago'"
     ),
-    Acao.GENERATE_PIX: "o cliente pede o Pix pelo nome (código, chave, pagar no Pix)",
+    Acao.GENERATE_PIX: (
+        "o cliente pede o Pix pelo nome (código, chave, pagar no Pix) ou mostra que não quer ou "
+        "não pode usar o cartão"
+    ),
     Acao.ANSWER: (
         "pergunta ou comentário sobre a cobrança que as regras da politica respondem, sem pedir "
-        "valor, desconto, link nem Pix; também o cumprimento ou o comentário depois de a dívida "
-        "já ter sido informada"
+        "desconto, link nem Pix; inclui a pergunta sobre o valor ou a condição depois de a dívida "
+        "já ter sido informada, o cumprimento e o comentário"
     ),
     Acao.OUT_OF_SCOPE: (
         "o assunto não é a dívida nem o pagamento (horário, endereço, outro serviço)"
     ),
     Acao.NONE: (
-        "o cliente só confirma que leu ou agradece, ou pergunta da dívida algo que as outras ações "
-        "não respondem (ex.: quais meses estão em aberto)"
+        "o cliente só confirma que leu ou agradece, sem pergunta nem comentário. Na dúvida, ANSWER"
     ),
 }
 
@@ -99,16 +103,21 @@ DESCRICAO_ACOES = {
     "SEND_CTN_LINK": "mandar o link em que o cliente paga e já cadastra o cartão",
     # O modelo é o mesmo texto do toque no botão (`TEXTO_DO_PIX`); o Luna o adapta, sem ser fixa.
     "GENERATE_PIX": (
-        "mandar a chave Pix do valor integral, tendo como base esta mensagem, adaptada ao que o "
-        f"cliente disse e com as mesmas linhas de chave, valor e referente: {TEXTO_DO_PIX!r}; se o "
-        "histórico já tem uma oferta com desconto, dizer que no Pix vale o valor integral e que o "
-        "desconto só vale pelo link"
+        "mandar a chave Pix do valor integral. O texto é livre e responde ao que o cliente disse; "
+        "só as 3 linhas de dados seguem o formato: a chave numa linha só dela, com CNPJ antes e "
+        "nada depois; o valor; o referente. Modelo, o mesmo do botão: "
+        f"{TEXTO_DO_PIX!r}; se o histórico já tem uma oferta com desconto, dizer que no Pix vale "
+        "o valor integral e que o desconto só vale pelo link"
     ),
     "ANSWER": (
         "responder em uma ou duas frases com as regras da politica e terminar no próximo passo "
         "para pagar; se o sistema anexar o Pix ou o link, incluí-lo"
     ),
-    "OUT_OF_SCOPE": "o sistema responde com uma frase pronta; o reply fica vazio",
+    "OUT_OF_SCOPE": (
+        "dizer em uma frase que este canal trata só da mensalidade em aberto (não afirme nada "
+        "sobre o assunto perguntado) e terminar no pagamento; se o sistema anexar o Pix ou o "
+        "link, incluí-lo"
+    ),
 }
 
 # O prefixo da ação principal do turno cujo texto não saiu: nada do que ela fez ficou valendo.
