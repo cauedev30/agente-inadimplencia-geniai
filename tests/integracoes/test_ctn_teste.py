@@ -529,10 +529,10 @@ def test_a_interpolacao_deixa_o_texto_de_teste_do_pix_e_do_link_sair_inteiro():
         br_code=pix.br_code,
     )
 
-    texto = interpolar("Pix: {pix_copia_e_cola}. Ou pague aqui: {link_ctn}", numeros)
+    texto = interpolar("Ou pague aqui: {link_ctn}\nPix CNPJ: {pix_copia_e_cola}", numeros)
 
-    assert texto == f"Pix: {pix.br_code}. Ou pague aqui: {link.url}"
-    assert "Pix: 29760112000122." in texto
+    assert texto == f"Ou pague aqui: {link.url}\nPix CNPJ: {pix.br_code}"
+    assert texto.endswith("Pix CNPJ: 29760112000122")
     assert "[TESTE] aqui viria o link de pagamento de R$ 100,20" in texto
 
 

@@ -509,7 +509,7 @@ def test_o_botao_manda_o_pix_fixo_sem_chamar_o_luna(sessao, ligada, cliente, pol
 
 # O savepoint quando o `executar` recusa o que a prévia aprovou (M4)
 
-REPLY_DIVERGENTE = "Seu valor é {divida}. Pague no Pix {pix_copia_e_cola} ou pelo link {link_ctn}"
+REPLY_DIVERGENTE = "Seu valor é {divida}. Ou pelo link {link_ctn}\nPix CNPJ: {pix_copia_e_cola}"
 
 
 def test_o_texto_recusado_depois_do_executar_desfaz_a_acao_e_grava_o_motivo(

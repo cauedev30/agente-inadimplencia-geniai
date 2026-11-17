@@ -23,7 +23,7 @@ TELEFONE = "+5583900000001"  # o do cliente da fixture `conversa`
 JP = ZoneInfo("America/Fortaleza")
 SEGUNDA_10H = datetime(2026, 10, 26, 10, tzinfo=JP)
 
-REPLY_PIX = "Seu valor em aberto é {divida}. Para pagar no Pix, use o código: {pix_copia_e_cola}"
+REPLY_PIX = "Seu valor em aberto é {divida}.\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
 REPLY_LINK = "Seu valor com desconto é {valor_final}. Pague e cadastre o cartão: {link_ctn}"
 REPLY_LINK_FINAL = "Fechado! Segue o link com o valor final de {valor_final}: {link_ctn}"
 REPLY_NONE = ""

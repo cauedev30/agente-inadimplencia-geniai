@@ -60,8 +60,10 @@ class LunaDoRoteiro(LLMTurnoFalso):
         resposta = next((r for k, r in self.por_texto.items() if k in novas), None)
         if resposta is None:
             informar = next(a for a in entrada["acoes"] if a["acao"] == "INFORM_DEBT")
-            marcadores = " ".join("{" + m + "}" for m in informar["marcadores_obrigatorios"])
-            resposta = _bruto(reply=f"Segue o que você pediu: {marcadores}")
+            obrigatorios = informar["marcadores_obrigatorios"]
+            marcadores = " ".join("{" + m + "}" for m in obrigatorios if m != "pix_copia_e_cola")
+            pix = "\nPix CNPJ: {pix_copia_e_cola}" if "pix_copia_e_cola" in obrigatorios else ""
+            resposta = _bruto(reply=f"Segue o que você pediu: {marcadores}{pix}")
         self.respostas = [resposta]
         self._usadas = 0
         return super().completar_json(sistema, usuario, esquema)

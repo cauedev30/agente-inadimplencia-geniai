@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from agente.turno.acoes import Acao
+from agente.turno.catalogo import TEXTO_DO_PIX
 from agente.turno.executar import Numeros
 from agente.turno.redacao import (
     MARCADORES,
@@ -58,8 +59,47 @@ def test_formata_o_milhar_e_as_mensalidades():
 
 def test_o_pix_sai_com_o_valor_e_a_chave():
     numeros = _numeros(Acao.GENERATE_PIX)
-    texto = "Pix de {valor_pix}: {pix_copia_e_cola}"
-    assert interpolar(texto, numeros) == "Pix de R$ 100,20: 00020126FALSOabc10020"
+    texto = "O Pix é de {valor_pix}.\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
+    assert interpolar(texto, numeros) == (
+        "O Pix é de R$ 100,20.\nPara pagar, use o Pix CNPJ: 00020126FALSOabc10020"
+    )
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        # O que o Luna escreveu no ensaio de 2026-11-17: a frase do Pix na mesma linha da dívida,
+        # a chave na linha de baixo do "CNPJ:" e o ponto grudado na chave.
+        "O Pix é de {valor_pix}. Para pagar, use o Pix CNPJ: {pix_copia_e_cola}",
+        "O Pix é de {valor_pix}. Para pagar, use o Pix CNPJ:\n{pix_copia_e_cola}",
+        "O Pix é de {valor_pix}.\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}.",
+    ],
+)
+def test_o_codigo_poe_a_frase_do_pix_na_linha_de_baixo_e_a_chave_no_fim(texto):
+    assert interpolar(texto, _numeros(Acao.GENERATE_PIX)) == (
+        "O Pix é de R$ 100,20.\nPara pagar, use o Pix CNPJ: 00020126FALSOabc10020"
+    )
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        # Seco, sem dizer que é CNPJ.
+        "O Pix é de {valor_pix}.\nPara pagar, use o Pix: {pix_copia_e_cola}",
+        # Texto depois da chave, na mesma linha.
+        "O Pix é de {valor_pix}.\nUse o Pix CNPJ: {pix_copia_e_cola} e me mande o comprovante.",
+        # Tudo numa frase só, sem onde quebrar.
+        "O total é {valor_pix} e para pagar use o Pix CNPJ: {pix_copia_e_cola}",
+    ],
+)
+def test_a_chave_pix_so_sai_numa_linha_so_dela_depois_de_cnpj(texto):
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar(texto, _numeros(Acao.GENERATE_PIX))
+    assert erro.value.motivos == ["pix_fora_da_linha_do_cnpj"]
+
+
+def test_o_texto_fixo_do_botao_pix_passa_na_regra_da_linha():
+    assert "00020126FALSOabc10020\n" in interpolar(TEXTO_DO_PIX, _numeros(Acao.GENERATE_PIX))
 
 
 def test_o_r_70_cru_escrito_pelo_llm_e_barrado():

@@ -174,7 +174,8 @@ com a correção quando a hora chegar (texto completo na fonte).
 - **Ponto final grudado no código Pix:** na resposta do `INFORM_DEBT`, o Luna fecha a frase com "." logo depois do
   `{pix_copia_e_cola}` ("…copia e cola: [código]."). Com o Pix real, o cliente pode copiar o ponto junto e o pagamento
   não passa. O botão "Pagar com Pix" já põe o código numa linha sozinho. **ANTES DO PILOTO REAL** (com o T1).
-  (Celular, 2026-11-13.)
+  (Celular, 2026-11-13.) **Feito em 2026-11-17:** o `interpolar` só aceita a chave numa linha só dela, depois da
+  1ª, com "CNPJ" antes e nada depois ("Para pagar, use o Pix CNPJ: …"); pedido do Cauê, para o Pix não ir seco.
 - **Ordem do "[TESTE] Simulando a confirmação" e do "Obrigado":** depois do `/paguei`, as duas saem no mesmo segundo e
   a ordem varia. Só existe no modo teste. **NÃO SERVE**. (Celular, 2026-11-13.)
 

@@ -21,7 +21,7 @@ from agente.turno.uma_chamada import (
 )
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
-REPLY_PIX = "Seu valor em aberto é {divida}. Para pagar no Pix, use o código: {pix_copia_e_cola}"
+REPLY_PIX = "Seu valor em aberto é {divida}.\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
 REPLY_LINK = "Seu valor com desconto é {valor_final}. Pague e cadastre o cartão: {link_ctn}"
 
 
@@ -70,7 +70,7 @@ def test_a_valida_com_inform_debt_sai_aprovada_em_uma_chamada(conversa, politica
 def test_texto_com_digito_e_reprovado_e_reprovado_de_novo_sai_sem_texto_nem_motivo(
     conversa, politica
 ):
-    ruim = _bruto(reply="O valor é R$ 100 e {divida}. Pix: {pix_copia_e_cola}")
+    ruim = _bruto(reply="O valor é R$ 100 e {divida}.\nPix CNPJ: {pix_copia_e_cola}")
 
     resolucao, llm, _ = _resolver(conversa, politica, [ruim, ruim])
 

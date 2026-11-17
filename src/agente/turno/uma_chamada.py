@@ -88,7 +88,11 @@ GLOSSARIO_MARCADORES: dict[str, str] = {
     ),
     "link_ctn": "o link em que o cliente paga e já cadastra o cartão; vem com SEND_CTN_LINK",
     "valor_pix": "o valor do Pix, sempre o integral; vem com GENERATE_PIX",
-    "pix_copia_e_cola": "a chave Pix (CNPJ), para copiar e colar no banco; vem com GENERATE_PIX",
+    "pix_copia_e_cola": (
+        "a chave Pix, para copiar e colar no banco; vem com GENERATE_PIX. Sempre numa linha só "
+        "dela, depois de uma quebra de linha, como em 'Para pagar, use o Pix CNPJ: "
+        "{pix_copia_e_cola}', sem nada depois"
+    ),
 }
 
 # A ação sem efeito não está no `DESCRICAO_ACOES`, que é o que o texto faz: no `NONE` o texto não

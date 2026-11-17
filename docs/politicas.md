@@ -150,6 +150,7 @@ no prompt, sem conferência.
 | Áudio transcrito e áudio não ouvido | estilo |
 | `POLITICA_COBRANCA`: à vista, desconto só no link, Pix integral, o link cadastra o cartão, só a mensalidade, a última oferta é o valor final | estilo (os valores vêm do backend; a oferta sem degrau não é permitida: invariante) |
 | A frase do recebedor do Pix é do sistema, não do Luna | estilo (o backend anexa a frase) |
+| A chave Pix nunca vai seca: numa linha só dela, depois da 1ª, com "CNPJ" antes e nada depois ("Para pagar, use o Pix CNPJ: …"), para o cliente confiar e copiar sem levar o ponto (o Cauê, 2026-11-17) | invariante (`interpolar`) |
 
 ## 7. Onde ficam os textos fixos
 

@@ -162,9 +162,37 @@ def motivos_do_texto(texto: str) -> list[str]:
     return motivos
 
 
+_PIX = "{pix_copia_e_cola}"
+# O espaço ou a quebra antes da chave e o ponto logo depois dela, quando nada mais segue na linha.
+_EM_VOLTA_DA_CHAVE = re.compile(r"\s*\{pix_copia_e_cola\}[ \t]*[.!]?[ \t]*(?=\n|$)")
+# O fim da frase anterior à do Pix, na mesma linha.
+_ANTES_DA_FRASE_DO_PIX = re.compile(r"([.!?])[ \t]+(?=[^.!?\n]*\{pix_copia_e_cola\})")
+
+
+def _arrumar_a_linha_do_pix(texto: str) -> str:
+    """A frase do Pix numa linha nova, a chave colada ao "CNPJ:" e sem o ponto depois dela (o Cauê,
+    2026-11-17). O Luna acerta as palavras e erra a quebra; o que não dá para arrumar (sem
+    "CNPJ", texto depois da chave) a conferência reprova."""
+    texto = _EM_VOLTA_DA_CHAVE.sub(" " + _PIX, texto)
+    return _ANTES_DA_FRASE_DO_PIX.sub("\\1\n", texto)
+
+
+def _pix_fora_da_linha(texto: str) -> bool:
+    """A chave Pix nunca vai seca nem no meio da frase: numa linha só dela, depois da 1ª, com
+    "CNPJ" antes e nada depois (o cliente copia a chave sem levar o ponto)."""
+    for i, linha in enumerate(texto.split("\n")):
+        antes, achou, depois = linha.partition(_PIX)
+        if achou and (i == 0 or "cnpj" not in antes.lower() or depois.strip()):
+            return True
+    return False
+
+
 def interpolar(texto: str, numeros: Numeros) -> str:
     """Troca os marcadores pelos números do backend, formatados em pt-BR."""
+    texto = _arrumar_a_linha_do_pix(texto)
     motivos = motivos_do_texto(texto)
+    if _pix_fora_da_linha(texto):
+        motivos.append("pix_fora_da_linha_do_cnpj")
     usados = _MARCADOR.findall(texto)
     preenchidos = valores(numeros)
     for nome in dict.fromkeys(usados):
