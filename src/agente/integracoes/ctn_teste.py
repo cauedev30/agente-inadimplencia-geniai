@@ -12,7 +12,6 @@ from collections.abc import Callable, Collection, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
-from agente.dominio.dinheiro import formatar_reais
 from agente.integracoes.ctn import (
     CTN,
     BaixaCTN,
@@ -279,8 +278,13 @@ class RoteadorCTN:
             fechar()
 
 
+# O link do modo teste: limpo como um link de verdade, num domínio que não existe (o Cauê,
+# 2026-11-17; o testador sabe que é falso). Sai quando a T9 trouxer o link do CTN.
+LINK_DE_TESTE = "https://ctnfalsoteste.com"
+
+
 class CTNEscritaDeTeste(CTNFalso):
-    """O link e a baixa do modo teste: aceita qualquer matrícula e devolve um texto `[TESTE]` no
+    """O link e a baixa do modo teste: aceita qualquer matrícula e devolve o `LINK_DE_TESTE` no
     lugar do link. O `id_externo` segue o do falso, porque `pagamento.referencia` é única."""
 
     def __init__(self):
@@ -288,8 +292,6 @@ class CTNEscritaDeTeste(CTNFalso):
 
     def _novo_link(self, tipo: str, matricula: str, valor: int | None, cobranca: int | None):
         link = super()._novo_link(tipo, matricula, valor, cobranca)
-        if valor is None:
-            url = "[TESTE] aqui viria o link para cadastrar o cartão"
-        else:
-            url = f"[TESTE] aqui viria o link de pagamento de {formatar_reais(valor)}"
-        return LinkPagamento(url=url, id_externo=link.id_externo, expira_em=link.expira_em)
+        return LinkPagamento(
+            url=LINK_DE_TESTE, id_externo=link.id_externo, expira_em=link.expira_em
+        )

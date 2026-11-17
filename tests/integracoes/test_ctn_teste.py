@@ -466,15 +466,15 @@ def test_fechar_com_o_real_sem_fechar_nao_faz_nada():
 # ---- as integrações de escrita de teste ----
 
 
-def test_o_link_de_pagamento_de_teste_leva_o_valor_formatado():
+def test_o_link_de_pagamento_de_teste_e_o_link_falso_limpo():
     link = CTNEscritaDeTeste().gerar_link_pagamento(SIM_1, 10020, cobranca_id=1)
-    assert link.url == "[TESTE] aqui viria o link de pagamento de R$ 100,20"
+    assert link.url == "https://ctnfalsoteste.com"
     assert link.id_externo.startswith("pagar-")
 
 
 def test_o_link_de_cadastro_do_cartao_de_teste():
     link = CTNEscritaDeTeste().gerar_link_cadastro_cartao(SIM_1)
-    assert link.url == "[TESTE] aqui viria o link para cadastrar o cartão"
+    assert link.url == "https://ctnfalsoteste.com"
     assert link.id_externo.startswith("cartao-")
 
 
@@ -533,7 +533,7 @@ def test_a_interpolacao_deixa_o_texto_de_teste_do_pix_e_do_link_sair_inteiro():
 
     assert texto == f"Ou pague aqui: {link.url}\nPix CNPJ: {pix.br_code}"
     assert texto.endswith("Pix CNPJ: 29760112000122")
-    assert "[TESTE] aqui viria o link de pagamento de R$ 100,20" in texto
+    assert texto.startswith("Ou pague aqui: https://ctnfalsoteste.com\n")
 
 
 # ---- o "pronto quando": a conferência com os casos ----
