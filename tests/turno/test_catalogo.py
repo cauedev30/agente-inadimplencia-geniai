@@ -3,7 +3,16 @@ from datetime import UTC, datetime
 import pytest
 
 from agente.tipos import Botao, TipoFixa
-from agente.turno.catalogo import TEXTO_CANAL_EXTERNO, DadosFixa, e_cortesia, mensagem_fixa
+from agente.turno.catalogo import (
+    POLITICAS,
+    TEXTO_ARQUIVO_RECEBIDO,
+    TEXTO_CANAL_EXTERNO,
+    Atendente,
+    DadosFixa,
+    Situacao,
+    e_cortesia,
+    mensagem_fixa,
+)
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 
@@ -88,3 +97,24 @@ def test_humano_no_whatsapp_usa_o_texto_da_politica_e_nao_tem_botao():
 def test_humano_no_whatsapp_sem_o_texto_e_erro():
     with pytest.raises(ValueError, match="texto"):
         mensagem_fixa(TipoFixa.HUMANO_NO_WHATSAPP, DadosFixa("Maria", None, None))
+
+
+def test_a_foto_sem_texto_tem_a_frase_propria_com_o_atendente():
+    saida = POLITICAS[Situacao.FOTO_SEM_TEXTO]
+
+    assert isinstance(saida, Atendente)
+    assert saida.frase == TEXTO_ARQUIVO_RECEBIDO
+    assert TEXTO_ARQUIVO_RECEBIDO == (
+        "Recebi o seu arquivo. Um atendente da unidade vai conferir e continuar com você aqui "
+        "mesmo, nesta conversa."
+    )
+
+
+def test_so_a_foto_sem_texto_traz_frase_propria_entre_os_atendentes():
+    com_frase = [
+        situacao
+        for situacao, saida in POLITICAS.items()
+        if isinstance(saida, Atendente) and saida.frase
+    ]
+
+    assert com_frase == [Situacao.FOTO_SEM_TEXTO]

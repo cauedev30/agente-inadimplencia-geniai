@@ -12,7 +12,7 @@ from agente.integracoes.chatwoot import Chatwoot
 from agente.pagamento.expirar import expirar_pendentes
 from agente.politica import Politica
 from agente.tipos import EstadoConversa, Laudo, MotivoHumano, OrigemMensagem, TipoFixa
-from agente.turno.catalogo import DadosFixa, mensagem_fixa
+from agente.turno.catalogo import MOTIVOS_DE_FRASE_FIXA, DadosFixa, mensagem_fixa
 
 NOTA_TETO_REPETIDO = "O teto já foi atingido; o cliente escreveu de novo."
 NOTA_CONCILIACAO_REPETIDA = (
@@ -61,6 +61,19 @@ def enviar_fixa(
     )
 
 
+def enviar_texto(
+    sessao: Session,
+    chatwoot: Chatwoot,
+    conversa: Conversa,
+    texto: str,
+    origem: OrigemMensagem,
+    agora: datetime,
+) -> None:
+    """Envia um texto pronto ao cliente e o grava fora do teto, com a `origem` dada."""
+    chatwoot_id = chatwoot.enviar_mensagem(conversa.chatwoot_conversa_id, texto, [])
+    registrar_mensagem(sessao, conversa.id, origem, texto, chatwoot_id, False, agora)
+
+
 def _saiu_para_o_humano(sessao: Session, conversa: Conversa, *motivos: MotivoHumano) -> bool:
     consulta = select(
         exists().where(
@@ -95,14 +108,20 @@ def fazer_handoff(
     laudo_id: int | None = None,
     *,
     enviar_mensagem: bool = True,
+    texto: str | None = None,
+    origem_do_texto: OrigemMensagem = OrigemMensagem.AGENTE,
 ) -> None:
     """Nota com o laudo, etiqueta, atribuição, status aberta, estado e a mensagem do canal.
 
     O atendente segue na mesma conversa do WhatsApp (D60): a mensagem é a `CANAL_EXTERNO`, sem botão
     e sem link; por DESCONFIANCA (golpe, D44), a fixa `HUMANO_NO_WHATSAPP`. Sem `enviar_mensagem`,
     o cliente não recebe nada: é a volta ao humano de quem já recebeu a 6ª, ou de quem já recebeu a
-    mensagem da cobrança quitada (CONCILIACAO). O texto ao cliente é sempre fixo: o Luna não
-    redige o handoff.
+    mensagem da cobrança quitada (CONCILIACAO).
+
+    Com `texto` (a passagem que o Luna redigiu e o conferidor aprovou, ou a frase própria da
+    política), ele sai no lugar da fixa, uma mensagem só, fora do teto e com a `origem_do_texto`.
+    Nos motivos de `MOTIVOS_DE_FRASE_FIXA` (jurídico e golpe) o `texto` é ignorado: a fixa sai
+    sempre.
     """
     if conversa.chatwoot_conversa_id is None:
         raise ValueError(f"a conversa {conversa.id} não está ligada a uma conversa do Chatwoot")
@@ -118,6 +137,9 @@ def fazer_handoff(
     if politica.handoff_expira_pix:
         expirar_pendentes(sessao, conversa.cobranca)
     if not enviar_mensagem:
+        return
+    if texto and motivo not in MOTIVOS_DE_FRASE_FIXA:
+        enviar_texto(sessao, chatwoot, conversa, texto, origem_do_texto, agora)
         return
     nome = conversa.cobranca.cliente.nome
     if motivo is MotivoHumano.DESCONFIANCA:

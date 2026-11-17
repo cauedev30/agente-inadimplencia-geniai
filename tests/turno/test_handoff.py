@@ -13,8 +13,8 @@ from agente.tipos import (
     OrigemMensagem,
     StatusPagamento,
 )
-from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
-from agente.turno.handoff import devolver_ao_robo, fazer_handoff
+from agente.turno.catalogo import MOTIVOS_DE_FRASE_FIXA, TEXTO_CANAL_EXTERNO
+from agente.turno.handoff import devolver_ao_robo, enviar_texto, fazer_handoff
 
 AGORA = datetime(2026, 10, 26, 13, tzinfo=UTC)
 LAUDOS = [Laudo("risco_juridico", True, 0.91, 0.80)]
@@ -172,3 +172,108 @@ def test_os_outros_motivos_mandam_o_canal_externo_sem_botao(sessao, conversa, po
 
     assert chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO, TEXTO_CANAL_EXTERNO]
     assert [c[3] for c in chatwoot.chamadas if c[0] == "enviar_mensagem"] == [[], []]
+
+
+# A passagem redigida pelo Luna sai no lugar da frase fixa
+
+PASSAGEM = "Entendi, Ana. Um atendente da unidade vai continuar com você aqui, nesta conversa."
+
+
+def _handoff_com_texto(sessao, conversa, politica, chatwoot, motivo, **opcoes):
+    conversa.chatwoot_conversa_id = 555
+    fazer_handoff(
+        sessao, chatwoot, conversa, motivo, LAUDOS, politica, 4, AGORA, texto=PASSAGEM, **opcoes
+    )
+
+
+def test_enviar_texto_envia_e_grava_fora_do_teto_com_a_origem_dada(sessao, conversa, politica):
+    conversa.chatwoot_conversa_id = 555
+    chatwoot = ChatwootFalso()
+
+    enviar_texto(sessao, chatwoot, conversa, PASSAGEM, OrigemMensagem.AGENTE, AGORA)
+
+    assert chatwoot.enviadas(555) == [PASSAGEM]
+    mensagem = sessao.scalars(select(Mensagem)).one()
+    assert (mensagem.origem, mensagem.texto) == (OrigemMensagem.AGENTE, PASSAGEM)
+    assert mensagem.conta_no_teto is False and mensagem.chatwoot_message_id == "falso-1"
+
+
+def test_handoff_com_texto_manda_a_passagem_no_lugar_da_fixa_e_na_mesma_ordem(
+    sessao, conversa, politica
+):
+    chatwoot = ChatwootFalso()
+
+    _handoff_com_texto(sessao, conversa, politica, chatwoot, MotivoHumano.CONCILIACAO)
+
+    assert [chamada[0] for chamada in chatwoot.chamadas] == [
+        "nota_privada",
+        "etiquetar",
+        "atribuir",
+        "mudar_status",
+        "enviar_mensagem",
+    ]
+    assert chatwoot.enviadas(555) == [PASSAGEM]
+    assert chatwoot.chamadas[-1][3] == []
+    mensagem = sessao.scalars(select(Mensagem)).one()
+    assert (mensagem.origem, mensagem.texto) == (OrigemMensagem.AGENTE, PASSAGEM)
+    assert mensagens_no_teto(sessao, conversa.id) == 0
+    assert conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO
+    assert conversa.motivo_humano is MotivoHumano.CONCILIACAO
+
+
+def test_handoff_com_texto_e_origem_fixa_grava_como_fixa(sessao, conversa, politica):
+    _handoff_com_texto(
+        sessao,
+        conversa,
+        politica,
+        ChatwootFalso(),
+        MotivoHumano.CONCILIACAO,
+        origem_do_texto=OrigemMensagem.FIXA,
+    )
+
+    assert sessao.scalars(select(Mensagem)).one().origem is OrigemMensagem.FIXA
+
+
+def test_juridico_com_texto_recebe_a_fixa_do_canal_externo(sessao, conversa, politica):
+    chatwoot = ChatwootFalso()
+
+    _handoff_com_texto(sessao, conversa, politica, chatwoot, MotivoHumano.JURIDICO)
+
+    assert chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+    assert sessao.scalars(select(Mensagem)).one().origem is OrigemMensagem.FIXA
+
+
+def test_desconfianca_com_texto_recebe_a_fixa_do_whatsapp(sessao, conversa, politica):
+    chatwoot = ChatwootFalso()
+
+    _handoff_com_texto(sessao, conversa, politica, chatwoot, MotivoHumano.DESCONFIANCA)
+
+    assert chatwoot.enviadas(555) == [politica.texto_humano_no_whatsapp]
+    assert sessao.scalars(select(Mensagem)).one().origem is OrigemMensagem.FIXA
+
+
+def test_sem_enviar_mensagem_o_texto_nao_sai(sessao, conversa, politica):
+    chatwoot = ChatwootFalso()
+
+    _handoff_com_texto(
+        sessao, conversa, politica, chatwoot, MotivoHumano.CONCILIACAO, enviar_mensagem=False
+    )
+
+    assert chatwoot.enviadas(555) == []
+    assert sessao.scalars(select(Mensagem)).all() == []
+    assert conversa.estado is EstadoConversa.ATENDIMENTO_HUMANO
+
+
+def test_texto_vazio_cai_na_fixa(sessao, conversa, politica):
+    chatwoot = ChatwootFalso()
+    conversa.chatwoot_conversa_id = 555
+
+    fazer_handoff(
+        sessao, chatwoot, conversa, MotivoHumano.CONCILIACAO, [], politica, 4, AGORA, texto=""
+    )
+
+    assert chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+
+
+def test_so_o_juridico_e_o_golpe_tem_frase_fixa_obrigatoria():
+    assert MOTIVOS_DE_FRASE_FIXA == {MotivoHumano.JURIDICO, MotivoHumano.DESCONFIANCA}

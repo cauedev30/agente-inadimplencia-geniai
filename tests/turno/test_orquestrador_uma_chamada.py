@@ -21,7 +21,12 @@ from agente.tipos import (
     ResultadoTurno,
 )
 from agente.turno import orquestrador
-from agente.turno.catalogo import POLITICAS, TEXTO_CANAL_EXTERNO, Situacao
+from agente.turno.catalogo import (
+    POLITICAS,
+    TEXTO_ARQUIVO_RECEBIDO,
+    TEXTO_CANAL_EXTERNO,
+    Situacao,
+)
 from agente.turno.orquestrador import processar_turno
 from agente.turno.uma_chamada import ORIGEM_UMA_CHAMADA, SINAIS
 
@@ -762,3 +767,97 @@ def test_o_texto_recusado_depois_do_executar_desfaz_a_acao_e_grava_o_motivo(
         {"executado": False},
     )
     assert _do_agente(sessao) == []
+
+
+# A passagem ao atendente: o `reply` do Luna no lugar da frase fixa
+
+PASSAGEM = "Entendi, Ana. Um atendente da unidade vai conferir o seu pagamento, aqui mesmo."
+
+
+def test_ja_paguei_com_passagem_valida_chega_ao_cliente_fora_do_teto(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica, [_bruto(alega_pagamento=True, acao="NONE", reply=PASSAGEM)])
+
+    assert cliente("já paguei", deps) is ResultadoTurno.HANDOFF
+
+    assert deps.chatwoot.enviadas(555) == [PASSAGEM]
+    assert ligada.motivo_humano is MotivoHumano.CONCILIACAO
+    assert ligada.estado is EstadoConversa.ATENDIMENTO_HUMANO
+    turno = _turno(sessao)
+    assert turno.redacao["passagem"] == "LLM" and turno.redacao["saida"] == "HANDOFF"
+    [mensagem] = _do_agente(sessao)
+    assert (mensagem.texto, mensagem.conta_no_teto) == (PASSAGEM, False)
+    assert len(deps.llm_turno.pedidos) == 1
+
+
+def test_passagem_com_digito_cai_na_fixa_sem_segunda_chamada(sessao, ligada, cliente, politica):
+    ruim = _bruto(alega_pagamento=True, acao="NONE", reply="Um atendente confere os 100 reais.")
+    deps = _deps(politica, [ruim, _bruto()])
+
+    cliente("já paguei", deps)
+
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+    assert _turno(sessao).redacao["passagem"] == "FIXA"
+    assert _turno(sessao).redacao["tentativas"][0]["reprovadas"] == ["valor_em_digitos"]
+    assert len(deps.llm_turno.pedidos) == 1
+    [mensagem] = sessao.scalars(select(Mensagem).where(Mensagem.origem == OrigemMensagem.FIXA))
+    assert mensagem.conta_no_teto is False
+
+
+@pytest.mark.parametrize(
+    ("sinal", "fixa"),
+    [("risco_juridico", TEXTO_CANAL_EXTERNO), ("desconfia_golpe", None)],
+)
+def test_juridico_e_golpe_mandam_a_fixa_mesmo_com_passagem_valida(
+    sessao, ligada, cliente, politica, sinal, fixa
+):
+    # Sem palavra-chave na mensagem, o caminho é o sinal do Luna.
+    deps = _deps(politica, [_bruto(**{sinal: True}, acao="NONE", reply=PASSAGEM)])
+
+    cliente("não tenho certeza disso", deps)
+
+    assert deps.chatwoot.enviadas(555) == [fixa or deps.politica.texto_humano_no_whatsapp]
+    assert _turno(sessao).redacao["passagem"] == "FIXA"
+    assert _do_agente(sessao) == []
+
+
+def test_none_fora_da_cortesia_segue_com_a_fixa(sessao, ligada, cliente, politica):
+    deps = _deps(politica, [_bruto(acao="NONE", reply=PASSAGEM)])
+
+    assert cliente("to cansado disso tudo", deps) is ResultadoTurno.HANDOFF
+
+    # O NONE não é motivo de passagem do Luna: o `reply` não vale, sai a fixa.
+    assert ligada.motivo_humano is MotivoHumano.SEM_RESPOSTA
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+
+
+def test_a_palavra_chave_nao_leva_passagem(sessao, ligada, cliente, politica):
+    deps = _deps(politica, [])
+
+    cliente("vou chamar meu advogado", deps)
+
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+    assert _turno(sessao).redacao["passagem"] == "FIXA"
+
+
+def test_foto_sem_texto_recebe_a_frase_do_arquivo_como_fixa_fora_do_teto(sessao, ligada, politica):
+    registrar_mensagem(
+        sessao,
+        ligada.id,
+        OrigemMensagem.CLIENTE,
+        "",
+        "cw-foto",
+        False,
+        SEGUNDA_10H,
+        anexos=[{"tipo": "image"}],
+    )
+    deps = _deps(politica, [])
+
+    assert processar_turno(sessao, ligada.id, SEGUNDA_10H, deps) is ResultadoTurno.HANDOFF
+
+    assert deps.chatwoot.enviadas(555) == [TEXTO_ARQUIVO_RECEBIDO]
+    assert ligada.motivo_humano is MotivoHumano.CONCILIACAO
+    assert deps.llm_turno.pedidos == []
+    [mensagem] = sessao.scalars(select(Mensagem).where(Mensagem.origem == OrigemMensagem.FIXA))
+    assert (mensagem.texto, mensagem.conta_no_teto) == (TEXTO_ARQUIVO_RECEBIDO, False)

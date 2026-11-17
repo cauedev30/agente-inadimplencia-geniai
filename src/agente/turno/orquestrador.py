@@ -324,8 +324,11 @@ def _handoff(
     laudo_id: int | None = None,
     *,
     enviar_mensagem: bool = True,
+    texto: str | None = None,
+    origem_do_texto: OrigemMensagem = OrigemMensagem.AGENTE,
 ) -> None:
-    """A saída para o humano: o atendente segue na mesma conversa (D60), com a frase fixa."""
+    """A saída para o humano: o atendente segue na mesma conversa (D60), com a frase fixa ou, se
+    houver, o `texto` (a passagem aprovada do Luna, ou a frase da política)."""
     fazer_handoff(
         sessao,
         deps.chatwoot,
@@ -337,6 +340,8 @@ def _handoff(
         agora,
         laudo_id=laudo_id,
         enviar_mensagem=enviar_mensagem,
+        texto=texto,
+        origem_do_texto=origem_do_texto,
     )
 
 
@@ -419,6 +424,14 @@ def _motivo_da_politica(situacao: Situacao) -> MotivoHumano:
     if not isinstance(saida, Atendente):
         raise TypeError(f"a política de {situacao} não manda ao atendente")
     return saida.motivo
+
+
+def _frase_do_atendente(situacao: Situacao) -> str | None:
+    """A frase própria que a tabela de políticas dá ao atendente da situação, se houver."""
+    saida = POLITICAS[situacao]
+    if not isinstance(saida, Atendente):
+        raise TypeError(f"a política de {situacao} não manda ao atendente")
+    return saida.frase
 
 
 def _frase_da_politica(situacao: Situacao) -> str:
@@ -599,7 +612,16 @@ def _seguir(
         return _fechar_ignorado(sessao, turno, avaliacao, agora, rotulo=rotulo)
     if resolucao.motivo is not None:
         laudos, laudo_id = _causa_uma_chamada(resolucao, jev1, ids)
-        _handoff(sessao, conversa, resolucao.motivo, deps, agora, laudos, laudo_id)
+        _handoff(
+            sessao,
+            conversa,
+            resolucao.motivo,
+            deps,
+            agora,
+            laudos,
+            laudo_id,
+            texto=resolucao.passagem,
+        )
         return _fechar(
             sessao,
             turno,
@@ -1155,7 +1177,10 @@ def _comprovante_sem_texto(
         )
         return ResultadoTurno.IGNORADO
     motivo = _motivo_da_politica(Situacao.FOTO_SEM_TEXTO)
-    _handoff(sessao, conversa, motivo, deps, agora)
+    frase = _frase_do_atendente(Situacao.FOTO_SEM_TEXTO)
+    _handoff(
+        sessao, conversa, motivo, deps, agora, texto=frase, origem_do_texto=OrigemMensagem.FIXA
+    )
     fechar_turno(
         sessao,
         turno.id,
