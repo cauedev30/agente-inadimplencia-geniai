@@ -214,7 +214,7 @@ O que não entrou:
   o código faz o reinício antes do humano. **NÃO SERVE**.
 - **F-10, linha do prompt quase sem efeito** (`turno/uma_chamada.py:295`): "leve a preocupação a sério" está em "como
   escrever o reply", mas com `desconfia_golpe` ou a palavra "golpe" o `reply` nunca sai. Mexer no prompt só com dado
-  novo. **NÃO SERVE**.
+  novo. **NÃO SERVE**. **Feito em 2026-11-17** (`29966b1`, autonomia do Luna): a linha saiu do prompt.
 - **F-11, defesas de antes do esquema estrito** (`turno/uma_chamada.py:359-364`, `integracoes/llm_turno.py:19-21`): o
   `null` que vira `""` e o JSON cercado por crases não têm entrada possível com o `json_schema` estrito. Ficam se o
   provedor puder mudar. **ANTES DE ESCALAR**.
@@ -293,3 +293,25 @@ Os 5 casos passaram nos 25 passos no `dev2` (`7585dbd`): valores, nomes, Pix `[T
 - **No `/paguei`, o "Recebemos o seu pagamento" chega antes do "[TESTE] Simulando..."**: só no teste. **NÃO SERVE**.
 - **O gateway entregou uma mensagem como `[unknown]`, sem anexo** (11:54, o Chatwoot gravou assim): o Cauê acha que
   foi o texto "/caso1". Se for, o gateway estragou um texto. Com o dev (o gateway não é nosso).
+
+## Da autonomia do Luna (2026-11-17)
+
+Fonte: a spec e o plano da autonomia (`specs/2026-11-17-auditoria-agente-com-autonomia.md` e
+`specs/planos/2026-11-17-agente-com-autonomia.md`, no workspace) e as revisões das etapas 1 a 3. O que ficou de fora:
+
+- **Promessa de pagamento como ação:** hoje o agente responde ao "pago dia 20" pela regra padrão (não registra nem
+  segura prazo, G11); registrar a data e lembrar o cliente pede o disparador. Depende do T4. **ANTES DO PILOTO REAL**.
+- **Responder "quais meses estão em aberto" com dado do backend:** a pergunta vai ao atendente (`sem_resposta`), porque o
+  Luna não tem os meses; o backend já os guarda (`meses_em_aberto`). Mais um marcador e uma regra. **TESTE MEDE**.
+- **A passagem sai dentro da transação do handoff:** como a frase fixa, ela pode sair mais de uma vez se a transação for
+  repetida. Junto do AUD-08. **ANTES DO PILOTO REAL**.
+- **Falta o teste da passagem que só chega na 2ª tentativa** (`resolver_turno`, revisão da etapa 2): um sinal que o Luna
+  marca só na 2ª chamada leva ao atendente, e a passagem vem dessa 2ª saída. O código faz; nenhum teste confere.
+  **NÃO SERVE**.
+- **O `resumo-turnos` sem `--desde` lê a tabela `turno` inteira** (`turno/resumo.py`): com o banco do piloto real, passa
+  a custar. Usar sempre `--desde`, ou ler por data no banco. **ANTES DE ESCALAR**.
+- **O `SEND_CTN_LINK` sempre gera um link novo no CTN, e o Pix reaproveita** (`turno/executar.py`, conferência da 1.7): o
+  link descartado, ou reanexado depois de um descarte, deixa um `Pagamento` `LINK_CTN` pendente órfão. Conferir com a T9
+  (o que o CTN faz com o link que ninguém usa). **ANTES DO PILOTO REAL**.
+- **"No Pix tem desconto?" e "O valor do Pix é o mesmo do link?" podem sair como `OFFER_DISCOUNT`** (leva o link, não a
+  chave): conferir no ensaio com o Luna real, sem código antes. **TESTE MEDE**.

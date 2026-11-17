@@ -167,6 +167,27 @@ Segundo o Cauê (2026-10-20), o cartão é um dos trabalhos da implantação; fa
    (D11, D16). Sobram 40 minutos para conversar; quem responder depois das 18h só recebe resposta no
    dia seguinte, às 8h. Sugestão: antecipar para o bloco das 16h30 ou antes.
 
+### G11. Promessa de pagamento
+
+Veio da autonomia do Luna (2026-11-17): agora o agente responde ao "posso pagar dia 20?" em vez de mandar ao atendente, e
+precisa saber o que a operação aceita. É a parte da operação da C5.
+
+1. A operação **aceita** a promessa de pagamento ("pago dia 20")? Se aceita, **registra** a data? **Segura** o desconto
+   ou o prazo até lá?
+   **Padrão (2026-11-17):** o agente não registra promessa nem segura prazo ou desconto. Diz que o cliente pode pagar
+   quando puder, pedindo o Pix ou o link de novo na conversa. É a regra da `POLITICA_COBRANCA`; a promessa como ação,
+   com registro e lembrete, depende do disparador (T4) e está em [`depois.md`](depois.md).
+
+### G12. O que o agente pode dizer da R6 sobre o corte
+
+Na R6 (a última régua, com 6 mensalidades em aberto) o cliente está perto do corte. O diagnóstico de 2026-11-17 aponta que o Luna não conhece esse dado, e o código não tem uma
+regra do que pode ser dito sobre ele.
+
+1. O agente pode **citar o corte** (ou o cancelamento, ou outra consequência do atraso) como argumento para pagar? Em que
+   palavras, e a partir de que prazo?
+   **Padrão (2026-11-17):** nada. O Luna não cita corte, cancelamento nem consequência do atraso (regra da
+   `POLITICA_COBRANCA`). Usar o corte como argumento depende da resposta da operação.
+
 ---
 
 ## Para o time técnico
@@ -449,6 +470,10 @@ Já existe um caso parecido: a resposta do agente que ficou pronta e não saiu a
 
 *(Onde o texto diz Jev 1, 2 ou 3, leia: o Luna escolhe a ação e o código confere; D59.)*
 
+**Em 2026-11-17:** com a autonomia do Luna, quem adia ("posso pagar dia 20?") recebe uma resposta do Luna pela regra
+padrão da G11 (não registra promessa nem segura prazo), em vez de o agente ficar calado. A pausa das cobranças e a retomada
+da régua, abaixo, seguem não implementadas e dependem do disparador (T4).
+
 Quem diz "recebo dia 10, aí eu pago" não está desenhado na spec. Hoje o Jev 2 decide `NONE`, o agente
 fica calado e a régua segue: a próxima cobrança sai no dia normal, o que soa como ser ignorado e cobrado
 de novo. **Padrão sugerido (2026-10-29), que o Cauê vai seguir, mas ainda não implementado:**
@@ -482,7 +507,9 @@ deixa a nota com o resumo. Desenho, riscos e a alternativa (o humano no próprio
 reprova duas vezes recebe a resposta segura, e na vez seguinte o atendente), e o LLM, o CTN, o Pix ou o Chatwoot fora do
 ar seguem os padrões 4 e 5. **Revista também pela D63 (2026-11-13):** não há resposta segura, e o texto reprovado duas
 vezes vai direto ao atendente (`VALIDACAO`); o `NONE` fora da lista de cortesia também vai ao atendente
-(`SEM_RESPOSTA`), em vez de o agente não responder nada. O texto abaixo é o histórico.
+(`SEM_RESPOSTA`), em vez de o agente não responder nada. **E em 2026-11-17:** a pergunta sobre a cobrança que o `NONE`
+deixava sem resposta passou a ser da ação `ANSWER`, respondida pelo Luna; o `NONE` ficou só para a confirmação e o
+agradecimento (ver [`politicas.md`](politicas.md)). O texto abaixo é o histórico.
 
 A etapa 5 precisou de regras que a spec não fixava. **Padrões até você decidir (2026-10-22):**
 

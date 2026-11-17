@@ -123,6 +123,49 @@ O `/saude` do serviço dá 503 se o laço dos turnos parou há mais de 60 segund
 publica porta, consulte de dentro do contêiner:
 `docker compose -f deploy/dev2/compose.yaml exec agente python -c "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8000/saude').read())"`.
 
+## O resumo dos turnos (`agente resumo-turnos`)
+
+Conta os turnos por saída (texto do Luna, mensagem fixa, atendente, silêncio), o atendente por motivo, o que o código
+reprovou e em quantas conversas o meio de pagamento foi na 1ª resposta. Só lê o banco e não traz texto de cliente nem
+telefone. Dentro do contêiner o `agente` está no PATH e o banco e a política vêm do `agente.env`; de dentro de
+`/opt/agente-inadimplencia/app`:
+
+```
+docker compose -f deploy/dev2/compose.yaml exec -T agente agente resumo-turnos --ate AAAA-MM-DD > resumo-antes.md
+docker compose -f deploy/dev2/compose.yaml exec -T agente agente resumo-turnos --desde AAAA-MM-DD > resumo-depois.md
+```
+
+`--ate` e `--desde` contam dias inteiros no fuso da janela. Use o dia da subida como corte: o "antes" é até ele, o
+"depois" é dele em diante. Sem `--desde`, o comando lê a tabela `turno` inteira. Não use `--saida`: o arquivo ficaria
+dentro do contêiner e se perderia no próximo `up --build`.
+
+## O ensaio da autonomia (`autonomia.yaml`)
+
+O ensaio sobe o próprio serviço (um Chatwoot falso, um SQLite novo e o Luna real) e **não toca no Postgres nem no Chatwoot
+do `dev2`**; só texto inventado vai ao Luna. O `autonomia.yaml` tem a conversa do desconto, as 15 dúvidas, os casos de
+pessoa e o `link-seguro`. Cada rodada grava uma pasta `ensaio-AAAAMMDD-HHMM/` no `--kit`, com o `relatorio.md` e o
+`servico.log`. Rode **3 vezes**; o aceite é a `desconto-so-no-cartao` e os 4 roteiros `duvidas-*` passarem nas 3, sem
+atendente. Os outros roteiros vão ao relatório, que o Cauê lê. Cada rodada gasta cota do Luna.
+
+Na máquina de desenvolvimento, de dentro de `repo/` (a chave do Luna vem de `AGENTE_LLM_API_KEY` ou de
+`secrets/openai.local.json`):
+
+```
+python -m uv run python ferramentas/demo-whatsapp/ensaiar.py --kit ../pre-sombra/demo-whatsapp --teste deploy/dev2/politica-teste.exemplo.toml --roteiros ferramentas/demo-whatsapp/roteiros/autonomia.yaml
+```
+
+*A confirmar:* rodar no próprio servidor **nunca foi feito** e pede o ok do Cauê (a máquina é compartilhada). O
+`ensaiar.py` lê a chave do ambiente justamente para isso. A receita seguiria a dos testes do Postgres: um contêiner
+descartável com o código montado, que instala as dependências de dev (o `pyyaml` é do grupo dev). Exporte a chave no
+shell antes, sem escrevê-la na linha de comando, e use uma pasta para o resultado:
+
+```
+docker run --rm -v "$PWD":/app -w /app -v /opt/agente-inadimplencia/ensaio:/kit -e UV_PROJECT_ENVIRONMENT=/tmp/venv -e PYTHONDONTWRITEBYTECODE=1 -e AGENTE_LLM_API_KEY python:3.12-slim sh -c "pip install -q uv && uv sync --frozen && uv run python ferramentas/demo-whatsapp/ensaiar.py --kit /kit --teste deploy/dev2/politica-teste.exemplo.toml --roteiros ferramentas/demo-whatsapp/roteiros/autonomia.yaml"
+```
+
+Antes, olhe a memória livre do servidor (o ensaio sobe um serviço e um Chatwoot falso). A porta 8010 do ensaio fica
+dentro do contêiner descartável, que não publica porta.
+
 ## Portas
 
 **Este projeto não usa nenhuma porta do servidor.** O `agente` só `expose` a 8000 dentro da rede do
