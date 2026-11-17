@@ -126,4 +126,4 @@ regua = "regua"  # opcional; quando vem, vence o número de mensalidades
 cardapio = "cardapio-teste.toml"  # relativo a esta pasta
 campanha = "teste"  # a campanha das cobranças dos casos
 caso_padrao = 1  # o caso do 1º contato
-texto_abertura = "Oi, {nome}! Vi {mensalidades} mensalidades em aberto, {valor} no total."  # provisório (P2); {nome} e {valor} obrigatórios
+texto_abertura = "Oi, {nome}! Vi {mensalidades} mensalidades em aberto, {valor} no total.\nPara pagar, use o Pix CNPJ: 29760112000122"  # provisório (P2); {nome} e {valor} obrigatórios; o Pix embaixo, pedido do Cauê (2026-11-17)
