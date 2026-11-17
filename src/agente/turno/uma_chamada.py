@@ -118,6 +118,7 @@ def acoes_permitidas(
             Acao.OFFER_DISCOUNT,
             Acao.SEND_CTN_LINK,
             Acao.GENERATE_PIX,
+            Acao.ANSWER,
             Acao.OUT_OF_SCOPE,
             Acao.NONE,
         )

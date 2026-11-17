@@ -71,6 +71,11 @@ CRITERIOS_DA_ACAO = {
         "pago'"
     ),
     Acao.GENERATE_PIX: "o cliente pede o Pix pelo nome (código, chave, pagar no Pix)",
+    Acao.ANSWER: (
+        "pergunta ou comentário sobre a cobrança que as regras da politica respondem, sem pedir "
+        "valor, desconto, link nem Pix; também o cumprimento ou o comentário depois de a dívida "
+        "já ter sido informada"
+    ),
     Acao.OUT_OF_SCOPE: (
         "o assunto não é a dívida nem o pagamento (horário, endereço, outro serviço)"
     ),
@@ -91,6 +96,10 @@ DESCRICAO_ACOES = {
         f"cliente disse e com as mesmas linhas de chave, valor e referente: {TEXTO_DO_PIX!r}; se o "
         "histórico já tem uma oferta com desconto, dizer que no Pix vale o valor integral e que o "
         "desconto só vale pelo link"
+    ),
+    "ANSWER": (
+        "responder em uma ou duas frases com as regras da politica e terminar no próximo passo "
+        "para pagar; se o sistema anexar o Pix ou o link, incluí-lo"
     ),
     "OUT_OF_SCOPE": "o sistema responde com uma frase pronta; o reply fica vazio",
 }

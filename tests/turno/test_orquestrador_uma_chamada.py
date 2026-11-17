@@ -268,6 +268,123 @@ def test_o_desconto_sobe_o_degrau_e_manda_o_link_com_o_valor_final(
     assert turno.numeros["degrau"] == 1
 
 
+# A resposta (ANSWER)
+
+REPLY_ANSWER_DESCONTO = (
+    "O desconto vale só pelo link: de {divida} por {valor_final}. É só pagar e cadastrar o cartão."
+)
+REPLY_ANSWER_SEM_MEIO = "Não dá para parcelar: o valor é {divida}, à vista."
+REPLY_ANSWER_COM_PIX = REPLY_ANSWER_SEM_MEIO + "\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
+
+
+def test_o_caso_do_desconto_so_no_cartao_a_answer_responde_sem_mandar_ao_atendente(
+    sessao, ligada, cliente, politica
+):
+    """O caso do Cauê: "Tem desconto?" e depois "então esse desconto só existe se eu cadastrar
+    meu cartão?". A 2ª é dúvida da cobrança: o Luna responde, sem anexo, e a conversa segue."""
+    deps = _deps(
+        politica,
+        [
+            _bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK),
+            _bruto(acao="ANSWER", reply=REPLY_ANSWER_DESCONTO),
+        ],
+    )
+
+    assert cliente("Tem desconto?", deps) is ResultadoTurno.ENVIADO
+    pagamentos_antes = len(sessao.scalars(select(Pagamento)).all())
+    assert (
+        cliente("então esse desconto só existe se eu cadastrar meu cartão?", deps)
+        is ResultadoTurno.ENVIADO
+    )
+
+    [_, segunda] = deps.chatwoot.enviadas(555)
+    assert "R$ 70,20" in segunda and "R$ 100,20" in segunda
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.acoes_anexadas) == ("ANSWER", [])
+    assert turno.texto_enviado == segunda and turno.redacao["saida"] == "LLM"
+    assert ligada.degrau_atual == 1
+    assert len(sessao.scalars(select(Pagamento)).all()) == pagamentos_antes == 1
+    assert len(deps.ctn.links) == 1 and deps.pix.cobrancas == {}
+    assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
+    assert ligada.motivo_humano is None
+    assert EstadoConversa.ATENDIMENTO_HUMANO not in {
+        t.para for t in sessao.scalars(select(Transicao)).all()
+    }
+    mensagens = _do_agente(sessao)
+    assert len(mensagens) == 2 and all(m.conta_no_teto for m in mensagens)
+    assert mensagens[1].texto == segunda
+    entrada = json.loads(deps.llm_turno.pedidos[1][1])
+    assert entrada["meio_vigente"] == "LINK_CTN"
+
+
+def test_a_1a_resposta_por_answer_sem_meio_enviado_leva_o_pix_e_cria_o_pagamento(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica, [_bruto(acao="ANSWER", reply=REPLY_ANSWER_COM_PIX)])
+
+    assert cliente("dá pra parcelar?", deps) is ResultadoTurno.ENVIADO
+
+    [pix] = deps.pix.cobrancas.values()
+    [texto] = deps.chatwoot.enviadas(555)
+    assert "R$ 100,20" in texto and pix.br_code in texto
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.acoes_anexadas) == ("ANSWER", ["GENERATE_PIX"])
+    assert sessao.scalars(select(Pagamento)).one().forma is FormaPagamento.PIX
+    assert ligada.forma_enviada is FormaPagamento.PIX
+    assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
+
+
+def test_a_1a_resposta_por_answer_do_propenso_leva_o_link(sessao, ligada, cliente, politica):
+    ligada.cobranca.propenso_cartao = True
+    reply = "Não dá para parcelar: o valor é {divida}, à vista. Pague e cadastre o cartão: "
+    deps = _deps(politica, [_bruto(acao="ANSWER", reply=reply + "{link_ctn}")])
+
+    assert cliente("dá pra parcelar?", deps) is ResultadoTurno.ENVIADO
+
+    [link] = deps.ctn.links
+    [texto] = deps.chatwoot.enviadas(555)
+    assert f"https://ctn.invalid/pagar/{link}" in texto
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.acoes_anexadas) == ("ANSWER", ["SEND_CTN_LINK"])
+    assert sessao.scalars(select(Pagamento)).one().forma is FormaPagamento.LINK_CTN
+
+
+def test_a_answer_sem_o_marcador_do_anexo_e_reprovada_e_ganha_a_2a_tentativa(
+    sessao, ligada, cliente, politica
+):
+    sem_pix = _bruto(acao="ANSWER", reply=REPLY_ANSWER_SEM_MEIO)
+    com_pix = _bruto(acao="ANSWER", reply=REPLY_ANSWER_COM_PIX)
+    deps = _deps(politica, [sem_pix, com_pix])
+
+    assert cliente("dá pra parcelar?", deps) is ResultadoTurno.ENVIADO
+
+    turno = _turno(sessao)
+    primeira, segunda = turno.redacao["tentativas"]
+    assert "marcador_faltando:pix_copia_e_cola" in primeira["reprovadas"]
+    assert segunda["reprovadas"] == []
+    assert len(deps.llm_turno.pedidos) == 2
+    [pix] = deps.pix.cobrancas.values()
+    assert pix.br_code in deps.chatwoot.enviadas(555)[0]
+
+
+def test_a_answer_com_link_sem_anexo_reprovada_2_vezes_vai_ao_atendente_por_validacao(
+    sessao, ligada, cliente, politica
+):
+    ruim = _bruto(acao="ANSWER", reply="Aqui está o link: {link_ctn}")
+    deps = _deps(politica, [ruim, ruim])
+
+    assert cliente("dá pra parcelar?", deps) is ResultadoTurno.HANDOFF
+
+    assert ligada.motivo_humano is MotivoHumano.VALIDACAO
+    assert deps.chatwoot.enviadas(555) == [TEXTO_CANAL_EXTERNO]
+    turno = _turno(sessao)
+    assert turno.acao_principal == "NAO_EXECUTADA:ANSWER"
+    assert "marcador_sem_valor:link_ctn" in turno.redacao["tentativas"][0]["reprovadas"]
+    assert sessao.scalars(select(Pagamento)).all() == []
+    assert deps.pix.cobrancas == {} and deps.ctn.links == {}
+    assert _do_agente(sessao) == []
+
+
 # O handoff
 
 

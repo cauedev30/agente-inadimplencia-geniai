@@ -17,6 +17,7 @@ from agente.turno.executar import executar
 from agente.turno.redacao import MARCADORES, marcadores_do_turno
 from agente.turno.sinais import GATILHOS
 from agente.turno.uma_chamada import (
+    _FAZ_NONE,
     GLOSSARIO_MARCADORES,
     LINK_DE_PREVIA,
     ORIGEM_UMA_CHAMADA,
@@ -27,6 +28,7 @@ from agente.turno.uma_chamada import (
     TONS_UMA_CHAMADA,
     EntradaTurno,
     acoes_permitidas,
+    esquema_da_saida,
     montar_entrada,
     montar_mensagens,
     previa_numeros,
@@ -39,6 +41,7 @@ TODAS = (
     Acao.OFFER_DISCOUNT,
     Acao.SEND_CTN_LINK,
     Acao.GENERATE_PIX,
+    Acao.ANSWER,
     Acao.OUT_OF_SCOPE,
     Acao.NONE,
 )
@@ -81,6 +84,12 @@ def test_r3_no_ultimo_degrau_nao_oferece_desconto(conversa, politica):
 def test_r1_sem_desconto_nao_oferece_desconto(conversa, politica):
     conversa.cobranca.regua = Regua.R1
     assert Acao.OFFER_DISCOUNT not in acoes_permitidas(conversa, conversa.cobranca, politica)
+
+
+def test_a_answer_vem_depois_do_pix_e_antes_do_fora_do_assunto(conversa, politica):
+    permitidas = acoes_permitidas(conversa, conversa.cobranca, politica)
+    assert permitidas[-3:] == (Acao.ANSWER, Acao.OUT_OF_SCOPE, Acao.NONE)
+    assert permitidas[permitidas.index(Acao.GENERATE_PIX) + 1] is Acao.ANSWER
 
 
 def test_o_humano_nunca_e_uma_acao_permitida(conversa, politica):
@@ -235,6 +244,45 @@ def test_cada_acao_traz_os_marcadores_da_previa(conversa, politica, propenso):
         assert item["marcadores_opcionais"] == opcionais
         assert item["quando"] and item["faz"]
         assert "sensível" not in item["quando"]
+
+
+def _item(entrada, acao):
+    [item] = [a for a in entrada.acoes if a["acao"] == acao]
+    return item
+
+
+@pytest.mark.parametrize("propenso", [False, True])
+def test_a_answer_na_entrada_traz_quando_faz_e_os_marcadores(conversa, politica, propenso):
+    conversa.cobranca.propenso_cartao = propenso
+    conversa.degrau_atual = 1
+    item = _item(_entrada(conversa, politica), "ANSWER")
+
+    assert item["quando"] and item["faz"]
+    assert item["faz"] != _FAZ_NONE
+    assert item["marcadores_obrigatorios"] == ["link_ctn" if propenso else "pix_copia_e_cola"]
+    assert {"divida", "mensalidades", "valor_final", "desconto"} <= set(
+        item["marcadores_opcionais"]
+    )
+
+
+def test_a_answer_no_degrau_zero_nao_traz_valor_final_nem_desconto(conversa, politica):
+    item = _item(_entrada(conversa, politica), "ANSWER")
+
+    assert "valor_final" not in item["marcadores_opcionais"]
+    assert "desconto" not in item["marcadores_opcionais"]
+    assert "divida" in item["marcadores_opcionais"]
+
+
+def test_com_meio_vigente_a_answer_nao_exige_marcador(conversa, politica):
+    _com_pix_vigente(conversa)
+
+    assert _item(_entrada(conversa, politica), "ANSWER")["marcadores_obrigatorios"] == []
+
+
+def test_o_esquema_da_saida_aceita_a_answer(conversa, politica):
+    permitidas = acoes_permitidas(conversa, conversa.cobranca, politica)
+
+    assert "ANSWER" in esquema_da_saida(permitidas)["properties"]["acao"]["enum"]
 
 
 def test_o_inform_debt_leva_o_link_so_de_quem_e_propenso(conversa, politica):
