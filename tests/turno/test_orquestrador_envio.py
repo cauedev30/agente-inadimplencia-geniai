@@ -22,6 +22,7 @@ from agente.tipos import (
 )
 from agente.turno.catalogo import TEXTO_CANAL_EXTERNO
 from agente.turno.entrega import entregue
+from agente.turno.handoff import devolver_ao_robo
 from agente.turno.orquestrador import processar_turno
 
 from .auxiliares import _bruto, _deps
@@ -501,3 +502,40 @@ def test_o_descarte_da_pendente_zera_a_conta_de_falhas(sessao, ligada, politica)
     assert processar_turno(sessao, ligada.id, ligada.turno_em, deps) is ResultadoTurno.IGNORADO
 
     assert ligada.falhas_turno == 0
+
+
+@pytest.mark.parametrize("caminho", ["tentativas_esgotadas", "humano_assume"])
+def test_a_chave_descartada_nao_conta_como_meio_enviado_quando_o_robo_reassume(
+    sessao, ligada, politica, caminho
+):
+    n = politica.integracao_tentativas
+    antes = set(range(1, n + 1)) if caminho == "tentativas_esgotadas" else {1}
+    deps = _deps_com(politica, ChatwootInstavel(antes=antes), [_bruto(), _bruto(), _bruto()])
+    _pergunta(sessao, ligada)
+    processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
+    if caminho == "tentativas_esgotadas":
+        agora = ligada.turno_em
+        for _ in range(n - 1):
+            processar_turno(sessao, ligada.id, agora, deps)
+            agora = ligada.turno_em or agora
+        devolver_ao_robo(sessao, ligada, agora)
+    else:
+        agora = ligada.turno_em
+        ligada.human_owned = True
+        assert processar_turno(sessao, ligada.id, agora, deps) is ResultadoTurno.IGNORADO
+        devolver_ao_robo(sessao, ligada, agora)
+    [descartada] = _do_agente(sessao)[:1]
+    assert descartada.envio is EstadoEnvio.DESCARTADA
+    [pix] = deps.pix.cobrancas.values()
+    assert pix.br_code in descartada.texto
+    assert len(sessao.scalars(select(Pagamento)).all()) == 1
+
+    deps.chatwoot.antes.clear()  # o Chatwoot voltou
+    mais_tarde = agora + timedelta(minutes=30)
+    _pergunta(sessao, ligada, mais_tarde, mid="cw-2")
+    assert processar_turno(sessao, ligada.id, mais_tarde, deps) is ResultadoTurno.ENVIADO
+
+    # A chave que nunca saiu não vale como enviada: o texto novo a leva, e é o mesmo Pix.
+    assert pix.br_code in deps.chatwoot.enviadas(555)[-1]
+    assert len(sessao.scalars(select(Pagamento)).all()) == 1
+    assert len(deps.pix.cobrancas) == 1

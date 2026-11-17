@@ -379,6 +379,8 @@ def _descartar(sessao: Session, mensagem: Mensagem) -> None:
     """
     mensagem.envio = EstadoEnvio.DESCARTADA
     mensagem.conta_no_teto = False
+    # A chave que ia nela nunca saiu: sem isso o `meio_vigente` a daria como enviada.
+    mensagem.conversa.forma_enviada = None
     turno = sessao.scalars(
         select(Turno)
         .where(
