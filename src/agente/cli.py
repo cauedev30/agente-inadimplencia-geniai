@@ -1,6 +1,7 @@
 """Comandos do agente: `agente importar` (a carteira), `agente disparar` (as aberturas),
 `agente importar-ctn` (a carteira do dia pelo retrato da inadimplência do CTN real) e
-`agente notas-teste` (as notas dos testadores do modo teste, em Markdown).
+`agente notas-teste` (as notas dos testadores do modo teste, em Markdown) e
+`agente resumo-turnos` (as contagens dos turnos, sem texto de cliente).
 """
 
 import argparse
@@ -30,6 +31,7 @@ from agente.integracoes.ctn_eficaz import CTNEficaz
 from agente.integracoes.disparador import DisparadorFalso
 from agente.politica import carregar_politica
 from agente.teste.notas import relatorio_das_notas
+from agente.turno.resumo import resumo_dos_turnos
 
 Comando = Callable[[argparse.Namespace], int]
 
@@ -224,6 +226,21 @@ def _notas_teste(argumentos: argparse.Namespace) -> int:
     return 0
 
 
+@_sem_detalhe_de_erro("Nada foi alterado; o comando só lê o banco.")
+def _resumo_turnos(argumentos: argparse.Namespace) -> int:
+    config = carregar_config()
+    politica = carregar_politica(config.politica_path)
+    with criar_sessao(config.database_url, ocultar_parametros=True)() as sessao:
+        resumo = resumo_dos_turnos(sessao, politica, argumentos.desde, argumentos.ate)
+    if argumentos.saida is None:
+        print(resumo)
+        return 0
+    argumentos.saida.parent.mkdir(parents=True, exist_ok=True)
+    argumentos.saida.write_text(resumo, encoding="utf-8")
+    print(f"resumo: {argumentos.saida} (só contagens)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # O console do Windows não usa UTF-8 por padrão e quebra os acentos.
     if hasattr(sys.stdout, "reconfigure"):
@@ -266,6 +283,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     notas.add_argument("--saida", type=Path, help="grava o relatório neste arquivo (padrão: tela)")
     notas.set_defaults(rodar=_notas_teste)
+    resumo = comandos.add_parser(
+        "resumo-turnos", help="conta os turnos por saída, motivo e pagamento (só contagens)"
+    )
+    resumo.add_argument(
+        "--desde",
+        type=date.fromisoformat,
+        help="só os turnos fechados neste dia em diante, AAAA-MM-DD (no fuso da janela)",
+    )
+    resumo.add_argument(
+        "--ate",
+        type=date.fromisoformat,
+        help="só os turnos fechados até este dia, inclusive, AAAA-MM-DD (no fuso da janela)",
+    )
+    resumo.add_argument("--saida", type=Path, help="grava o resumo neste arquivo (padrão: tela)")
+    resumo.set_defaults(rodar=_resumo_turnos)
     argumentos = parser.parse_args(argv)
     return argumentos.rodar(argumentos)
 
