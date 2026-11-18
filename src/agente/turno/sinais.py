@@ -93,7 +93,8 @@ CRITERIOS_DA_ACAO = {
     ),
     Acao.NONE: (
         "o cliente só confirma que leu ou agradece (ok, obrigado, emoji), sem pergunta nem "
-        "comentário; 'vou ver e te falo' já é comentário. Na dúvida, ANSWER"
+        "comentário; 'vou ver e te falo' e o cumprimento (oi, bom dia) são ANSWER. Na dúvida, "
+        "ANSWER"
     ),
 }
 
