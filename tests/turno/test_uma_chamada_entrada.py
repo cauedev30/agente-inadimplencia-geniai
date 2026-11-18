@@ -496,9 +496,10 @@ def test_o_sistema_diz_que_desabafo_sem_aspereza_nao_e_irritado():
 def test_o_sistema_nao_deixa_repetir_o_valor_que_o_cliente_citou():
     # A21 (2026-11-05): "75 reais", "60,00" e "sessenta reais" reprovavam o texto.
     texto = " ".join(SISTEMA.split("Como escrever o reply")[1].split())
+    # Ensaio de 2026-11-17: "só uma mensalidade" também reprovava; a quantidade entrou na regra.
     regra = (
-        'Não repita valor que o cliente citou, em dígito nem por extenso; diga "o valor que '
-        'você citou".'
+        'Não repita valor nem quantidade que o cliente citou ("uma mensalidade"), em dígito nem '
+        'por extenso; diga "o valor que você citou" ou "só uma parte".'
     )
     assert regra in texto
 

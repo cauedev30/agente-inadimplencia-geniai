@@ -92,7 +92,8 @@ CRITERIOS_DA_ACAO = {
         "o assunto não é a dívida nem o pagamento (horário, endereço, outro serviço)"
     ),
     Acao.NONE: (
-        "o cliente só confirma que leu ou agradece, sem pergunta nem comentário. Na dúvida, ANSWER"
+        "o cliente só confirma que leu ou agradece (ok, obrigado, emoji), sem pergunta nem "
+        "comentário; 'vou ver e te falo' já é comentário. Na dúvida, ANSWER"
     ),
 }
 
