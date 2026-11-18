@@ -376,20 +376,18 @@ def test_a_1a_resposta_por_answer_do_propenso_leva_o_link(sessao, ligada, client
     assert sessao.scalars(select(Pagamento)).one().forma is FormaPagamento.LINK_CTN
 
 
-def test_a_answer_sem_o_marcador_do_anexo_e_reprovada_e_ganha_a_2a_tentativa(
+def test_a_answer_sem_a_chave_do_anexo_sai_com_a_linha_do_pix_escrita_pelo_codigo(
     sessao, ligada, cliente, politica
 ):
     sem_pix = _bruto(acao="ANSWER", reply=REPLY_ANSWER_SEM_MEIO)
-    com_pix = _bruto(acao="ANSWER", reply=REPLY_ANSWER_COM_PIX)
-    deps = _deps(politica, [sem_pix, com_pix])
+    deps = _deps(politica, [sem_pix])
 
     assert cliente("dá pra parcelar?", deps) is ResultadoTurno.ENVIADO
 
     turno = _turno(sessao)
-    primeira, segunda = turno.redacao["tentativas"]
-    assert "marcador_faltando:pix_copia_e_cola" in primeira["reprovadas"]
-    assert segunda["reprovadas"] == []
-    assert len(deps.llm_turno.pedidos) == 2
+    [primeira] = turno.redacao["tentativas"]
+    assert primeira["reprovadas"] == []
+    assert len(deps.llm_turno.pedidos) == 1
     [pix] = deps.pix.cobrancas.values()
     assert pix.br_code in deps.chatwoot.enviadas(555)[0]
 

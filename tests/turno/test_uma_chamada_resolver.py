@@ -266,7 +266,7 @@ def test_o_como_dict_traz_as_tentativas_a_causa_e_o_caminho(conversa, politica):
         {
             "texto": "Sem marcador nenhum.",
             "acao": "INFORM_DEBT",
-            "reprovadas": ["marcador_faltando:divida", "marcador_faltando:pix_copia_e_cola"],
+            "reprovadas": ["marcador_faltando:divida"],
         },
         {"texto": REPLY_PIX, "acao": "INFORM_DEBT", "reprovadas": []},
     ]

@@ -191,9 +191,28 @@ def _pix_fora_da_linha(texto: str) -> bool:
     return False
 
 
+# A linha da chave quando é o código que a escreve: a mesma que o glossário dá ao Luna.
+LINHA_DO_PIX = "Para pagar, use o Pix CNPJ: " + _PIX
+
+
+def _pix_pelo_codigo(texto: str) -> str:
+    """O turno leva o Pix e o Luna esqueceu a chave ou a pôs fora do formato: o código tira as
+    linhas com ela e escreve a linha da chave no fim (ensaio de 2026-11-17). O Luna redige o resto
+    livre; só a linha da chave é do código. A frase que anunciava a chave ("use esta chave:") sai
+    junto. Sem texto além da chave, nada muda e a conferência reprova."""
+    corpo = "\n".join(linha for linha in texto.split("\n") if _PIX not in linha).rstrip()
+    if corpo.endswith(":"):
+        fim = max(corpo.rfind(sinal) for sinal in ".!?")
+        corpo = corpo[: fim + 1] if fim >= 0 else corpo
+    return f"{corpo}\n{LINHA_DO_PIX}" if corpo else texto
+
+
 def interpolar(texto: str, numeros: Numeros) -> str:
     """Troca os marcadores pelos números do backend, formatados em pt-BR."""
     texto = _arrumar_a_linha_do_pix(texto)
+    obrigatorios, _ = marcadores_do_turno(numeros)
+    if "pix_copia_e_cola" in obrigatorios and (_PIX not in texto or _pix_fora_da_linha(texto)):
+        texto = _pix_pelo_codigo(texto)
     motivos = motivos_do_texto(texto)
     if _pix_fora_da_linha(texto):
         motivos.append("pix_fora_da_linha_do_cnpj")
@@ -204,7 +223,6 @@ def interpolar(texto: str, numeros: Numeros) -> str:
             motivos.append(f"marcador_desconhecido:{nome}")
         elif nome not in preenchidos:
             motivos.append(f"marcador_sem_valor:{nome}")
-    obrigatorios, _ = marcadores_do_turno(numeros)
     motivos += [f"marcador_faltando:{nome}" for nome in obrigatorios if nome not in usados]
     if motivos:
         raise RedacaoInvalida(motivos)

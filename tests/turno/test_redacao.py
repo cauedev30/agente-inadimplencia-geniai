@@ -88,13 +88,25 @@ def test_o_codigo_poe_a_frase_do_pix_na_linha_de_baixo_e_a_chave_no_fim(texto):
         "O Pix é de {valor_pix}.\nPara pagar, use o Pix: {pix_copia_e_cola}",
         # Texto depois da chave, na mesma linha.
         "O Pix é de {valor_pix}.\nUse o Pix CNPJ: {pix_copia_e_cola} e me mande o comprovante.",
-        # Tudo numa frase só, sem onde quebrar.
-        "O total é {valor_pix} e para pagar use o Pix CNPJ: {pix_copia_e_cola}",
+        # O que o Luna escreveu no ensaio de 2026-11-17: a frase que anuncia a chave sai junto.
+        "O Pix é de {valor_pix}. Para pagar pelo Pix, use esta chave:\n{pix_copia_e_cola}",
+        # Esqueceu a chave.
+        "O Pix é de {valor_pix}.",
     ],
 )
-def test_a_chave_pix_so_sai_numa_linha_so_dela_depois_de_cnpj(texto):
+def test_a_chave_fora_do_formato_ou_esquecida_o_codigo_escreve_a_linha_dela(texto):
+    assert interpolar(texto, _numeros(Acao.GENERATE_PIX)) == (
+        "O Pix é de R$ 100,20.\nPara pagar, use o Pix CNPJ: 00020126FALSOabc10020"
+    )
+
+
+def test_a_chave_sem_outro_texto_e_reprovada():
+    # Tudo numa frase só: tirada a linha da chave, não sobra texto do Luna.
     with pytest.raises(RedacaoInvalida) as erro:
-        interpolar(texto, _numeros(Acao.GENERATE_PIX))
+        interpolar(
+            "O total é {valor_pix} e para pagar use o Pix: {pix_copia_e_cola}",
+            _numeros(Acao.GENERATE_PIX),
+        )
     assert erro.value.motivos == ["pix_fora_da_linha_do_cnpj"]
 
 
@@ -413,13 +425,13 @@ def test_a_answer_sem_anexo_com_o_link_e_reprovada():
     assert erro.value.motivos == ["marcador_sem_valor:link_ctn"]
 
 
-def test_a_answer_com_anexo_pix_exige_a_chave():
+def test_a_answer_com_anexo_pix_leva_a_chave_mesmo_se_o_luna_esquecer():
     numeros = _numeros(Acao.ANSWER, Acao.GENERATE_PIX)
 
     assert marcadores_do_turno(numeros)[0] == ["pix_copia_e_cola"]
-    with pytest.raises(RedacaoInvalida) as erro:
-        interpolar("O valor é {divida}.", numeros)
-    assert erro.value.motivos == ["marcador_faltando:pix_copia_e_cola"]
+    assert interpolar("O valor é {divida}.", numeros) == (
+        "O valor é R$ 100,20.\nPara pagar, use o Pix CNPJ: 00020126FALSOabc10020"
+    )
     texto = "O valor é {divida}.\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
     assert interpolar(texto, numeros).endswith("00020126FALSOabc10020")
 
