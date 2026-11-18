@@ -313,5 +313,9 @@ Fonte: a spec e o plano da autonomia (`specs/2026-11-17-auditoria-agente-com-aut
 - **O `SEND_CTN_LINK` sempre gera um link novo no CTN, e o Pix reaproveita** (`turno/executar.py`, conferência da 1.7): o
   link descartado, ou reanexado depois de um descarte, deixa um `Pagamento` `LINK_CTN` pendente órfão. Conferir com a T9
   (o que o CTN faz com o link que ninguém usa). **ANTES DO PILOTO REAL**.
-- **"No Pix tem desconto?" e "O valor do Pix é o mesmo do link?" podem sair como `OFFER_DISCOUNT`** (leva o link, não a
-  chave): conferir no ensaio com o Luna real, sem código antes. **TESTE MEDE**.
+- **"No Pix tem desconto?" e "O valor do Pix é o mesmo do link?"** saíram como `ANSWER`, com a chave, nas 6 rodadas
+  do ensaio com o Luna real de 2026-11-17 e 18; o risco de sair `OFFER_DISCOUNT` não apareceu. **TESTE MEDE**.
+- **Segunda chance ao Luna quando ele escolhe o `NONE` e a mensagem não é cortesia:** hoje vai direto ao atendente
+  (`SEM_RESPOSTA`). No ensaio, o "Oi" e o "Ok, vou ver aqui" caíram nisso até o critério do `NONE` dizer que são
+  `ANSWER`; com isso, 3 rodadas limpas. Se o `resumo-turnos` do teste da Lohanny mostrar muito `SEM_RESPOSTA` com a
+  ação `NONE`, pedir ao Luna uma 2ª resposta antes do atendente (o laço da 2ª tentativa já existe). **TESTE MEDE**.
