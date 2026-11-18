@@ -41,7 +41,7 @@ Os cinco casos têm os mesmos 5 passos. Troque `<n>`, `<nome>` e `<dívida>` pel
 | 4 | `Pagar com Pix` | o Pix de `<dívida>` com a chave `29760112000122` (não pague) | outro valor; sem a chave; vai ao atendente |
 | 5 | `/paguei` | "Simulando a confirmação do banco: Pix de R$ `<dívida>`" e, alguns segundos depois, "Recebemos o seu pagamento" | a confirmação não chega em 2 min; chega 2 vezes; o valor muda |
 
-No **caso 2**, o link do cartão (`[TESTE]`) pode vir antes do Pix, porque o Bruno tende ao cartão. Isso não é
+No **caso 2**, o link do cartão (`https://ctnfalsoteste.com`) pode vir antes do Pix, porque o Bruno tende ao cartão. Isso não é
 falha: siga para o passo 4.
 
 ## Depois dos 5 casos (2 min cada)
@@ -71,7 +71,7 @@ atendente). É o roteiro `desconto-so-no-cartao` do ensaio (`ferramentas/demo-wh
 |---|---|---|---|
 | C1 | `/caso 1` | `[TESTE] Agora você é o caso 1: R3, pagava no cartão. Mande Oi para começar.` | outro caso |
 | C2 | `Oi` | a abertura da Ana, com R$ 100,20 | sem resposta |
-| C3 | `Tem desconto?` | a oferta de R$ 70,20, que só vale pelo link (`[TESTE]`) | outro valor; vai ao atendente |
+| C3 | `Tem desconto?` | a oferta de R$ 70,20, que só vale pelo link (`https://ctnfalsoteste.com`) | outro valor; vai ao atendente |
 | C4 | `Então esse desconto só existe se eu cadastrar meu cartão?` | uma resposta do agente: o desconto de R$ 70,20 vale pelo link, que cadastra o cartão, e sem cadastrar o valor é o integral, R$ 100,20; termina no próximo passo para pagar | vai ao atendente; sem resposta em 2 min; outro valor |
 | C5 | `Não quero cadastrar cartão` | uma resposta que reconhece o que você disse e o Pix de R$ 100,20 com a chave `29760112000122` (não pague) | sem a chave; outro valor; vai ao atendente |
 
@@ -89,7 +89,7 @@ atendente). É o roteiro `desconto-so-no-cartao` do ensaio (`ferramentas/demo-wh
 ## O que ainda não funciona (não é defeito)
 
 - **O Pix traz a chave CNPJ real, mas não é para pagar:** nada confere o pagamento, e só o `/paguei` confirma.
-  **O link do cartão é de mentira** e vem com `[TESTE]`, porque o sistema do cartão (T9) ainda não está ligado.
+  **O link do cartão é de mentira** (`https://ctnfalsoteste.com`), porque o sistema do cartão (T9) ainda não está ligado.
 - **Foto e PDF sem texto vão ao atendente**, para ele conferir o comprovante. **Figurinha** fica sem resposta.
 - **Quem cobra é o agente.** Ele só responde ao que chega, não puxa conversa sozinho, e o disparador (T4) ainda não
   existe.
