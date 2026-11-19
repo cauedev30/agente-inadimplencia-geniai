@@ -342,3 +342,17 @@ no `dev2` (`c7f6b0f`): nenhum invariante violado, teto certo, 0 erro no log. O q
 - **A abertura de produção no formato da D65:** `abertura/disparar.py` é o template do disparador (T4 do dev); ele
   precisa da matrícula, do nome completo em maiúsculas, da chave Pix e da REF dos meses quando o template sair. No teste
   a abertura é o `texto_abertura` da política.
+
+## Da revisão do lote da política (2026-11-19)
+
+- **"Com desconto" de R$ 0,00 depois de a régua mudar:** conversa no degrau 1 cuja dívida cai abaixo do valor final
+  (`/paguei` parcial, R3 para R2) ou muda de régua (R4) segue com `{valor_final}` = dívida e `{desconto}` = R$ 0,00
+  preenchidos em toda ação (`src/agente/turno/redacao.py`, `valores`, ~linha 88). Correção sugerida: preencher os dois
+  só com `desconto_centavos > 0`. Não aconteceu em teste.
+- **O `{divida}` no texto do Pix depois da oferta:** o Pix sai de R$ 90,00, mas o `interpolar` não recusa um texto do
+  Luna com "Valor: {divida}" (R$ 100,20); com a chave estática, o texto é a única fonte do valor. Só o roteiro
+  `nao-quer-cartao` pega (`texto_nao_tem: 100,20`). Não aconteceu em teste. Correção sugerida: com Pix e degrau > 0,
+  recusar `{divida}` sem `{valor_pix}` nem `{valor_final}`.
+- **O teste da abertura com o Chatwoot fora não confere o rollback:** `tests/teste/test_abertura.py` (~linha 244) não
+  confere que o Pix criado some e que `forma_enviada` volta a vazio; o rollback cobre hoje, o teste não pegaria a
+  regressão.

@@ -44,10 +44,14 @@ def test_o_valor_final_vale_para_qualquer_regua_que_o_tenha(politica):
     assert proxima_oferta(Regua.R5, 16700, 0, outra) == Oferta(1, 4700, 12000)
 
 
-@pytest.mark.parametrize("degrau", [-1, 2])
-def test_degrau_fora_da_regua_e_erro(politica, degrau):
+def test_degrau_negativo_e_erro(politica):
     with pytest.raises(ValueError, match="degrau"):
-        valor_com_desconto(Regua.R3, 10020, degrau, politica)
+        valor_com_desconto(Regua.R3, 10020, -1, politica)
+
+
+@pytest.mark.parametrize("degrau", [2, 3])
+def test_degrau_da_politica_antiga_vale_a_oferta_feita(politica, degrau):
+    assert valor_com_desconto(Regua.R3, 10020, degrau, politica) == 9000
 
 
 @pytest.mark.parametrize("divida", [0, -500])

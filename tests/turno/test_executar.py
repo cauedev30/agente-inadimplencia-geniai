@@ -227,6 +227,22 @@ def test_desconto_sem_degrau_seguinte_e_erro(conversa, politica):
         executar([Acao.OFFER_DISCOUNT], conversa.cobranca, conversa, _deps(politica), AGORA)
 
 
+def test_conversa_no_degrau_da_politica_antiga_gera_o_pix_da_oferta(conversa, politica):
+    conversa.degrau_atual = 3
+    deps = _deps(politica)
+
+    numeros = executar([Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA)
+
+    assert numeros.valor_pix_centavos == 9000
+    assert conversa.degrau_atual == 3
+
+
+def test_desconto_no_degrau_da_politica_antiga_tambem_e_erro(conversa, politica):
+    conversa.degrau_atual = 3
+    with pytest.raises(ValueError, match="degrau"):
+        executar([Acao.OFFER_DISCOUNT], conversa.cobranca, conversa, _deps(politica), AGORA)
+
+
 def test_os_numeros_viram_json_para_o_turno(conversa, politica):
     numeros = executar(
         [Acao.INFORM_DEBT, Acao.GENERATE_PIX], conversa.cobranca, conversa, _deps(politica), AGORA

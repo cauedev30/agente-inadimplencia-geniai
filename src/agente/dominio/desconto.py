@@ -23,10 +23,13 @@ def _alvo(regua: Regua, divida_centavos: int, politica: Politica) -> int | None:
 
 
 def valor_com_desconto(regua: Regua, divida_centavos: int, degrau: int, politica: Politica) -> int:
-    """O valor a pagar no degrau: o degrau 0 é a dívida; o 1 é o valor final da régua."""
-    if degrau not in (0, 1):
-        raise ValueError(f"degrau {degrau} fora da régua {regua} (0 ou 1)")
-    alvo = _alvo(regua, divida_centavos, politica) if degrau == 1 else None
+    """O valor a pagar no degrau: o 0 é a dívida; do 1 em diante, o valor final da régua.
+
+    O degrau 2 ou 3 só sobra de conversas da política antiga de 3 degraus (D35, revogada).
+    """
+    if degrau < 0:
+        raise ValueError(f"degrau {degrau} fora da régua {regua} (0 ou mais)")
+    alvo = _alvo(regua, divida_centavos, politica) if degrau >= 1 else None
     return divida_centavos if alvo is None else alvo
 
 
