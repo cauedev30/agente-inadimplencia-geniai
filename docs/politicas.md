@@ -98,7 +98,6 @@ Pendente, o robô reassume.
 | Lacuna | Padrão | Dúvida |
 |---|---|---|
 | Valor final da R4 a R6 e da Prévia | fora do agente (D66); a G1.1 pergunta | G1.1 |
-| NR, R1 e R2 | sem desconto; na dúvida de desconto, o agente informa o débito e a operação responde | G1.1 |
 | Mais de 6 mensalidades | condição da R6 | G1.1 |
 | Pix gerado e não pago | vale 24h; sem pagamento, não há novo contato | G2.4 |
 | Regra da propensão ao cartão | 3 meses seguidos de Pix, com tolerância de 3 dias | T9 |

@@ -44,9 +44,10 @@ webchat ou o modo sombra saíram do código. Nada se apaga: o texto fica como hi
      D34:** sim; o desconto só vale no link do CTN, com o cartão. O gestor pode rever.
    - **Mais de 6 mensalidades:** qual é a regra? **Padrão:** a condição da R6.
    - **Objeção de valor nas réguas sem desconto (NR, R1, R2):** o que o agente faz? **Padrão:** explica
-     a condição; na 2ª objeção, a conversa vai para o humano. **Importante, agora que o agente começa na NR a
-     R3 (D66): o Cauê pergunta à Lohanny na manhã de 2026-11-19** o que a operação responde quando o cliente
-     dessas réguas pede desconto.
+     a condição; na 2ª objeção, a conversa vai para o humano. **Respondida em 2026-11-19 (a Lohanny, pelo
+     Cauê):** NR, R1 e R2 não têm desconto; o desconto começa na R3. Na prática o cliente não insiste, porque já
+     sabe que o valor é R$ 33,40 ou R$ 66,80, que não é alto. Confirma o padrão: o agente diz que não há desconto
+     e mantém o valor (sem mudança no código nem no prompt).
    - **Degraus esgotados:** o cliente objeta de novo depois do último degrau (a 4ª objeção na R3). O
      que o agente faz? **Respondida pelo Cauê em 2026-10-22 → D38:** a conversa vai para o humano, como
      na NR.
