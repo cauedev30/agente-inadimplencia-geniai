@@ -356,3 +356,12 @@ no `dev2` (`c7f6b0f`): nenhum invariante violado, teto certo, 0 erro no log. O q
 - **O teste da abertura com o Chatwoot fora não confere o rollback:** `tests/teste/test_abertura.py` (~linha 244) não
   confere que o Pix criado some e que `forma_enviada` volta a vazio; o rollback cobre hoje, o teste não pegaria a
   regressão.
+
+## Do Roteiro 9 no celular (2026-11-19)
+
+O roteiro passou (abertura nova, oferta de R$ 90,00 com o Pix de 90, link de 90, "faz por 50?" mantém o valor,
+`/paguei` de R$ 90,00 quita), sem invariante violado. Fica:
+
+- **O Pix redigido pelo Luna sai sem a REF:** na oferta, o texto trouxe o valor e a chave, mas não "REF 08/26, 09/26,
+  10/26" (D65, item 4). Só o Pix do botão (`TEXTO_DO_PIX`) leva a REF; para o Luna o `{referencia}` é opcional.
+  Correção sugerida: o código acrescenta a REF junto da linha da chave, como já faz com "Para pagar, use o Pix CNPJ".
