@@ -17,7 +17,7 @@ estados; 4: ações; 5: backend; 9: falhas).
   na **passagem ao atendente**, que ele redige quando um sinal ou o tom manda ao humano (D63, revista em 2026-11-17: o
   Luna responde a tudo o que é da cobrança, e toda resposta leva ao pagamento). Não recebe nenhum valor em dinheiro,
   link nem código Pix: escreve **marcadores** (`{divida}`, `{valor_final}`, `{link_ctn}`, `{pix_copia_e_cola}`…).
-- O **backend** faz as contas e executa: a dívida (D24), o degrau do desconto (D35), a propensão ao cartão (D36), o Pix e
+- O **backend** faz as contas e executa: a dívida (D24), o valor final da oferta (D64), a propensão ao cartão (D36), o Pix e
   o link do CTN. Troca cada marcador pelo valor certo.
 - O **código** confere tudo o que o Luna devolveu: a ação é permitida, os marcadores são os da ação, o texto não traz
   dígito nem valor solto, a passagem não traz número, link nem marcador, o cliente sai da resposta com um meio de
@@ -27,7 +27,7 @@ estados; 4: ações; 5: backend; 9: falhas).
 
 ```
 webhook do Chatwoot → rajada (7 s) → gates → [áudio: transcreve] → uma chamada ao Luna
-→ validação pelo código → backend executa (degrau, link, Pix) → envio pelo Chatwoot  |  handoff
+→ validação pelo código → backend executa (oferta, link, Pix) → envio pelo Chatwoot  |  handoff
 ```
 
 ## 1. Entrada e gates (determinísticos)
@@ -70,7 +70,7 @@ São certezas, não probabilidades, e por isso ficam em código.
 
 ## 2. A chamada ao Luna e o handoff
 
-**A chamada** (`turno/uma_chamada.py`). A entrada traz o primeiro nome, a régua, o degrau, a forma já enviada, o meio de
+**A chamada** (`turno/uma_chamada.py`). A entrada traz o primeiro nome, a régua, a oferta (feita ou não), a forma já enviada, o meio de
 pagamento vigente (`meio_vigente`: o Pix ou o link que o cliente ainda pode usar, ou nulo), se ele paga Pix todo mês
 (`paga_pix_todo_mes`), as ações permitidas (cada uma com "quando usar", "o que o texto faz" e os marcadores), as regras
 da cobrança, o histórico e a rajada. A saída é um JSON em esquema estrito (`json_schema`) com os sinais (entre eles o
@@ -138,14 +138,14 @@ O Luna escolhe uma **ação principal**; o código anexa o que vai junto, por um
 | Ação | O que faz | O código anexa |
 |---|---|---|
 | `INFORM_DEBT` | apresenta o débito total, sem desconto (D29): a 1ª apresentação da dívida | o link do CTN se o cliente é propenso ao cartão; o Pix se não é (D36); nada, se já tem um meio vigente |
-| `OFFER_DISCOUNT` | libera o próximo degrau (D35); só existe se há degrau seguinte; atende também quem diz que está sem dinheiro | o link do CTN, já com o desconto (D34) |
+| `OFFER_DISCOUNT` | faz a oferta única, o valor final da régua (D64); só existe se há valor final menor que a dívida e a oferta não saiu; atende também quem diz que está sem dinheiro | o meio de novo, já com o valor final: o link se o cliente é propenso ao cartão, o Pix se não (vale em qualquer meio) |
 | `SEND_CTN_LINK` | manda o link: paga e cadastra o cartão (D30) | nada |
-| `GENERATE_PIX` | gera o Pix do valor integral (D22, D34); atende também quem não quer ou não pode usar o cartão | nada |
-| `ANSWER` | responde a dúvida ou o comentário sobre a cobrança com as regras da política, sem mudar o degrau nem gerar nada; sempre permitida | como a `INFORM_DEBT`: o meio de pagamento, só se não há um vigente |
+| `GENERATE_PIX` | gera o Pix, do valor integral ou, depois da oferta, do valor final (D22, D64); a REF traz os meses em aberto (D65); atende também quem não quer ou não pode usar o cartão | nada |
+| `ANSWER` | responde a dúvida ou o comentário sobre a cobrança com as regras da política, sem fazer oferta nem gerar nada; sempre permitida | como a `INFORM_DEBT`: o meio de pagamento, só se não há um vigente |
 | `OUT_OF_SCOPE` | o Luna redige a volta ao assunto, sem afirmar nada sobre o que foi perguntado; reprovado 2 vezes, sai a frase fixa, sem anexo nem atendente | como a `INFORM_DEBT` |
 | `NONE` | sem texto: só confirmação ou agradecimento; cortesia fica em silêncio, o resto vai ao atendente (`SEM_RESPOSTA`) | nada |
 
-Na régua sem desconto (NR, R1, R2) não há `OFFER_DISCOUNT`. Esgotados os degraus, a última oferta é o valor final.
+Na régua sem valor final (NR, R1, R2) não há `OFFER_DISCOUNT`. Depois da oferta não há outro desconto: o valor final é o último.
 
 **O meio de pagamento vigente** (`meio_vigente`, `turno/executar.py`) é a última forma enviada nesta conversa que ainda
 vale: o Pix de valor igual à dívida que não vence antes de `pix_reaproveitar_minimo_minutos`, ou o link pendente sem
@@ -157,8 +157,8 @@ enviada quando a mensagem descartada a levava.
 ## 5. O backend calcula, o Luna redige
 
 - O **backend** executa a ação dentro da política (`turno/executar.py`) e produz os números: a dívida, o valor com o
-  degrau do desconto, o link do CTN, o BR Code do Pix e o vencimento. O Pix paga sempre o integral e o que ainda vale é
-  reaproveitado. Só então os marcadores do texto são trocados.
+  desconto (o valor final da régua, depois da oferta), o link do CTN, o BR Code do Pix, a REF dos meses e o vencimento.
+  O Pix paga o valor do momento (integral ou final) e o que ainda vale é reaproveitado. Só então os marcadores do texto são trocados.
 - Um número errado não tem por onde entrar: ele é interpolado a partir do backend, e não gerado pelo Luna.
 - O **recebedor do Pix** (D44) também é do backend: com `pix_recebedor` preenchido, a frase fixa `texto_pix_recebedor`
   entra no fim do texto, depois da validação.
@@ -175,7 +175,7 @@ obrigatórios da ação estão presentes, os outros só valem se o turno tem o v
 solto. Reprovou: **2 tentativas**, a
 2ª dizendo ao Luna o motivo. Sem texto aprovado, a conversa vai ao atendente (`VALIDACAO`), com a frase fixa, sem resposta
 segura (D63); o `OUT_OF_SCOPE` é a exceção: sai a frase fixa do fora do assunto, sem anexo e sem atendente. Na `ANSWER` e
-no `OUT_OF_SCOPE`, os marcadores são `{divida}` e `{mensalidades}` (opcionais); com degrau liberado, também
+no `OUT_OF_SCOPE`, os marcadores são `{divida}` e `{mensalidades}` (opcionais); depois da oferta, também
 `{valor_final}` e `{desconto}`; com o anexo, os do Pix ou do link ficam obrigatórios; sem o anexo, `{link_ctn}` e os do
 Pix são reprovados.
 

@@ -144,7 +144,7 @@ dentro do contêiner e se perderia no próximo `up --build`.
 O ensaio sobe o próprio serviço (um Chatwoot falso, um SQLite novo e o Luna real) e **não toca no Postgres nem no Chatwoot
 do `dev2`**; só texto inventado vai ao Luna. O `autonomia.yaml` tem a conversa do desconto, as 15 dúvidas, os casos de
 pessoa e o `link-seguro`. Cada rodada grava uma pasta `ensaio-AAAAMMDD-HHMM/` no `--kit`, com o `relatorio.md` e o
-`servico.log`. Rode **3 vezes**; o aceite é a `desconto-so-no-cartao` e os 4 roteiros `duvidas-*` passarem nas 3, sem
+`servico.log`. Rode **3 vezes**; o aceite é a `desconto-no-pix-e-no-link` e os 4 roteiros `duvidas-*` passarem nas 3, sem
 atendente. Os outros roteiros vão ao relatório, que o Cauê lê. Cada rodada gasta cota do Luna.
 
 Na máquina de desenvolvimento, de dentro de `repo/` (a chave do Luna vem de `AGENTE_LLM_API_KEY` ou de

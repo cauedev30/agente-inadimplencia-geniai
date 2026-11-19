@@ -329,10 +329,16 @@ no `dev2` (`c7f6b0f`): nenhum invariante violado, teto certo, 0 erro no log. O q
   escolheu `OFFER_DISCOUNT`, esqueceu o `{link_ctn}` e, na 2ª tentativa, pôs `{pix_copia_e_cola}`, que essa ação não
   anexa; as 2 reprovadas levaram ao atendente (1 de 2 vezes). **Falhou de verdade: lote único (3.5).**
 - **A chave Pix repetida logo depois da abertura:** a abertura já traz a chave, mas não conta como meio vigente, então a
-  1ª resposta `ANSWER` ganha de novo "Para pagar, use o Pix CNPJ: ..." (4 conversas). **Falhou de verdade: lote único.**
+  1ª resposta `ANSWER` ganha de novo "Para pagar, use o Pix CNPJ: ..." (4 conversas). **Falhou de verdade; resolvido no lote da política (2026-11-19): a abertura registra o Pix.**
 - **Sinal marcado sem precisar:** "Que horas a clínica abre?" saiu com o texto certo de `OUT_OF_SCOPE` e o sinal
   `sem_resposta`, e foi ao atendente; "o site oficial, cartaodetodos.com.br" foi ao golpe (2 de 2). **TESTE MEDE**.
 - **A passagem do Luna quase não sai:** 1 de 8 handoffs; nos outros, o texto foi reprovado (cobrança na passagem, sem
   "atendente", vazio) e saiu a frase fixa. O cliente nunca viu o texto errado. É o achado do ensaio. **TESTE MEDE**.
 - **Frase repetida:** depois do "sou o gerente", a frase do terceiro 3 vezes seguidas; "use a chave que já está na
   conversa" no fim de toda resposta. Estilo. **TESTE MEDE**.
+
+## Do lote da política da operação (2026-11-19)
+
+- **A abertura de produção no formato da D65:** `abertura/disparar.py` é o template do disparador (T4 do dev); ele
+  precisa da matrícula, do nome completo em maiúsculas, da chave Pix e da REF dos meses quando o template sair. No teste
+  a abertura é o `texto_abertura` da política.

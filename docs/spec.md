@@ -24,9 +24,9 @@ métrica de custo.
 
 - Conversa com o cliente inadimplente no WhatsApp, pelo Chatwoot (Agent Bot, D1), e tenta resolver o pagamento no
   menor número de mensagens. Uma mensagem pode levar mais de um assunto (D37).
-- **Apresenta primeiro o débito total** e só depois libera o desconto, em degraus, um a cada objeção de valor (D29).
+- **Apresenta primeiro o débito total** e só depois, se o cliente pergunta por desconto ou insiste, faz uma oferta só: o valor final da régua (R$ 90,00 na R3), que vale no Pix e no link (D64).
 - **Tira o cliente do Pix mês a mês** e o leva ao cartão pelo **link de pagamento do CTN**, que quita a dívida e
-  cadastra o cartão (D30). O desconto só vale no link; o Pix é sempre o valor integral (D34).
+  cadastra o cartão (D30). O valor com desconto vale em qualquer meio, Pix ou link (D64).
 - **Passa a conversa a um atendente** quando o caso não é do robô (seção 4), na mesma conversa do WhatsApp (D60).
 - Em cada mensagem do cliente, **uma chamada ao Luna** (`gpt-6-luna`, D42) lê a conversa, escolhe a ação e redige o
   texto (D59). Ele **responde a tudo o que é da cobrança** (dúvida, desabafo, dificuldade de pagar, fora do assunto) e

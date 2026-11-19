@@ -8,6 +8,9 @@
 # "Pagar com Pix" é o toque no botão: o Pix fixo, sem o Luna, com a chave Pix CNPJ real. `/paguei`
 # confirma o Pix; a confirmação do agente sai de uma rotina, depois do turno (`mensagem_tem` espera).
 #
+# O valor da dívida já vai na abertura (D65); a pergunta "Quanto eu estou devendo?" pode virar INFORM_DEBT ou ANSWER
+# (o Luna remete à abertura), então ela só confere que o agente respondeu. O valor do caso fica conferido na abertura.
+#
 # `espera.acao` compara com `turno.acao_principal`; `texto_tem` olha o texto do agente no turno e
 # `mensagem_tem` qualquer mensagem enviada ao Chatwoot na janela do passo (as do modo teste e as
 # fixas não ficam no `texto_enviado`).
@@ -17,12 +20,10 @@
     - cliente: "Oi"
       espera:
         acao: "TESTE:ABERTURA"
-        mensagem_tem: ["Oi, Ana", "100,20"]
+        mensagem_tem: ["Olá, Ana!", "SIM-", "ANA SOUZA", "100,20", "29760112000122"]
     - cliente: "Quanto eu estou devendo?"
       espera:
-        acao: INFORM_DEBT
         resultado: ENVIADO
-        texto_tem: ["100,20"]
     - cliente: "Pagar com Pix"
       espera:
         acao: GENERATE_PIX
@@ -47,9 +48,7 @@
         mensagem_tem: ["100,20"]
     - cliente: "Quanto eu estou devendo?"
       espera:
-        acao: INFORM_DEBT
         resultado: ENVIADO
-        texto_tem: ["100,20"]
     - cliente: "Pagar com Pix"
       espera:
         acao: GENERATE_PIX
@@ -74,9 +73,7 @@
         mensagem_tem: ["133,60"]
     - cliente: "Quanto eu estou devendo?"
       espera:
-        acao: INFORM_DEBT
         resultado: ENVIADO
-        texto_tem: ["133,60"]
     - cliente: "Pagar com Pix"
       espera:
         acao: GENERATE_PIX
@@ -101,9 +98,7 @@
         mensagem_tem: ["167,00"]
     - cliente: "Quanto eu estou devendo?"
       espera:
-        acao: INFORM_DEBT
         resultado: ENVIADO
-        texto_tem: ["167,00"]
     - cliente: "Pagar com Pix"
       espera:
         acao: GENERATE_PIX
@@ -128,9 +123,7 @@
         mensagem_tem: ["200,40"]
     - cliente: "Quanto eu estou devendo?"
       espera:
-        acao: INFORM_DEBT
         resultado: ENVIADO
-        texto_tem: ["200,40"]
     - cliente: "Pagar com Pix"
       espera:
         acao: GENERATE_PIX
@@ -172,7 +165,6 @@
         acao: "TESTE:ABERTURA"
     - cliente: "Quanto eu estou devendo?"
       espera:
-        acao: INFORM_DEBT
         resultado: ENVIADO
     - cliente: "Oi"
       espera:

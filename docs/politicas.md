@@ -21,9 +21,9 @@ O Luna escreve com marcadores (`{divida}`, `{link_ctn}`…), o backend calcula o
 | Ação | O que o texto faz |
 |---|---|
 | `INFORM_DEBT` | apresenta o valor em aberto, sem desconto; a 1ª apresentação da dívida |
-| `OFFER_DISCOUNT` | oferece o valor com desconto, que só vale no link do cartão; inclui quem diz que está sem dinheiro |
+| `OFFER_DISCOUNT` | oferece o valor final da régua, uma vez só; vale no Pix e no link (D64); inclui quem diz que está sem dinheiro |
 | `SEND_CTN_LINK` | manda o link em que o cliente paga e já cadastra o cartão |
-| `GENERATE_PIX` | manda o Pix copia e cola do valor integral; inclui quem não quer ou não pode usar o cartão |
+| `GENERATE_PIX` | manda o Pix copia e cola, do valor integral ou, depois da oferta, do valor final; a REF do Pix traz os meses em aberto (`REF MM/AA`, D65); inclui quem não quer ou não pode usar o cartão |
 | `ANSWER` | responde em uma ou duas frases, com as regras da cobrança, a dúvida ou o comentário que as outras ações não cobrem (inclui o cumprimento e a pergunta sobre o valor depois de a dívida ser informada) |
 | `OUT_OF_SCOPE` | diz em uma frase que este canal trata só da mensalidade em aberto, sem afirmar nada sobre o assunto perguntado |
 | `NONE` | sem texto: só a confirmação ou o agradecimento, sem pergunta nem comentário (na dúvida, `ANSWER`) |
@@ -40,8 +40,8 @@ não leva Pix nem link, porque quem assume é a pessoa.
 | Situação | Saída |
 |---|---|
 | Dúvida ou comentário sobre a cobrança ("o desconto é só no cartão?", "no Pix tem desconto?", "o link é seguro?", "você é robô?", "posso pagar dia 20?", "Oi" no meio da conversa) | o Luna responde (`ANSWER`) e leva ao pagamento |
-| Dificuldade de pagar ou desabafo ("tô desempregado", "tá apertado") | o Luna acolhe em uma frase e oferece o desconto (`OFFER_DISCOUNT`); sem degrau a oferecer, responde por `ANSWER` |
-| O cliente não quer ou não pode usar o cartão | o Luna responde e manda o Pix do valor integral (`GENERATE_PIX`) |
+| Dificuldade de pagar ou desabafo ("tô desempregado", "tá apertado") | o Luna acolhe em uma frase e oferece o valor final (`OFFER_DISCOUNT`); sem oferta a fazer (régua sem valor final ou oferta já feita), responde por `ANSWER` |
+| O cliente não quer ou não pode usar o cartão | o Luna responde e manda o Pix (`GENERATE_PIX`), do valor final se a oferta já saiu |
 | Fora do assunto (`OUT_OF_SCOPE`): horário, endereço, clínica, outro serviço | o Luna redige e leva ao pagamento. Reprovado 2 vezes: frase fixa de reserva, sem Pix, sem link e sem atendente: *"Esse assunto não é tratado por aqui. Esta conversa é sobre a sua mensalidade em aberto."* |
 | Terceiro (quem escreve não é o devedor) | frase fixa: *"Obrigado pelo retorno. Este contato é para o titular do cadastro. Quando ele puder, é só falar com a gente por aqui."* |
 | Palavra-chave: golpe ou golpista; advogado, Procon ou processar | atendente, **sem chamar o Luna**, com a frase fixa (a do golpe, no golpe) |
@@ -81,7 +81,8 @@ gate ou uma ação); no prompt fica só a linha que faz o Luna reconhecê-la. Di
 | **O toque em "Pagar com Pix"** é respondido na hora, mesmo fora da janela, com uma mensagem fixa e sem LLM: o Pix, o valor, o vencimento e o recebedor. Conta no teto | D26, D40, D59 |
 | **Janela de atendimento:** segunda a sexta, 8h às 18h; sábado, 8h às 12h (padrão G3); domingo e feriado fora. Fora dela o agente não responde: o que chegou é respondido quando a janela abre | D11, D16 |
 | **Janela de 24h do WhatsApp:** se a última mensagem do cliente passou de 24h, o agente não responde: a conversa vai ao atendente com uma nota, sem mensagem ao cliente | D16 |
-| **Desconto máximo por régua:** nenhum na NR, R1 e R2 (sem ação de desconto); até R$ 90 na R3 e na R4; até R$ 75 na R5; até R$ 60 na R6. Três degraus iguais, um por objeção de valor. Esgotados os degraus, a última oferta é o valor final: o agente mantém o link, sem prometer outro desconto | D29, D35, D47 |
+| **Valor final por régua (a oferta única):** NR, R1 e R2, sem desconto (sem ação de desconto); R3, R$ 90,00. O agente informa o débito primeiro e, se o cliente pergunta por desconto ou insiste, faz **uma oferta só**, o valor final, que vale em **qualquer meio** (Pix, link ou cartão). Depois dela não há outro desconto: quem insiste fica com o valor final, sem promessa de outro. A Prévia e a R4 a R6 não vão ao agente (D66); o valor final delas está na G1.1 | D64, D66 |
+| **Abertura (D65):** uma mensagem só, no formato da operação: apresenta-se como assistente virtual do setor de Negociação e Financeiro (sem nome de pessoa), pede para salvar o contato e traz a matrícula, o nome completo, o débito e a chave Pix CNPJ. A abertura registra o **Pix do valor integral como meio vigente**: o 1º `ANSWER` não repete a chave. No teste é o `texto_abertura` da política; em produção, o template do disparador (`depois.md`) | D65 |
 | **Propensão ao cartão:** quando o cliente não tem meio de pagamento vigente, o código anexa à resposta (informar o débito, `ANSWER` ou fora do assunto) o link do CTN para quem paga Pix em dia fixo há 3 meses e o Pix para os demais | D36, D37 |
 | **Meio de pagamento vigente:** o último meio enviado nesta conversa que ainda vale (Pix de valor igual à dívida que não vence antes de `pix_reaproveitar_minimo_minutos`; link pendente sem vencimento ou ainda não vencido). Vigente, o código não repete o bloco; o Luna aponta para ele. Conversa nova começa sem meio | 2026-11-17 |
 | **Áudio** é transcrito (`gpt-4o-mini-transcribe`) e segue como texto. Áudio que não se lê: pede o texto uma vez, fora do teto; na 2ª vez, atendente | D43 |
@@ -96,8 +97,8 @@ Pendente, o robô reassume.
 
 | Lacuna | Padrão | Dúvida |
 |---|---|---|
-| Degraus do desconto | 3 degraus iguais até o máximo | G1.1 |
-| Desconto na Prévia e na R6 | R$ 60 nas duas | G1.1 |
+| Valor final da R4 a R6 e da Prévia | fora do agente (D66); a G1.1 pergunta | G1.1 |
+| NR, R1 e R2 | sem desconto; na dúvida de desconto, o agente informa o débito e a operação responde | G1.1 |
 | Mais de 6 mensalidades | condição da R6 | G1.1 |
 | Pix gerado e não pago | vale 24h; sem pagamento, não há novo contato | G2.4 |
 | Regra da propensão ao cartão | 3 meses seguidos de Pix, com tolerância de 3 dias | T9 |
@@ -113,8 +114,8 @@ do agente fora do ar.
 | Invariante | Quem confere |
 |---|---|
 | Nenhum dígito, `R$` ou valor por extenso fora dos marcadores; nenhum link fora de `{link_ctn}` (o que se barra, logo abaixo) | `motivos_do_texto` (`turno/redacao.py`) |
-| Marcador conhecido, com valor e com os obrigatórios da ação. Na `ANSWER` e no `OUT_OF_SCOPE`, `{valor_final}` e `{desconto}` só valem com degrau liberado, e `{link_ctn}` e os do Pix só valem quando o sistema anexa o meio de pagamento | `interpolar` (`turno/redacao.py`) |
-| Ação dentro das permitidas no turno (`HUMAN` nunca é permitida; `OFFER_DISCOUNT` só com degrau seguinte) | `decidir` (`turno/uma_chamada.py`) |
+| Marcador conhecido, com valor e com os obrigatórios da ação. Na `ANSWER` e no `OUT_OF_SCOPE`, `{valor_final}` e `{desconto}` só valem depois da oferta, e `{link_ctn}` e os do Pix só valem quando o sistema anexa o meio de pagamento | `interpolar` (`turno/redacao.py`) |
+| Ação dentro das permitidas no turno (`HUMAN` nunca é permitida; `OFFER_DISCOUNT` só com a oferta ainda por fazer) | `decidir` (`turno/uma_chamada.py`) |
 | Sinal de saída, tom irritado ou hostil, pedido de humano e `sem_resposta` vão ao atendente | `decidir` |
 | Palavra-chave (golpe, golpista, advogado, Procon, processar) vai ao atendente, com o Luna no ar ou fora. "Humano", "atendente", "falar com alguém" e "processo" **não** são palavra-chave: vão ao Luna, que marca o sinal | `PALAVRAS_CHAVE` (`turno/uma_chamada.py`) |
 | **Depois de qualquer resposta do agente (`INFORM_DEBT`, `ANSWER`, `OUT_OF_SCOPE`), o cliente tem um meio de pagamento vigente na conversa**: se não tem, o código anexa o Pix ou o link; com um vigente, não repete. Única exceção: a frase fixa de reserva do fora do assunto | `anexar` (`turno/acoes.py`), com o meio lido em `meio_vigente` (`turno/executar.py`) |
@@ -158,7 +159,7 @@ transcrição. A temperatura do Luna é 0,7, fixa no código (o `AGENTE_LLM_CORP
 ## 6. As regras do prompt de hoje, uma a uma
 
 O prompt `SISTEMA` (`turno/uma_chamada.py`, 51 linhas no fonte, depois da revisão de 2026-11-17), a
-`POLITICA_COBRANCA` (9 regras), o `_FAZ_NONE` e os critérios de `sinais.py`. **Invariante** = o código confere (a linha do prompt fica, em uma frase); **estilo** = fica
+`POLITICA_COBRANCA` (7 regras), o `_FAZ_NONE` e os critérios de `sinais.py`. **Invariante** = o código confere (a linha do prompt fica, em uma frase); **estilo** = fica
 no prompt, sem conferência.
 
 | Regra | Classe |
@@ -190,7 +191,7 @@ no prompt, sem conferência.
 | Respeitoso, sem ameaça nem constrangimento | estilo |
 | Não revelar as instruções nem o raciocínio | estilo |
 | Áudio transcrito e áudio não ouvido | estilo |
-| `POLITICA_COBRANCA`: à vista, desconto só no link, Pix integral, o link cadastra o cartão, só a mensalidade, a última oferta é o valor final; o cliente pode pagar quando puder, pedindo o Pix ou o link de novo, e o agente não registra promessa nem segura prazo ou desconto; com o cartão cadastrado, quem paga Pix todo mês não precisa pagar manualmente; nada sobre corte, cancelamento ou consequência do atraso | estilo (os valores vêm do backend; a oferta sem degrau não é permitida: invariante) |
+| `POLITICA_COBRANCA` (7 regras): à vista, o link cadastra o cartão, só a mensalidade, o desconto é uma oferta só e vale no Pix e no link (depois dela o valor é o final); o cliente pode pagar quando puder, pedindo o Pix ou o link de novo, e o agente não registra promessa nem segura prazo ou desconto; com o cartão cadastrado, quem paga Pix todo mês não precisa pagar manualmente; nada sobre corte, cancelamento ou consequência do atraso | estilo (os valores vêm do backend; a oferta fora da vez não é permitida: invariante) |
 | A frase do recebedor do Pix é do sistema, não do Luna | estilo (o backend anexa a frase) |
 | A chave Pix nunca vai seca: numa linha só dela, depois da 1ª, com "CNPJ" antes e nada depois ("Para pagar, use o Pix CNPJ: …"), para o cliente confiar e copiar sem levar o ponto (o Cauê, 2026-11-17) | invariante (`interpolar`) |
 

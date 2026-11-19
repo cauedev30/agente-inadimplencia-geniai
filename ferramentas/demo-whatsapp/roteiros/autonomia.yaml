@@ -3,17 +3,19 @@
 # deploy/dev2/politica-teste.exemplo.toml --roteiros ferramentas/demo-whatsapp/roteiros/autonomia.yaml`,
 # com o Luna real, 3 rodadas. Só dado inventado.
 #
-# Todo roteiro nasce no caso 1 (R$ 100,20, régua R3) e começa com "Oi", que recebe a abertura. Cada um
-# usa no máximo 5 mensagens do agente (o teto é 5; a abertura não conta). O Pix é o da chave CNPJ
-# 29760112000122; o desconto só existe no link, e o degrau 1 da R3 dá R$ 70,20.
+# Todo roteiro nasce no caso 1 (R$ 100,20, régua R3) e começa com "Oi", que recebe a abertura (D65), com a
+# matrícula, o nome completo e a chave Pix (o Pix integral já é o meio vigente, então o 1º ANSWER não repete a
+# chave). Cada um usa no máximo 5 mensagens do agente (o teto é 5; a abertura não conta). O Pix é o da chave
+# CNPJ 29760112000122; o valor final da R3 é R$ 90,00 (D64), uma oferta só, no Pix e no link.
 #
-# Ao passar nas 3 rodadas: a conversa do Cauê (`desconto-so-no-cartao`) e as 15 dúvidas
+# Ao passar nas 3 rodadas: a conversa do Cauê (`desconto-no-pix-e-no-link`) e as 15 dúvidas
 # (`duvidas-1` a `duvidas-4`) liberam o teste da Lohanny. A pessoa (os 8 `HANDOFF`) e o `link-seguro` entram
 # no relatório. No `link-seguro` o "certo" é do Cauê: o passo vai `a_decidir`, sem expectativa.
 
-# A conversa que o Cauê mandou: o desconto de R$ 70,20 só vale no link; a pergunta sobre o cartão é
-# resposta do Luna (ANSWER), sem atendente e sem Pix novo.
-- nome: desconto-so-no-cartao
+# A conversa que o Cauê mandou: o desconto de R$ 90,00 vale no Pix e no link, sem precisar do cartão; a
+# pergunta sobre o cartão e a de depois da oferta são resposta do Luna (ANSWER), sem atendente, sem 2ª oferta
+# (nenhum valor de degrau antigo) e sem Pix novo.
+- nome: desconto-no-pix-e-no-link
   passos:
     - cliente: "Oi"
       espera:
@@ -22,27 +24,36 @@
       espera:
         acao: OFFER_DISCOUNT
         resultado: ENVIADO
-        texto_tem: ["70,20"]
+        texto_tem: ["90,00"]
+        texto_nao_tem: ["70,20"]
     - cliente: "Então esse desconto só existe se eu cadastrar meu cartão?"
       espera:
         resultado: ENVIADO
+        texto_nao_tem: ["70,20", "29760112000122"]
+    - cliente: "E no Pix, o desconto vale também?"
+      espera:
+        resultado: ENVIADO
+        texto_nao_tem: ["70,20"]
   fim:
     estado: AGUARDANDO_PAGAMENTO
 
-# 15 dúvidas de cobrança em 4 roteiros (o teto de 5 mensagens): todas respondidas pelo Luna, e a conversa
-# termina com o meio de pagamento enviado. A 1ª de cada roteiro leva a chave Pix.
+# 15 dúvidas de cobrança em 4 roteiros (o teto de 5 mensagens): todas respondidas pelo Luna. A chave Pix vai
+# na abertura (meio vigente), então o 1º ANSWER não a repete (menos no `duvidas-4`: quem pede a chave recebe o Pix de novo).
+# A 1ª pergunta pode virar a oferta (que leva o Pix de novo, com o valor novo) ou um ANSWER: o estado final
+# varia, e a chave só é conferida na 2ª resposta.
 - nome: duvidas-1
   passos:
     - cliente: "Oi"
       espera:
         acao: "TESTE:ABERTURA"
+        mensagem_tem: ["29760112000122"]
     - cliente: "No Pix tem desconto?"
       espera:
         resultado: ENVIADO
-        texto_tem: ["29760112000122"]
     - cliente: "Você é um robô?"
       espera:
         resultado: ENVIADO
+        texto_nao_tem: ["29760112000122"]
     - cliente: "Posso pagar semana que vem?"
       espera:
         resultado: ENVIADO
@@ -50,17 +61,18 @@
       espera:
         resultado: ENVIADO
   fim:
-    estado: AGUARDANDO_PAGAMENTO
+    cobranca: ATIVA
 
 - nome: duvidas-2
   passos:
     - cliente: "Oi"
       espera:
         acao: "TESTE:ABERTURA"
+        mensagem_tem: ["29760112000122"]
     - cliente: "Preciso cadastrar o cartão pra pagar?"
       espera:
         resultado: ENVIADO
-        texto_tem: ["29760112000122"]
+        texto_nao_tem: ["29760112000122"]
     - cliente: "Posso pagar só uma mensalidade agora?"
       espera:
         resultado: ENVIADO
@@ -71,17 +83,18 @@
       espera:
         resultado: ENVIADO
   fim:
-    estado: AGUARDANDO_PAGAMENTO
+    estado: ENGAJADO
 
 - nome: duvidas-3
   passos:
     - cliente: "Oi"
       espera:
         acao: "TESTE:ABERTURA"
+        mensagem_tem: ["29760112000122"]
     - cliente: "O valor do Pix é o mesmo do link?"
       espera:
         resultado: ENVIADO
-        texto_tem: ["29760112000122"]
+        texto_nao_tem: ["29760112000122"]
     - cliente: "Quem está falando?"
       espera:
         resultado: ENVIADO
@@ -92,15 +105,17 @@
       espera:
         resultado: ENVIADO
   fim:
-    estado: AGUARDANDO_PAGAMENTO
+    estado: ENGAJADO
 
 - nome: duvidas-4
   passos:
     - cliente: "Oi"
       espera:
         acao: "TESTE:ABERTURA"
+        mensagem_tem: ["29760112000122"]
     - cliente: "Qual a chave Pix?"
       espera:
+        acao: GENERATE_PIX
         resultado: ENVIADO
         texto_tem: ["29760112000122"]
     - cliente: "Oi"
@@ -112,7 +127,8 @@
   fim:
     estado: AGUARDANDO_PAGAMENTO
 
-# Quem resiste a cadastrar o cartão recebe o Pix do valor integral na mesma mensagem.
+# Quem resiste a cadastrar o cartão recebe o Pix na mesma mensagem, com o valor final de R$ 90,00 (o caso 1
+# paga no cartão, então a oferta saiu com o Pix; o Pix já é o meio vigente).
 - nome: nao-quer-cartao
   passos:
     - cliente: "Oi"
@@ -126,7 +142,8 @@
       espera:
         acao: GENERATE_PIX
         resultado: ENVIADO
-        texto_tem: ["29760112000122", "100,20"]
+        texto_tem: ["29760112000122"]
+        texto_nao_tem: ["70,20", "100,20"]
   fim:
     estado: AGUARDANDO_PAGAMENTO
 
@@ -140,7 +157,7 @@
       espera:
         acao: OFFER_DISCOUNT
         resultado: ENVIADO
-        texto_tem: ["70,20"]
+        texto_tem: ["90,00"]
   fim:
     estado: AGUARDANDO_PAGAMENTO
 

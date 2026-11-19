@@ -66,6 +66,12 @@ OFERTA_NO_PIX = (
 # chegam ao Luna, porque a palavra-chave vai ao atendente.
 RESPOSTAS_DA_AUTONOMIA = {
     "tem desconto": _bruto(acao="OFFER_DISCOUNT", reply=OFERTA_NO_PIX),
+    "qual a chave pix": _bruto(
+        acao="GENERATE_PIX", reply="Aqui está.\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
+    ),
+    "e no pix, o desconto": _bruto(
+        acao="ANSWER", reply="Vale no Pix também: o valor de {valor_final} é o final."
+    ),
     "então esse desconto só existe": _bruto(
         acao="ANSWER",
         reply="Não precisa: o valor de {valor_final} vale no Pix e no link. O link já cadastra o "
@@ -247,9 +253,10 @@ def test_o_autonomia_yaml_real_traz_o_que_a_spec_pede():
         assert len(roteiro.passos) - 1 <= 5, roteiro.nome
     # O caso do Cauê, as 15 dúvidas (a 1ª de cada roteiro com a chave Pix), "não quero cartão" e a
     # dificuldade.
-    assert [p.cliente for p in roteiros["desconto-so-no-cartao"].passos[1:]] == [
+    assert [p.cliente for p in roteiros["desconto-no-pix-e-no-link"].passos[1:]] == [
         "Tem desconto?",
         "Então esse desconto só existe se eu cadastrar meu cartão?",
+        "E no Pix, o desconto vale também?",
     ]
     duvidas = [r for nome, r in roteiros.items() if nome.startswith("duvidas-")]
     assert [r.nome for r in duvidas] == [f"duvidas-{n}" for n in range(1, 5)]
@@ -257,12 +264,26 @@ def test_o_autonomia_yaml_real_traz_o_que_a_spec_pede():
     for roteiro in duvidas:
         falas = roteiro.passos[1:]
         assert all(p.espera.resultado.value == "ENVIADO" for p in falas)
-        assert "29760112000122" in falas[0].espera.texto_tem
-        assert roteiro.fim.estado.value == "AGUARDANDO_PAGAMENTO"
+        # A chave vai na abertura (o Pix integral é o meio vigente); uma resposta (ANSWER) não a
+        # repete. No duvidas-1 a 1ª pergunta pode virar a oferta, que leva o Pix de novo: a chave
+        # se confere na 2ª resposta. No duvidas-4 o cliente pede a chave e recebe o Pix.
+        assert "29760112000122" in roteiro.passos[0].espera.mensagem_tem
+        if roteiro.nome != "duvidas-4":
+            conferida = falas[1] if roteiro.nome == "duvidas-1" else falas[0]
+            assert "29760112000122" in conferida.espera.texto_nao_tem
+        if roteiro.nome == "duvidas-1":
+            assert roteiro.fim.cobranca.value == "ATIVA"
+        else:
+            esperado = "AGUARDANDO_PAGAMENTO" if roteiro.nome == "duvidas-4" else "ENGAJADO"
+            assert roteiro.fim.estado.value == esperado
     assert roteiros["nao-quer-cartao"].passos[-1].espera.acao == "GENERATE_PIX"
     assert roteiros["dificuldade"].passos[-1].espera.acao == "OFFER_DISCOUNT"
     # Os 8 de pessoa: atendente, com o rótulo, a etiqueta e o motivo; a mensagem tem "atendente".
-    pessoas = [r for r in roteiros.values() if r.fim and r.fim.estado.value == "ATENDIMENTO_HUMANO"]
+    pessoas = [
+        r
+        for r in roteiros.values()
+        if r.fim and r.fim.estado and r.fim.estado.value == "ATENDIMENTO_HUMANO"
+    ]
     assert {r.fim.motivo.value for r in pessoas} == {
         "CONCILIACAO",
         "RETENCAO",
