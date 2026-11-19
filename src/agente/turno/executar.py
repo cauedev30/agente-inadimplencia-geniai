@@ -24,7 +24,7 @@ class DependenciasExecutar(Protocol):
 
 @dataclass(frozen=True)
 class Numeros:
-    """Os números do turno. O valor final é o do link, com o degrau; o Pix é sempre integral."""
+    """Os números do turno. O valor final é o do degrau, no link e no Pix (D64)."""
 
     acoes: tuple[Acao, ...]
     divida_centavos: int
@@ -46,8 +46,10 @@ class Numeros:
         return {nome: valor for nome, valor in dados.items() if valor is not None}
 
 
-def pix_vigente(cobranca: Cobranca, agora: datetime, politica: Politica) -> Pagamento | None:
-    """O Pix pendente da cobrança que ainda vale, no valor integral de hoje, ou None.
+def pix_vigente(
+    cobranca: Cobranca, valor_centavos: int, agora: datetime, politica: Politica
+) -> Pagamento | None:
+    """O Pix pendente da cobrança que ainda vale, no valor do degrau da conversa, ou None.
 
     Um Pix a minutos de vencer não vale, porque o cliente não teria tempo de pagar: o mínimo é o
     `pix_reaproveitar_minimo_minutos`.
@@ -58,7 +60,7 @@ def pix_vigente(cobranca: Cobranca, agora: datetime, politica: Politica) -> Paga
             pagamento.forma is FormaPagamento.PIX
             and pagamento.status is StatusPagamento.PENDENTE
             and pagamento.br_code is not None
-            and pagamento.valor_centavos == cobranca.divida_centavos
+            and pagamento.valor_centavos == valor_centavos
             and pagamento.divergente_centavos is None
             and pagamento.expira_em is not None
             and pagamento.expira_em > limite
@@ -75,7 +77,11 @@ def meio_vigente(conversa: Conversa, agora: datetime, politica: Politica) -> For
     """
     forma = conversa.forma_enviada
     if forma is FormaPagamento.PIX:
-        return forma if pix_vigente(conversa.cobranca, agora, politica) else None
+        cobranca = conversa.cobranca
+        valor = valor_com_desconto(
+            cobranca.regua, cobranca.divida_centavos, conversa.degrau_atual, politica
+        )
+        return forma if pix_vigente(cobranca, valor, agora, politica) else None
     if forma is FormaPagamento.LINK_CTN:
         for pagamento in conversa.cobranca.pagamentos:
             if (
@@ -125,19 +131,19 @@ def executar(
         )
         extras |= {"link_ctn": link.url, "forma": FormaPagamento.LINK_CTN}
     if Acao.GENERATE_PIX in acoes:
-        # O Pix paga sempre o integral (D34). O que ainda vale é reaproveitado: o 2º toque no
-        # botão não cria outra cobrança no banco.
-        vigente = pix_vigente(cobranca, agora, politica)
+        # O Pix paga o valor do degrau, como o link (D64). O que ainda vale é reaproveitado: o 2º
+        # toque no botão não cria outra cobrança no banco.
+        vigente = pix_vigente(cobranca, valor_final, agora, politica)
         if vigente is None:
             pix = deps.pix.criar_cobranca(
                 gerar_txid(cobranca.id),
-                divida,
+                valor_final,
                 timedelta(hours=politica.pix_validade_horas),
                 cobranca.cliente.nome,
             )
             vigente = Pagamento(
                 forma=FormaPagamento.PIX,
-                valor_centavos=divida,
+                valor_centavos=valor_final,
                 referencia=pix.txid,
                 status=StatusPagamento.PENDENTE,
                 criado_em=agora,
@@ -146,7 +152,7 @@ def executar(
             )
             cobranca.pagamentos.append(vigente)
         extras |= {
-            "valor_pix_centavos": divida,
+            "valor_pix_centavos": valor_final,
             "br_code": vigente.br_code,
             "forma": FormaPagamento.PIX,
         }

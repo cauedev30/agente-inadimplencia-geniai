@@ -40,8 +40,9 @@ def _em_e164(telefones: frozenset[str]) -> frozenset[str]:
 
 
 class ReguaParametros(_Imutavel):
-    desconto_max_centavos: int = Field(ge=0)
-    n_degraus: int = Field(ge=1)
+    """O valor final da régua (D64): o que o cliente paga depois da oferta. None = sem desconto."""
+
+    valor_final_centavos: int | None = Field(default=None, gt=0)
 
 
 class Horario(_Imutavel):

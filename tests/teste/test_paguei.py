@@ -143,6 +143,30 @@ def test_paguei_confirma_o_pendente_mais_recente(sessao, conversa_aberta, conver
     assert (novo.status, velho.status) == (StatusPagamento.PAGO, StatusPagamento.PENDENTE)
 
 
+def test_paguei_depois_da_oferta_paga_noventa_e_quita_sem_pendencia_de_valor(
+    sessao, conversa_aberta, conversa_de_teste, deps
+):
+    """O Pix integral da abertura segue pendente; o `/paguei` confirma o de R$ 90,00 (D64)."""
+    cobranca = conversa_de_teste.cobranca
+    integral = _pagamento(sessao, cobranca, referencia="tx-integral")
+    com_desconto = _pagamento(sessao, cobranca, referencia="tx-90", valor=9000)
+    conversa_aberta.manda("/paguei")
+
+    conversa_aberta.roda(deps)
+
+    sessao.refresh(com_desconto)
+    sessao.refresh(integral)
+    sessao.refresh(cobranca)
+    assert com_desconto.status is StatusPagamento.PAGO
+    assert com_desconto.divergente_centavos is None
+    assert integral.status is StatusPagamento.PENDENTE
+    assert cobranca.status is StatusCobranca.PAGA
+    assert conversa_de_teste.estado is EstadoConversa.ENCERRADO
+    assert deps.chatwoot.enviadas(CHATWOOT_ID)[-1] == (
+        "[TESTE] Simulando a confirmação do banco: Pix de R$ 90,00."
+    )
+
+
 def test_paguei_sem_pendente_so_orienta(sessao, conversa_aberta, conversa_de_teste, deps):
     conversa_aberta.manda("/paguei")
 

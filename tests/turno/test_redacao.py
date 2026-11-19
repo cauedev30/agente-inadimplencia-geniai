@@ -21,13 +21,13 @@ JP = ZoneInfo("America/Fortaleza")
 
 def _numeros(*acoes, degrau=0, divida=10020):
     acoes = tuple(acoes)
-    valor_final = divida - 3000 * degrau
+    valor_final = 9000 if degrau else divida
     campos = {}
     if Acao.SEND_CTN_LINK in acoes:
         campos["link_ctn"] = "https://ctn.invalid/pagar/pagar-1"
     if Acao.GENERATE_PIX in acoes:
         campos |= {
-            "valor_pix_centavos": divida,
+            "valor_pix_centavos": valor_final,
             "br_code": "00020126FALSOabc10020",
         }
     return Numeros(
@@ -46,7 +46,7 @@ def test_formata_o_real_em_pt_br():
     texto = "Era {divida}, com {desconto} de desconto fica {valor_final}: {link_ctn}"
 
     assert interpolar(texto, numeros) == (
-        "Era R$ 100,20, com R$ 30,00 de desconto fica R$ 70,20: https://ctn.invalid/pagar/pagar-1"
+        "Era R$ 100,20, com R$ 10,20 de desconto fica R$ 90,00: https://ctn.invalid/pagar/pagar-1"
     )
 
 
@@ -404,7 +404,7 @@ def test_a_answer_no_degrau_1_aceita_o_valor_final_e_o_desconto():
 
     texto = interpolar("São {divida}; com {desconto} de desconto, {valor_final}.", numeros)
 
-    assert texto == "São R$ 100,20; com R$ 30,00 de desconto, R$ 70,20."
+    assert texto == "São R$ 100,20; com R$ 10,20 de desconto, R$ 90,00."
     assert marcadores_do_turno(numeros)[1] == [
         "divida",
         "mensalidades",
@@ -416,7 +416,7 @@ def test_a_answer_no_degrau_1_aceita_o_valor_final_e_o_desconto():
 def test_o_out_of_scope_no_degrau_1_tambem_tem_o_valor_final():
     numeros = _numeros(Acao.OUT_OF_SCOPE, degrau=1)
 
-    assert interpolar("Fica {valor_final}.", numeros) == "Fica R$ 70,20."
+    assert interpolar("Fica {valor_final}.", numeros) == "Fica R$ 90,00."
 
 
 def test_a_answer_sem_anexo_com_o_link_e_reprovada():
@@ -436,11 +436,10 @@ def test_a_answer_com_anexo_pix_leva_a_chave_mesmo_se_o_luna_esquecer():
     assert interpolar(texto, numeros).endswith("00020126FALSOabc10020")
 
 
-def test_o_pix_sozinho_no_degrau_1_continua_sem_valor_final():
+def test_o_pix_depois_da_oferta_traz_o_valor_final_e_o_desconto():
     numeros = _numeros(Acao.GENERATE_PIX, degrau=1)
 
     _, opcionais = marcadores_do_turno(numeros)
-    assert "valor_final" not in opcionais and "desconto" not in opcionais
-    with pytest.raises(RedacaoInvalida) as erro:
-        interpolar("Fica {valor_final}.\nPix CNPJ: {pix_copia_e_cola}", numeros)
-    assert erro.value.motivos == ["marcador_sem_valor:valor_final"]
+    assert "valor_final" in opcionais and "desconto" in opcionais
+    texto = interpolar("Fica {valor_final} ({valor_pix}).\nPix CNPJ: {pix_copia_e_cola}", numeros)
+    assert texto.startswith("Fica R$ 90,00 (R$ 90,00).")

@@ -116,6 +116,9 @@ def test_o_turno_fecha_enviado_com_o_texto_do_luna_e_o_pix_do_backend(
 
 
 REPLY_SO_A_DIVIDA = "Seu valor em aberto é {divida}."
+REPLY_PIX_COM_DESCONTO = (
+    "Seu valor com desconto é {valor_final}.\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
+)
 
 
 def test_o_2o_quanto_devo_sai_sem_o_pix_e_sem_pagamento_novo(sessao, ligada, cliente, politica):
@@ -248,26 +251,26 @@ def test_o_sem_resposta_vai_ao_atendente_com_a_etiqueta_e_o_laudo_da_causa(
 # Quem quer pagar, paga
 
 
-def test_r3_no_degrau_3_quem_aceita_o_desconto_recebe_o_link_no_valor_do_degrau(
+def test_r3_depois_da_oferta_quem_aceita_o_desconto_recebe_o_link_no_valor_final(
     sessao, ligada, cliente, politica
 ):
-    ligada.degrau_atual = 3
+    ligada.degrau_atual = 1
     deps = _deps(politica, [_bruto(acao="SEND_CTN_LINK", reply=REPLY_LINK_FINAL)])
 
     assert cliente("Quero pagar com esse desconto", deps) is ResultadoTurno.ENVIADO
 
     [texto] = deps.chatwoot.enviadas(555)
     [link] = deps.ctn.links
-    assert "R$ 10,20" in texto and f"https://ctn.invalid/pagar/{link}" in texto
-    assert sessao.scalars(select(Pagamento)).one().valor_centavos == 1020
+    assert "R$ 90,00" in texto and f"https://ctn.invalid/pagar/{link}" in texto
+    assert sessao.scalars(select(Pagamento)).one().valor_centavos == 9000
     assert _turno(sessao).acao_principal == "SEND_CTN_LINK"
     assert ligada.estado is EstadoConversa.AGUARDANDO_PAGAMENTO
 
 
-def test_no_ultimo_degrau_a_objecao_com_o_link_sai_enviado_e_nao_vai_ao_humano(
+def test_depois_da_oferta_a_objecao_com_o_link_sai_enviado_e_nao_vai_ao_humano(
     sessao, ligada, cliente, politica
 ):
-    ligada.degrau_atual = 3
+    ligada.degrau_atual = 1
     deps = _deps(politica, [_bruto(acao="SEND_CTN_LINK", reply=REPLY_LINK_FINAL)])
 
     resultado = cliente("Ainda tá caro", deps)
@@ -281,13 +284,14 @@ def test_no_ultimo_degrau_a_objecao_com_o_link_sai_enviado_e_nao_vai_ao_humano(
 def test_o_desconto_sobe_o_degrau_e_manda_o_link_com_o_valor_final(
     sessao, ligada, cliente, politica
 ):
+    ligada.cobranca.propenso_cartao = True
     deps = _deps(politica, [_bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK)])
 
     assert cliente("tá caro", deps) is ResultadoTurno.ENVIADO
 
     [texto] = deps.chatwoot.enviadas(555)
     [link] = deps.ctn.links
-    assert "R$ 70,20" in texto and f"https://ctn.invalid/pagar/{link}" in texto
+    assert "R$ 90,00" in texto and f"https://ctn.invalid/pagar/{link}" in texto
     assert ligada.degrau_atual == 1
     assert ligada.forma_enviada is FormaPagamento.LINK_CTN
     turno = _turno(sessao)
@@ -295,10 +299,27 @@ def test_o_desconto_sobe_o_degrau_e_manda_o_link_com_o_valor_final(
     assert turno.numeros["degrau"] == 1
 
 
+def test_o_desconto_de_quem_nao_paga_pix_todo_mes_vai_no_pix_de_noventa(
+    sessao, ligada, cliente, politica
+):
+    deps = _deps(politica, [_bruto(acao="OFFER_DISCOUNT", reply=REPLY_PIX_COM_DESCONTO)])
+
+    assert cliente("tá caro", deps) is ResultadoTurno.ENVIADO
+
+    [texto] = deps.chatwoot.enviadas(555)
+    [pix] = deps.pix.cobrancas.values()
+    assert "R$ 90,00" in texto and pix.br_code in texto
+    assert sessao.scalars(select(Pagamento)).one().valor_centavos == pix.valor_centavos == 9000
+    assert deps.ctn.links == {}
+    assert ligada.degrau_atual == 1 and ligada.forma_enviada is FormaPagamento.PIX
+    turno = _turno(sessao)
+    assert (turno.acao_principal, turno.acoes_anexadas) == ("OFFER_DISCOUNT", ["GENERATE_PIX"])
+
+
 # A resposta (ANSWER)
 
 REPLY_ANSWER_DESCONTO = (
-    "O desconto vale só pelo link: de {divida} por {valor_final}. É só pagar e cadastrar o cartão."
+    "O desconto vale no Pix e no link: de {divida} por {valor_final}. É só escolher como pagar."
 )
 REPLY_ANSWER_SEM_MEIO = "Não dá para parcelar: o valor é {divida}, à vista."
 REPLY_ANSWER_COM_PIX = REPLY_ANSWER_SEM_MEIO + "\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
@@ -309,6 +330,7 @@ def test_o_caso_do_desconto_so_no_cartao_a_answer_responde_sem_mandar_ao_atenden
 ):
     """O caso do Cauê: "Tem desconto?" e depois "então esse desconto só existe se eu cadastrar
     meu cartão?". A 2ª é dúvida da cobrança: o Luna responde, sem anexo, e a conversa segue."""
+    ligada.cobranca.propenso_cartao = True
     deps = _deps(
         politica,
         [
@@ -325,7 +347,7 @@ def test_o_caso_do_desconto_so_no_cartao_a_answer_responde_sem_mandar_ao_atenden
     )
 
     [_, segunda] = deps.chatwoot.enviadas(555)
-    assert "R$ 70,20" in segunda and "R$ 100,20" in segunda
+    assert "R$ 90,00" in segunda and "R$ 100,20" in segunda
     turno = _turno(sessao)
     assert (turno.acao_principal, turno.acoes_anexadas) == ("ANSWER", [])
     assert turno.texto_enviado == segunda and turno.redacao["saida"] == "LLM"
@@ -719,6 +741,7 @@ def test_o_pagamento_durante_o_humano_nao_manda_o_canal_externo(sessao, ligada, 
 def test_o_pagamento_durante_a_geracao_do_link_desfaz_a_acao_e_nada_sai(
     sessao, ligada, cliente, politica
 ):
+    ligada.cobranca.propenso_cartao = True
     ctn = CTNQueEspera([ClienteCTN("M-0001", "Cliente Fictício", "+5583900000001", None)])
     ctn.ao_gerar = lambda: _pagar_por_fora(sessao, ligada)
     deps = _deps(politica, [_bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK)], ctn=ctn)

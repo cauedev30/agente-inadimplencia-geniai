@@ -13,7 +13,6 @@ from agente.integracoes.ctn import ClienteCTN, CTNFalso
 from agente.integracoes.disparador import DisparadorFalso
 from agente.integracoes.llm_turno import LLMTurnoFalso
 from agente.integracoes.pix import PixFalso
-from agente.politica import Regua
 from agente.tipos import (
     EstadoConversa,
     FormaPagamento,
@@ -21,7 +20,7 @@ from agente.tipos import (
     StatusPagamento,
 )
 from agente.turno.acoes import Acao
-from agente.turno.executar import executar, meio_vigente, proximo_estado
+from agente.turno.executar import executar, meio_vigente, pix_vigente, proximo_estado
 from agente.turno.orquestrador import Dependencias, processar_turno
 
 from ..conftest import piloto_com
@@ -54,31 +53,30 @@ def test_o_desconto_com_o_link_gera_o_link_do_valor_descontado(conversa, politic
 
     assert (numeros.degrau, numeros.desconto_centavos, numeros.valor_final_centavos) == (
         1,
-        3000,
-        7020,
+        1020,
+        9000,
     )
     [(id_externo, (matricula, valor, cobranca_id))] = deps.ctn.links.items()
-    assert (matricula, valor, cobranca_id) == ("M-0001", 7020, conversa.cobranca.id)
+    assert (matricula, valor, cobranca_id) == ("M-0001", 9000, conversa.cobranca.id)
     assert numeros.link_ctn == f"https://ctn.invalid/pagar/{id_externo}"
     assert conversa.degrau_atual == 1
     assert (numeros.forma, conversa.forma_enviada) == (FormaPagamento.LINK_CTN,) * 2
 
 
 def test_o_link_leva_o_degrau_ja_liberado(conversa, politica):
-    conversa.degrau_atual = 2
+    conversa.degrau_atual = 1
     deps = _deps(politica)
 
     numeros = executar(
         [Acao.INFORM_DEBT, Acao.SEND_CTN_LINK], conversa.cobranca, conversa, deps, AGORA
     )
 
-    assert (numeros.divida_centavos, numeros.valor_final_centavos) == (10020, 4020)
-    assert [valor for _, valor, _ in deps.ctn.links.values()] == [4020]
-    assert conversa.degrau_atual == 2
+    assert (numeros.divida_centavos, numeros.valor_final_centavos) == (10020, 9000)
+    assert [valor for _, valor, _ in deps.ctn.links.values()] == [9000]
+    assert conversa.degrau_atual == 1
 
 
-def test_o_pix_e_sempre_integral_mesmo_com_degrau(conversa, politica):
-    conversa.degrau_atual = 2
+def test_o_pix_antes_da_oferta_e_integral(conversa, politica):
     deps = _deps(politica)
 
     numeros = executar([Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA)
@@ -87,6 +85,61 @@ def test_o_pix_e_sempre_integral_mesmo_com_degrau(conversa, politica):
     assert pix.valor_centavos == numeros.valor_pix_centavos == 10020
     assert numeros.br_code == pix.br_code
     assert (numeros.forma, conversa.forma_enviada) == (FormaPagamento.PIX,) * 2
+
+
+def test_o_pix_depois_da_oferta_e_do_valor_final(conversa, politica):
+    conversa.degrau_atual = 1
+    deps = _deps(politica)
+
+    numeros = executar([Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA)
+
+    [pix] = deps.pix.cobrancas.values()
+    assert pix.valor_centavos == numeros.valor_pix_centavos == 9000
+    assert (numeros.degrau, numeros.desconto_centavos, numeros.valor_final_centavos) == (
+        1,
+        1020,
+        9000,
+    )
+    [pagamento] = conversa.cobranca.pagamentos
+    assert pagamento.valor_centavos == 9000
+
+
+def test_a_oferta_com_o_pix_cria_o_pix_de_noventa_e_nao_reaproveita_o_integral(
+    sessao, conversa, politica
+):
+    deps = _deps(politica)
+    executar([Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA)
+
+    numeros = executar(
+        [Acao.OFFER_DISCOUNT, Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA
+    )
+    sessao.flush()
+
+    assert sorted(p.valor_centavos for p in conversa.cobranca.pagamentos) == [9000, 10020]
+    assert numeros.valor_pix_centavos == 9000
+    assert meio_vigente(conversa, AGORA, politica) is FormaPagamento.PIX
+
+
+def test_o_pix_de_noventa_e_reaproveitado_e_o_integral_deixa_de_valer(sessao, conversa, politica):
+    deps = _deps(politica)
+    executar([Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA)
+    executar([Acao.OFFER_DISCOUNT, Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA)
+
+    repetido = executar([Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA)
+
+    assert len(deps.pix.cobrancas) == 2
+    assert repetido.valor_pix_centavos == 9000
+    integral, desconto = conversa.cobranca.pagamentos
+    assert pix_vigente(conversa.cobranca, 9000, AGORA, politica) is desconto
+    assert pix_vigente(conversa.cobranca, 10020, AGORA, politica) is integral
+
+
+def test_o_pix_integral_nao_e_meio_vigente_depois_da_oferta(conversa, politica):
+    deps = _deps(politica)
+    executar([Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA)
+    conversa.degrau_atual = 1
+
+    assert meio_vigente(conversa, AGORA, politica) is None
 
 
 def test_o_pix_grava_o_pagamento_pendente(sessao, conversa, politica):
@@ -118,7 +171,7 @@ def test_o_link_grava_o_pagamento_pendente_com_o_valor_do_degrau(sessao, convers
     assert (pagamento.cobranca_id, pagamento.forma, pagamento.valor_centavos) == (
         conversa.cobranca.id,
         FormaPagamento.LINK_CTN,
-        7020,
+        9000,
     )
     assert (pagamento.referencia, pagamento.status) == (id_externo, StatusPagamento.PENDENTE)
     assert pagamento.criado_em == AGORA
@@ -137,7 +190,7 @@ def test_o_debito_sozinho_so_traz_a_divida(conversa, politica):
 
 def test_desconto_sem_degrau_seguinte_e_erro(conversa, politica):
     # O Luna só recebe o desconto quando há degrau seguinte; se chegar aqui, é bug.
-    conversa.degrau_atual = politica.reguas[Regua.R3].n_degraus
+    conversa.degrau_atual = 1
     with pytest.raises(ValueError, match="degrau"):
         executar([Acao.OFFER_DISCOUNT], conversa.cobranca, conversa, _deps(politica), AGORA)
 
@@ -172,13 +225,14 @@ OFERTA = [_bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK)]
 
 
 def test_no_ativo_o_turno_grava_os_numeros_do_executar(sessao, ligada, politica):
+    ligada.cobranca.propenso_cartao = True
     deps = _deps(politica, respostas=OFERTA)
     _cliente(sessao, ligada, "tá caro", "cw-1")
 
     processar_turno(sessao, ligada.id, SEGUNDA_10H, deps)
 
     turno = ligada.turnos[-1]
-    assert turno.numeros["valor_final_centavos"] == 7020
+    assert turno.numeros["valor_final_centavos"] == 9000
     assert turno.numeros["link_ctn"].startswith("https://ctn.invalid/pagar/")
     assert ligada.degrau_atual == 1
     assert (ligada.estado, ligada.forma_enviada) == (

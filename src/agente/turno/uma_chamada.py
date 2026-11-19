@@ -60,13 +60,11 @@ LINK_DE_PREVIA = "https://previa.invalid/link"
 # A base de conhecimento do LLM: uma regra por frase. Sem número, valor nem link.
 POLITICA_COBRANCA: tuple[str, ...] = (
     "A dívida é paga à vista: não existe parcelamento, entrada nem divisão do valor.",
-    "O desconto só vale quando o cliente paga pelo link do cartão.",
-    "O Pix é sempre do valor integral, sem desconto.",
     "O link serve para pagar e já cadastrar o cartão de crédito.",
     "Este agente só trata da mensalidade em aberto: a rede, as clínicas, o plano e as coberturas "
     "não são tratados aqui, e você não afirma nada sobre eles.",
-    "Quando a oferta é a última, ela é o valor final: mantenha o link, sem prometer outro "
-    "desconto.",
+    "O desconto é uma oferta só e vale no Pix e no link; depois dela, o valor com desconto é o "
+    "final.",
     "O cliente pode pagar quando puder, pedindo o Pix ou o link de novo nesta conversa; você não "
     "registra promessa de pagamento nem segura prazo ou desconto.",
     "Com o cartão cadastrado, quem paga Pix todo mês não precisa mais pagar manualmente.",
@@ -88,8 +86,7 @@ GLOSSARIO_MARCADORES: dict[str, str] = {
         "para o número e a palavra no singular ou no plural conforme varias_mensalidades"
     ),
     "valor_final": (
-        "o valor a pagar com o desconto do degrau, só pelo link; só vem quando já há desconto "
-        "liberado"
+        "o valor a pagar com o desconto, no Pix e no link; só vem quando já há desconto liberado"
     ),
     "desconto": "quanto o desconto abate do valor; só vem quando já há desconto liberado",
     "link_ctn": (
@@ -97,7 +94,8 @@ GLOSSARIO_MARCADORES: dict[str, str] = {
         "sistema anexa o link"
     ),
     "valor_pix": (
-        "o valor do Pix, sempre o integral; vem com GENERATE_PIX ou quando o sistema anexa o Pix"
+        "o valor do Pix, com o desconto se já foi liberado; vem com GENERATE_PIX ou quando o "
+        "sistema anexa o Pix"
     ),
     "pix_copia_e_cola": (
         "a chave Pix, para copiar e colar no banco; vem com GENERATE_PIX ou quando o sistema "
@@ -162,7 +160,7 @@ def previa_numeros(
         extras |= {"link_ctn": LINK_DE_PREVIA, "forma": FormaPagamento.LINK_CTN}
     if Acao.GENERATE_PIX in acoes:
         extras |= {
-            "valor_pix_centavos": divida,
+            "valor_pix_centavos": valor_final,
             "br_code": "PREVIA",
             "forma": FormaPagamento.PIX,
         }
@@ -242,7 +240,7 @@ def montar_entrada(
     return EntradaTurno(
         nome=cobranca.cliente.nome.split()[0],
         regua=cobranca.regua.value,
-        tem_desconto=politica.reguas[cobranca.regua].desconto_max_centavos > 0,
+        tem_desconto=politica.reguas[cobranca.regua].valor_final_centavos is not None,
         varias_mensalidades=cobranca.mensalidades_abertas > 1,
         paga_pix_todo_mes=cobranca.propenso_cartao,
         oferta={

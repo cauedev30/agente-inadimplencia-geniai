@@ -124,22 +124,20 @@ def test_a_previa_bate_com_o_executar(conversa, politica, acao, propenso):
 def test_a_previa_nao_tem_efeito_nenhum(conversa, politica):
     deps = _deps(politica)
     cobranca = conversa.cobranca
-    conversa.degrau_atual = 1
     acoes = [Acao.OFFER_DISCOUNT, Acao.SEND_CTN_LINK, Acao.GENERATE_PIX]
 
     previa_numeros(acoes, conversa, cobranca, politica, AGORA)
 
-    assert conversa.degrau_atual == 1
+    assert conversa.degrau_atual == 0
     assert conversa.forma_enviada is None
     assert cobranca.pagamentos == []
     assert deps.ctn.links == {} and deps.pix.cobrancas == {}
 
 
 def test_a_previa_traz_os_valores_de_mentira(conversa, politica):
-    conversa.degrau_atual = 1
     acoes = [Acao.OFFER_DISCOUNT, Acao.SEND_CTN_LINK]
     link = previa_numeros(acoes, conversa, conversa.cobranca, politica, AGORA)
-    assert link.degrau == 2
+    assert link.degrau == 1
     assert link.link_ctn == LINK_DE_PREVIA == "https://previa.invalid/link"
     assert link.forma is FormaPagamento.LINK_CTN
     assert link.br_code is None
@@ -147,6 +145,11 @@ def test_a_previa_traz_os_valores_de_mentira(conversa, politica):
     pix = previa_numeros([Acao.GENERATE_PIX], conversa, conversa.cobranca, politica, AGORA)
     assert pix.br_code == "PREVIA"
     assert pix.valor_pix_centavos == conversa.cobranca.divida_centavos
+
+    oferta_no_pix = previa_numeros(
+        [Acao.OFFER_DISCOUNT, Acao.GENERATE_PIX], conversa, conversa.cobranca, politica, AGORA
+    )
+    assert oferta_no_pix.valor_pix_centavos == oferta_no_pix.valor_final_centavos == 9000
     assert pix.forma is FormaPagamento.PIX
     assert pix.link_ctn is None
 
@@ -155,7 +158,7 @@ def test_a_previa_traz_os_valores_de_mentira(conversa, politica):
 
 
 def test_a_previa_sem_degrau_seguinte_recusa_como_o_executar(conversa, politica):
-    conversa.degrau_atual = 3
+    conversa.degrau_atual = 1
     with pytest.raises(ValueError, match="degrau"):
         previa_numeros([Acao.OFFER_DISCOUNT], conversa, conversa.cobranca, politica, AGORA)
 
@@ -215,10 +218,10 @@ def test_a_oferta_traz_o_degrau_o_degrau_seguinte_e_a_forma(conversa, politica):
         "ha_degrau_seguinte": True,
         "forma_enviada": None,
     }
-    conversa.degrau_atual = 3
+    conversa.degrau_atual = 1
     conversa.forma_enviada = FormaPagamento.LINK_CTN
     assert _entrada(conversa, politica).oferta == {
-        "degrau_atual": 3,
+        "degrau_atual": 1,
         "ha_degrau_seguinte": False,
         "forma_enviada": FormaPagamento.LINK_CTN.value,
     }
@@ -342,12 +345,18 @@ def test_com_meio_vigente_o_inform_debt_so_exige_a_divida(conversa, politica, pr
     assert item["marcadores_obrigatorios"] == ["divida"]
 
 
-def test_com_meio_vigente_o_desconto_continua_com_o_link(conversa, politica):
+@pytest.mark.parametrize(
+    ("propenso", "marcador"), [(True, "link_ctn"), (False, "pix_copia_e_cola")]
+)
+def test_com_meio_vigente_o_desconto_continua_com_o_meio_da_regra(
+    conversa, politica, propenso, marcador
+):
+    conversa.cobranca.propenso_cartao = propenso
     _com_pix_vigente(conversa)
 
     [item] = [a for a in _entrada(conversa, politica).acoes if a["acao"] == "OFFER_DISCOUNT"]
 
-    assert "link_ctn" in item["marcadores_obrigatorios"]
+    assert marcador in item["marcadores_obrigatorios"]
 
 
 def test_as_chaves_do_glossario_sao_as_dos_marcadores(conversa, politica):
@@ -357,15 +366,15 @@ def test_as_chaves_do_glossario_sao_as_dos_marcadores(conversa, politica):
     assert "R$" not in json.dumps(GLOSSARIO_MARCADORES, ensure_ascii=False)
 
 
-def test_a_politica_traz_as_nove_regras_e_o_recebedor_so_se_preenchido(conversa, politica):
-    assert len(POLITICA_COBRANCA) == 9
+def test_a_politica_traz_as_sete_regras_e_o_recebedor_so_se_preenchido(conversa, politica):
+    assert len(POLITICA_COBRANCA) == 7
     assert _entrada(conversa, politica).politica == POLITICA_COBRANCA
 
     com_recebedor = politica.model_copy(update={"pix_recebedor": "Recebedor Fictício"})
     regras = _entrada(conversa, com_recebedor).politica
-    assert regras[:9] == POLITICA_COBRANCA and len(regras) == 10
-    assert "recebedor" in regras[9].lower()
-    assert "Recebedor Fictício" not in regras[9]
+    assert regras[:7] == POLITICA_COBRANCA and len(regras) == 8
+    assert "recebedor" in regras[7].lower()
+    assert "Recebedor Fictício" not in regras[7]
 
 
 def test_a_politica_traz_as_regras_da_secao_8_da_spec():
@@ -388,11 +397,10 @@ def test_a_politica_nao_traz_digito_valor_nem_link():
 def test_as_regras_da_politica_dizem_o_que_a_spec_manda():
     texto = " ".join(POLITICA_COBRANCA).lower()
     assert "parcelamento" in texto and "à vista" in texto
-    assert "só vale" in texto and "link" in texto
-    assert "pix" in texto and "integral" in texto
+    assert "uma oferta só" in texto and "vale no pix e no link" in texto
     assert "cadastrar o cartão" in texto
     assert "clínicas" in texto and "coberturas" in texto
-    assert "valor final" in texto and "outro desconto" in texto
+    assert "o valor com desconto é o final" in texto
 
 
 def test_as_novas_ficam_separadas_da_conversa(conversa, politica):

@@ -31,21 +31,27 @@ def test_o_nome_antigo_da_baixa_no_link_e_recusado(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("regua", "desconto"),
+    ("regua", "valor_final"),
     [
-        (Regua.NR, 0),
-        (Regua.R1, 0),
-        (Regua.R2, 0),
+        (Regua.NR, None),
+        (Regua.R1, None),
+        (Regua.R2, None),
         (Regua.R3, 9000),
-        (Regua.PREVIA, 6000),
-        (Regua.R4, 9000),
-        (Regua.R5, 7500),
-        (Regua.R6, 6000),
+        (Regua.PREVIA, None),
+        (Regua.R4, None),
+        (Regua.R5, None),
+        (Regua.R6, None),
     ],
 )
-def test_desconto_maximo_por_regua(politica, regua, desconto):
-    assert politica.reguas[regua].desconto_max_centavos == desconto
-    assert politica.reguas[regua].n_degraus == 3
+def test_valor_final_por_regua(politica, regua, valor_final):
+    assert politica.reguas[regua].valor_final_centavos == valor_final
+
+
+@pytest.mark.parametrize("chave", ["desconto_max_centavos = 9000", "n_degraus = 3"])
+def test_a_chave_antiga_da_regua_e_recusada(tmp_path, chave):
+    caminho = _arquivo_com(tmp_path, "valor_final_centavos = 9000", chave)
+    with pytest.raises(PoliticaInvalida, match=chave.split(" ")[0]):
+        carregar_politica(caminho)
 
 
 def test_janela_padrao(politica):
@@ -74,8 +80,7 @@ def _arquivo_com(tmp_path, original, novo):
 @pytest.mark.parametrize(
     ("original", "novo", "campo"),
     [
-        ("desconto_max_centavos = 9000", "desconto_max_centavos = -1", "desconto_max_centavos"),
-        ("n_degraus = 3", "n_degraus = 0", "n_degraus"),
+        ("valor_final_centavos = 9000", "valor_final_centavos = 0", "valor_final_centavos"),
         ("teto_resolucao = 5", "teto_resolucao = 0", "teto_resolucao"),
         ('fuso = "America/Fortaleza"', 'fuso = "America/Lugar_Nenhum"', "fuso"),
         ('sab = ["08:00", "12:00"]', 'sab = ["12:00", "08:00"]', "sab"),

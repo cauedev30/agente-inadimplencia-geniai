@@ -76,8 +76,7 @@ CRITERIOS_DA_ACAO = {
     ),
     Acao.SEND_CTN_LINK: (
         "o cliente pede o link, quer pagar no cartão de crédito ou aceita a oferta com desconto "
-        "já enviada (o desconto só vale pelo link), mesmo com condição como 'se tiver desconto eu "
-        "pago'"
+        "já enviada e quer o link, mesmo com condição como 'se tiver desconto eu pago'"
     ),
     Acao.GENERATE_PIX: (
         "o cliente pede o Pix pelo nome (código, chave, pagar no Pix) ou mostra que não quer ou "
@@ -101,15 +100,14 @@ CRITERIOS_DA_ACAO = {
 # O que cada ação pede ao texto. O nome da ação é o da arquitetura (seção 4).
 DESCRICAO_ACOES = {
     "INFORM_DEBT": "apresentar o valor em aberto, sem desconto",
-    "OFFER_DISCOUNT": "oferecer o valor com desconto, que só vale no link do cartão",
+    "OFFER_DISCOUNT": "oferecer o valor com desconto, que vale no Pix e no link",
     "SEND_CTN_LINK": "mandar o link em que o cliente paga e já cadastra o cartão",
     # O modelo é o mesmo texto do toque no botão (`TEXTO_DO_PIX`); o Luna o adapta, sem ser fixa.
     "GENERATE_PIX": (
-        "mandar a chave Pix do valor integral. O texto é livre e responde ao que o cliente disse; "
+        "mandar a chave Pix do valor a pagar. O texto é livre e responde ao que o cliente disse; "
         "só as 3 linhas de dados seguem o formato: a chave numa linha só dela, com CNPJ antes e "
         "nada depois; o valor; o referente. Modelo, o mesmo do botão: "
-        f"{TEXTO_DO_PIX!r}; se o histórico já tem uma oferta com desconto, dizer que no Pix vale "
-        "o valor integral e que o desconto só vale pelo link"
+        f"{TEXTO_DO_PIX!r}"
     ),
     "ANSWER": (
         "responder em uma ou duas frases com as regras da politica; se o sistema anexar o Pix ou "

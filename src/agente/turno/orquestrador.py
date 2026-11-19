@@ -853,8 +853,8 @@ def _pagar_pix(
     """O toque no botão "Pagar com Pix" (D26, D59): GENERATE_PIX direto e uma mensagem fixa.
 
     O pedido é inequívoco, então não há leitura, decisão nem LLM. O backend gera (ou reaproveita) o
-    Pix integral, o `TEXTO_DO_PIX` recebe o valor, o vencimento e o código, e a mensagem conta no
-    teto.
+    Pix do valor do degrau, o `TEXTO_DO_PIX` recebe o valor, o vencimento e o código, e a mensagem
+    conta no teto.
     """
     avaliacao = Avaliacao(Acao.GENERATE_PIX, [], None)
     cobranca = conversa.cobranca

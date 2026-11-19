@@ -83,12 +83,8 @@ def valores(numeros: Numeros) -> dict[str, str]:
         "divida": formatar_reais(numeros.divida_centavos),
         "mensalidades": str(numeros.mensalidades),
     }
-    # O desconto só vale no link (D34) e com degrau: sem isso, não há valor com desconto. A resposta
-    # e o fora do assunto também o citam, sem o link, quando o degrau já foi liberado.
-    cita_o_desconto = numeros.link_ctn is not None or bool(
-        {Acao.ANSWER, Acao.OUT_OF_SCOPE} & set(numeros.acoes)
-    )
-    if cita_o_desconto and numeros.degrau > 0:
+    # O valor com desconto vale em qualquer meio (D64), mas só existe depois da oferta (degrau > 0).
+    if numeros.degrau > 0:
         preenchidos["valor_final"] = formatar_reais(numeros.valor_final_centavos)
         preenchidos["desconto"] = formatar_reais(numeros.desconto_centavos)
     if numeros.link_ctn is not None:

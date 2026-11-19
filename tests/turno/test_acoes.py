@@ -39,9 +39,9 @@ def test_com_meio_vigente_a_informacao_a_resposta_e_o_fora_do_assunto_vao_sem_an
 
 @pytest.mark.parametrize("propenso", [True, False])
 @pytest.mark.parametrize("tem_meio", [True, False])
-def test_offer_discount_sempre_leva_o_link(propenso, tem_meio):
+def test_offer_discount_sempre_leva_o_meio_da_regra_mesmo_com_um_vigente(propenso, tem_meio):
     anexos = anexar(Acao.OFFER_DISCOUNT, _cobranca(propenso=propenso), tem_meio_vigente=tem_meio)
-    assert anexos == [Acao.SEND_CTN_LINK]
+    assert anexos == [Acao.SEND_CTN_LINK if propenso else Acao.GENERATE_PIX]
 
 
 @pytest.mark.parametrize(

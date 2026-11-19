@@ -25,10 +25,10 @@ def anexar(acao: Acao, cobranca: Cobranca, *, tem_meio_vigente: bool) -> list[Ac
     A informação, a resposta e o fora do assunto só levam o meio de pagamento quando o cliente não
     tem um vigente.
     """
+    meio = Acao.SEND_CTN_LINK if cobranca.propenso_cartao else Acao.GENERATE_PIX
     if acao in (Acao.INFORM_DEBT, Acao.ANSWER, Acao.OUT_OF_SCOPE):
-        if tem_meio_vigente:
-            return []
-        return [Acao.SEND_CTN_LINK if cobranca.propenso_cartao else Acao.GENERATE_PIX]
+        return [] if tem_meio_vigente else [meio]
     if acao is Acao.OFFER_DISCOUNT:
-        return [Acao.SEND_CTN_LINK]
+        # O valor mudou: a oferta leva o meio de novo, mesmo com um vigente (D64).
+        return [meio]
     return []

@@ -57,25 +57,26 @@ def _passagem(**sinais):
     return _bruto(acao="NONE", reply=PASSAGEM, **sinais)
 
 
+# A oferta do caso 1 (quem não paga Pix todo mês): o desconto vai com o Pix.
+OFERTA_NO_PIX = (
+    "Consigo {valor_final}, no Pix ou no link.\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
+)
+
 # O mesmo para o `autonomia.yaml`: o resto é ANSWER. O jurídico e o golpe ("Procon", "golpe") nem
 # chegam ao Luna, porque a palavra-chave vai ao atendente.
 RESPOSTAS_DA_AUTONOMIA = {
-    "tem desconto": _bruto(
-        acao="OFFER_DISCOUNT", reply="Consigo {valor_final} se pagar pelo link: {link_ctn}"
-    ),
+    "tem desconto": _bruto(acao="OFFER_DISCOUNT", reply=OFERTA_NO_PIX),
     "então esse desconto só existe": _bruto(
         acao="ANSWER",
-        reply="Isso mesmo: o valor de {valor_final} vale só pelo link, que já cadastra o cartão. "
-        "Sem cadastrar, o valor é {divida}.",
+        reply="Não precisa: o valor de {valor_final} vale no Pix e no link. O link já cadastra o "
+        "cartão; sem cadastrar, é só pagar o Pix.",
     ),
     "não quero cadastrar": _bruto(
         acao="GENERATE_PIX",
-        reply="Sem problema. O valor integral é {divida}.\n"
+        reply="Sem problema. O valor com desconto é {valor_final}.\n"
         "Para pagar, use o Pix CNPJ: {pix_copia_e_cola}",
     ),
-    "tô desempregado": _bruto(
-        acao="OFFER_DISCOUNT", reply="Consigo {valor_final} se pagar pelo link: {link_ctn}"
-    ),
+    "tô desempregado": _bruto(acao="OFFER_DISCOUNT", reply=OFERTA_NO_PIX),
     "já paguei": _passagem(alega_pagamento=True),
     "quero cancelar": _passagem(quer_retencao=True),
     "quero falar com um atendente": _passagem(quer_humano=True),

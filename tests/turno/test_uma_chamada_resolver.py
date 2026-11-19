@@ -148,14 +148,14 @@ def test_saida_que_nao_valida_levanta_indisponivel_sem_nova_tentativa(conversa, 
 
 
 def test_acao_fora_das_permitidas_levanta_indisponivel_sem_nova_tentativa(conversa, politica):
-    conversa.degrau_atual = 3  # o último degrau: não há mais desconto
+    conversa.degrau_atual = 1  # a oferta já foi feita: não há mais desconto
 
     with pytest.raises(LLMTurnoIndisponivel, match="fora das permitidas"):
         _resolver(conversa, politica, [_bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK), _bruto()])
 
 
 def test_o_esquema_sem_degrau_nao_tem_o_desconto_e_e_estrito(conversa, politica):
-    conversa.degrau_atual = 3  # o último degrau: não há mais desconto
+    conversa.degrau_atual = 1  # a oferta já foi feita: não há mais desconto
     permitidas = acoes_permitidas(conversa, conversa.cobranca, politica)
 
     esquema = esquema_da_saida(permitidas)
@@ -247,6 +247,7 @@ def test_a_previa_so_roda_com_as_acoes_do_veredito(conversa, politica):
 
 
 def test_a_previa_nao_muda_nada_no_banco(conversa, politica):
+    conversa.cobranca.propenso_cartao = True
     _resolver(conversa, politica, [_bruto(acao="OFFER_DISCOUNT", reply=REPLY_LINK)])
 
     assert conversa.degrau_atual == 0 and conversa.forma_enviada is None

@@ -265,8 +265,10 @@ def test_inform_debt_com_meio_vigente_nao_leva_anexo(conversa):
         assert veredito == Veredito(None, Acao.INFORM_DEBT, (), False, "acao")
 
 
-def test_offer_discount_leva_o_link_e_none_vai_sem_anexos(conversa):
+def test_offer_discount_leva_o_meio_da_regra_e_none_vai_sem_anexos(conversa):
     cobranca = conversa.cobranca
+    assert _decidir(cobranca, acao="OFFER_DISCOUNT").anexos == (Acao.GENERATE_PIX,)
+    cobranca.propenso_cartao = True
     assert _decidir(cobranca, acao="OFFER_DISCOUNT").anexos == (Acao.SEND_CTN_LINK,)
     veredito = _decidir(cobranca, acao="NONE")
     assert (veredito.acao, veredito.anexos, veredito.motivo) == (Acao.NONE, (), None)

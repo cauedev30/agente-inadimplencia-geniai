@@ -258,13 +258,13 @@ def test_quem_nao_e_propenso_recebe_a_confirmacao_simples_no_pix(sessao, ligada,
 def test_o_link_nao_da_baixa_com_o_padrao_e_o_valor_e_o_do_degrau(sessao, ligada, deps):
     id_externo = _link(sessao, ligada, deps, [Acao.OFFER_DISCOUNT, Acao.SEND_CTN_LINK])
 
-    resultado = _pagar(sessao, deps, id_externo, 7020)
+    resultado = _pagar(sessao, deps, id_externo, 9000)
 
     assert resultado is ResultadoConfirmacao.CONFIRMADO
     assert deps.ctn.baixas == []
     pagamento = sessao.scalars(select(Pagamento)).one()
     assert pagamento.baixa_ctn_em is None
-    assert "R$ 70,20" in deps.chatwoot.enviadas(555)[0]
+    assert "R$ 90,00" in deps.chatwoot.enviadas(555)[0]
 
 
 def test_o_link_da_baixa_quando_o_parametro_manda(sessao, ligada, politica):

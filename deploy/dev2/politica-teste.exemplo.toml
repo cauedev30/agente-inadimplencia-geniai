@@ -54,38 +54,24 @@ telefones_equipe = ["+5500000000001"]  # TROCAR: um dos telefones do piloto  # s
 # mensagem. Lista vazia (o padrão): ninguém conversa.
 liberacao = { modo = "piloto", telefones = ["+5500000000001", "+5500000000002", "+5500000000003"] }  # TROCAR: os telefones do piloto (os 4 últimos dígitos têm de ser distintos)
 
-# Desconto máximo por régua (D29) em 3 degraus iguais (D35, padrão até a G1.1).
+# Valor final por régua (D64): o que o cliente paga depois da oferta, uma só, no Pix e no link. Sem a chave, a
+# régua não tem desconto. O agente começa só na NR a R3 (D66); a Prévia e a R4 a R6 ficam sem valor até a G1.1.
 [reguas.NR]
-desconto_max_centavos = 0
-n_degraus = 3
 
 [reguas.R1]
-desconto_max_centavos = 0
-n_degraus = 3
 
 [reguas.R2]
-desconto_max_centavos = 0
-n_degraus = 3
 
 [reguas.R3]
-desconto_max_centavos = 9000
-n_degraus = 3
+valor_final_centavos = 9000
 
 [reguas.PREVIA]
-desconto_max_centavos = 6000  # padrão (G1.1): o manual dava R$ 60; a operação não falou
-n_degraus = 3
 
 [reguas.R4]
-desconto_max_centavos = 9000
-n_degraus = 3
 
 [reguas.R5]
-desconto_max_centavos = 7500
-n_degraus = 3
 
 [reguas.R6]
-desconto_max_centavos = 6000  # padrão (G1.1): a operação disse R$ 60; o manual dava R$ 75
-n_degraus = 3
 
 # Janela de atendimento (D11, D16). Dia ausente = fechado.
 [janela]
