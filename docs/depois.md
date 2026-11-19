@@ -319,3 +319,20 @@ Fonte: a spec e o plano da autonomia (`specs/2026-11-17-auditoria-agente-com-aut
   (`SEM_RESPOSTA`). No ensaio, o "Oi" e o "Ok, vou ver aqui" caíram nisso até o critério do `NONE` dizer que são
   `ANSWER`; com isso, 3 rodadas limpas. Se o `resumo-turnos` do teste da Lohanny mostrar muito `SEM_RESPOSTA` com a
   ação `NONE`, pedir ao Luna uma 2ª resposta antes do atendente (o laço da 2ª tentativa já existe). **TESTE MEDE**.
+
+## Do celular do Cauê com a autonomia (2026-11-18)
+
+Os 5 roteiros (`specs/2026-11-18-roteiros-do-celular-autonomia.md`) e 3 difíceis (`specs/2026-11-18-roteiros-dificeis.md`)
+no `dev2` (`c7f6b0f`): nenhum invariante violado, teto certo, 0 erro no log. O que falhou ou soou mal, todos do celular:
+
+- **Desconto e Pix pedidos juntos vão ao atendente:** na rajada "quanto fica com desconto?" + "e no pix?", o Luna
+  escolheu `OFFER_DISCOUNT`, esqueceu o `{link_ctn}` e, na 2ª tentativa, pôs `{pix_copia_e_cola}`, que essa ação não
+  anexa; as 2 reprovadas levaram ao atendente (1 de 2 vezes). **Falhou de verdade: lote único (3.5).**
+- **A chave Pix repetida logo depois da abertura:** a abertura já traz a chave, mas não conta como meio vigente, então a
+  1ª resposta `ANSWER` ganha de novo "Para pagar, use o Pix CNPJ: ..." (4 conversas). **Falhou de verdade: lote único.**
+- **Sinal marcado sem precisar:** "Que horas a clínica abre?" saiu com o texto certo de `OUT_OF_SCOPE` e o sinal
+  `sem_resposta`, e foi ao atendente; "o site oficial, cartaodetodos.com.br" foi ao golpe (2 de 2). **TESTE MEDE**.
+- **A passagem do Luna quase não sai:** 1 de 8 handoffs; nos outros, o texto foi reprovado (cobrança na passagem, sem
+  "atendente", vazio) e saiu a frase fixa. O cliente nunca viu o texto errado. É o achado do ensaio. **TESTE MEDE**.
+- **Frase repetida:** depois do "sou o gerente", a frase do terceiro 3 vezes seguidas; "use a chave que já está na
+  conversa" no fim de toda resposta. Estilo. **TESTE MEDE**.

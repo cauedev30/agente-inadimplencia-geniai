@@ -27,8 +27,11 @@ webchat ou o modo sombra saíram do código. Nada se apaga: o texto fica como hi
 É a dúvida mais importante: sem ela, o agente não sabe o que pode oferecer ao cliente.
 
 1. A franquia **dá desconto** na dívida? Até quantos %? Sobre a dívida inteira ou só sobre juros e
-   multa? **Respondida em 2026-10-21 → D29:** é o **desconto máximo**, liberado aos poucos. Continua
-   aberto:
+   multa? **Respondida em 2026-10-21 → D29:** é o **desconto máximo**, liberado aos poucos. **Revista em
+   2026-11-18 → D64 (a Lohanny):** é o **valor final** (R$ 90 na R3), numa oferta só, em qualquer meio; os itens
+   abaixo sobre degraus e números caem com ela; quem insiste depois da oferta fica com o valor final. Continua
+   aberto: **o valor final da R4 a R6 e da Prévia**, que o Cauê pergunta depois, porque o agente começa só até a
+   R3 (D66). Histórico:
    - **Os degraus:** quanto liberar em cada passo e quando. Por exemplo, na R3: R$ 30, depois R$ 60,
      depois R$ 90? A regra tem de ser fixa (quem decide a ação já não é o Jev, que saiu pela D59: é o Luna, e o
      código calcula o degrau). **Padrão (D35):** 3 degraus iguais até o máximo.
@@ -41,7 +44,9 @@ webchat ou o modo sombra saíram do código. Nada se apaga: o texto fica como hi
      D34:** sim; o desconto só vale no link do CTN, com o cartão. O gestor pode rever.
    - **Mais de 6 mensalidades:** qual é a regra? **Padrão:** a condição da R6.
    - **Objeção de valor nas réguas sem desconto (NR, R1, R2):** o que o agente faz? **Padrão:** explica
-     a condição; na 2ª objeção, a conversa vai para o humano.
+     a condição; na 2ª objeção, a conversa vai para o humano. **Importante, agora que o agente começa na NR a
+     R3 (D66): o Cauê pergunta à Lohanny na manhã de 2026-11-19** o que a operação responde quando o cliente
+     dessas réguas pede desconto.
    - **Degraus esgotados:** o cliente objeta de novo depois do último degrau (a 4ª objeção na R3). O
      que o agente faz? **Respondida pelo Cauê em 2026-10-22 → D38:** a conversa vai para o humano, como
      na NR.
@@ -107,6 +112,9 @@ Meta como template antes de ser usada.
 aprovação na Meta não é risco, e os templates do manual são só exemplo: o texto e os botões da abertura
 são desenhados pelo projeto.
 
+**Revista em 2026-11-18 → D65:** a abertura segue o formato da operação (prints da Lohanny), numa mensagem
+só; o texto final do template ainda é com o dev e a Meta (T4).
+
 ### G7. Canal externo do João Pessoa Sul
 
 **Sem efeito pela D60 (2026-11-11):** o webchat saiu da v1; o atendente segue na mesma conversa do WhatsApp, e o
@@ -152,7 +160,9 @@ Segundo o Cauê (2026-10-20), o cartão é um dos trabalhos da implantação; fa
    (Energisa) é manual e vai para o humano.
 2. Na troca, o manual da Adimplência cobra junto **o mês que está para vencer**. Por exemplo: o cliente
    deve agosto e setembro vence na semana seguinte; na troca, paga os dois. O agente faz igual?
-   **Padrão:** não cobra junto; o link leva só a dívida.
+   **Padrão:** não cobra junto; o link leva só a dívida. **Respondida em 2026-11-18 (a Lohanny, D64):** a
+   operação cobra junto a do mês a vencer ("cinza"), e o valor final da régua não muda; implementar depende do dado
+   do CTN (T9).
 3. O link do CTM serve **só para cadastrar o cartão, sem pagar**? Isso resolveria o caso de quem já
    pagou por Pix. A alternativa sugerida pela operação, um formulário com os dados do cartão, não deve
    ser usada: coletar o código de segurança fora de um gateway certificado fere o PCI-DSS.
