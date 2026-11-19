@@ -292,7 +292,7 @@ def test_o_modo_teste_sem_a_chave_do_ctn_usa_o_roteador_com_o_real_falso_e_vazio
     with pytest.raises(ClienteNaoEncontrado):
         deps.ctn.consultar_cliente("REAL-1")
     deps.casos.ativar("SIM-3-7777", "+5583988887777")
-    assert deps.ctn.consultar_cliente("SIM-3-7777").nome == "Carla"
+    assert deps.ctn.consultar_cliente("SIM-3-7777").nome == "Carla Mendes"
     assert len(deps.ctn.mensalidades_em_aberto("SIM-3-7777")) == 4
     assert deps.ctn.gerar_link_pagamento("SIM-3-7777", 13360, 1).url == "https://ctnfalsoteste.com"
 

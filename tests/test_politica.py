@@ -216,11 +216,11 @@ def test_o_modo_teste_carrega_o_cardapio_dos_5_casos(tmp_path):
     assert teste.campanha == "teste"
     assert teste.caso_padrao == 1
     assert [(c.numero, c.nome, c.meses_atraso) for c in teste.casos] == [
-        (1, "Ana", 3),
-        (2, "Bruno", 3),
-        (3, "Carla", 4),
-        (4, "Daniel", 5),
-        (5, "Elisa", 6),
+        (1, "Ana Souza", 3),
+        (2, "Bruno Oliveira", 3),
+        (3, "Carla Mendes", 4),
+        (4, "Daniel Ferreira", 5),
+        (5, "Elisa Barbosa", 6),
     ]
     assert [len(c.historico) for c in teste.casos] == [3, 3, 3, 3, 0]
     assert {h.forma for h in teste.casos[0].historico} == {FormaHistorico.CARTAO}

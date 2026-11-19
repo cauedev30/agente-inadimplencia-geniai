@@ -73,6 +73,7 @@ MARCADORES = (
     "desconto",
     "link_ctn",
     "valor_pix",
+    "referencia",
     "pix_copia_e_cola",
 )
 
@@ -91,6 +92,7 @@ def valores(numeros: Numeros) -> dict[str, str]:
         preenchidos["link_ctn"] = numeros.link_ctn
     if numeros.br_code is not None:
         preenchidos["valor_pix"] = formatar_reais(numeros.valor_pix_centavos)
+        preenchidos["referencia"] = numeros.referencia
         preenchidos["pix_copia_e_cola"] = numeros.br_code
     return preenchidos
 

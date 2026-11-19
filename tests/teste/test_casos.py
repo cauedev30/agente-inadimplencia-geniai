@@ -110,7 +110,7 @@ def test_ativar_o_caso_cria_a_cobranca_conferida_de_hoje(sessao, casos, politica
     sessao.commit()
 
     assert cobranca.cliente.matricula_ctn == "SIM-3-7777"
-    assert (cobranca.cliente.nome, cobranca.cliente.telefone) == ("Carla", TESTADOR_1)
+    assert (cobranca.cliente.nome, cobranca.cliente.telefone) == ("Carla Mendes", TESTADOR_1)
     assert cobranca.campanha == "teste"
     assert cobranca.status is StatusCobranca.ATIVA
     assert cobranca.regua is Regua.R4

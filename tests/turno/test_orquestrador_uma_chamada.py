@@ -121,6 +121,22 @@ REPLY_PIX_COM_DESCONTO = (
 )
 
 
+def test_o_pix_escrito_pelo_luna_com_a_ref_sai_com_os_meses_em_aberto(
+    sessao, ligada, cliente, politica
+):
+    ligada.cobranca.meses_em_aberto = ["2026/09", "2026/10"]
+    reply = (
+        "Aqui está o Pix!\nValor: {valor_pix}\nREF {referencia}\n"
+        "Para pagar, use o Pix CNPJ: {pix_copia_e_cola}"
+    )
+    deps = _deps(politica, [_bruto(acao="GENERATE_PIX", reply=reply)])
+
+    assert cliente("quanto eu devo?", deps) is ResultadoTurno.ENVIADO
+
+    [texto] = deps.chatwoot.enviadas(555)
+    assert "\nREF 09/26, 10/26\n" in texto
+
+
 def test_o_2o_quanto_devo_sai_sem_o_pix_e_sem_pagamento_novo(sessao, ligada, cliente, politica):
     deps = _deps(politica, [_bruto(), _bruto(reply=REPLY_SO_A_DIVIDA)])
 

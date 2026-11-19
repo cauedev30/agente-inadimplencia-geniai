@@ -106,7 +106,7 @@ DESCRICAO_ACOES = {
     "GENERATE_PIX": (
         "mandar a chave Pix do valor a pagar. O texto é livre e responde ao que o cliente disse; "
         "só as 3 linhas de dados seguem o formato: a chave numa linha só dela, com CNPJ antes e "
-        "nada depois; o valor; o referente. Modelo, o mesmo do botão: "
+        "nada depois; o valor; a linha REF. Modelo, o mesmo do botão: "
         f"{TEXTO_DO_PIX!r}"
     ),
     "ANSWER": (

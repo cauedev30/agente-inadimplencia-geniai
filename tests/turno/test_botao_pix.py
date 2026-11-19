@@ -219,11 +219,22 @@ def test_o_toque_responde_a_mensagem_fixa_sem_chamar_nenhum_llm(sessao, ligada, 
     assert texto == TEXTO_DO_PIX.format(
         valor_pix=formatar_reais(ligada.cobranca.divida_centavos),
         pix_copia_e_cola=pix.br_code,
+        referencia="mensalidades em atraso",
     )
     turno = sessao.scalars(select(Turno)).one()
     assert turno.acao_principal == "GENERATE_PIX" and turno.acoes_anexadas == []
     assert turno.resultado is ResultadoTurno.ENVIADO and turno.texto_enviado == texto
     assert sessao.scalars(select(LaudoGravado)).all() == []
+
+
+def test_o_toque_traz_na_ref_os_meses_em_aberto(sessao, ligada, cliente, politica):
+    ligada.cobranca.meses_em_aberto = ["2026/08", "2026/09", "2026/10"]
+    deps = _deps(politica)
+
+    assert cliente(TOQUE, deps) is ResultadoTurno.ENVIADO
+
+    [texto] = deps.chatwoot.enviadas(555)
+    assert "\nREF 08/26, 09/26, 10/26\n" in texto
 
 
 class _PixForaDoAr(PixFalso):

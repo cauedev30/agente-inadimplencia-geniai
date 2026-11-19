@@ -162,7 +162,7 @@ TEXTO_DO_PIX = (
     "Aqui está a chave Pix para o pagamento!\n\n"
     "Chave Pix (CNPJ): {pix_copia_e_cola}\n"
     "Valor: {valor_pix}\n"
-    "Referente: mensalidades em atraso do Cartão de Todos\n\n"
+    "REF {referencia}\n\n"
     "Assim que fizer o pagamento, me envie o comprovante para que eu possa confirmar. "
     "Agradecemos!\n\n"
     "Obs.: pagamento para continuar utilizando o benefício."

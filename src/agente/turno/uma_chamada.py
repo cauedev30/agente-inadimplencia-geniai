@@ -25,7 +25,7 @@ from agente.politica import Politica
 from agente.tipos import FormaPagamento, Laudo, MotivoHumano
 from agente.turno.acoes import Acao, anexar
 from agente.turno.catalogo import MOTIVOS_DE_FRASE_FIXA
-from agente.turno.executar import Numeros, meio_vigente
+from agente.turno.executar import Numeros, meio_vigente, referencia_dos_meses
 from agente.turno.redacao import (
     RedacaoInvalida,
     _sem_acento,
@@ -96,6 +96,10 @@ GLOSSARIO_MARCADORES: dict[str, str] = {
     "valor_pix": (
         "o valor do Pix, com o desconto se já foi liberado; vem com GENERATE_PIX ou quando o "
         "sistema anexa o Pix"
+    ),
+    "referencia": (
+        "os meses em aberto, para a linha 'REF {referencia}' do Pix; vem com GENERATE_PIX ou "
+        "quando o sistema anexa o Pix"
     ),
     "pix_copia_e_cola": (
         "a chave Pix, para copiar e colar no banco; vem com GENERATE_PIX ou quando o sistema "
@@ -171,6 +175,7 @@ def previa_numeros(
         degrau=degrau,
         desconto_centavos=divida - valor_final,
         valor_final_centavos=valor_final,
+        referencia=referencia_dos_meses(cobranca.meses_em_aberto),
         **extras,
     )
 

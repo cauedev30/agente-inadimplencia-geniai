@@ -5,7 +5,7 @@
 [[caso]]
 numero = 1
 titulo = "R3, pagava no cartão"
-nome = "Ana"
+nome = "Ana Souza"
 meses_atraso = 3
 historico = [
     { meses_atras = 1, dia = 10, forma = "CARTAO" },
@@ -16,7 +16,7 @@ historico = [
 [[caso]]
 numero = 2
 titulo = "R3, paga Pix todo mês (propensa ao cartão)"
-nome = "Bruno"
+nome = "Bruno Oliveira"
 meses_atraso = 3
 historico = [
     { meses_atras = 1, dia = 5, forma = "PIX" },
@@ -27,7 +27,7 @@ historico = [
 [[caso]]
 numero = 3
 titulo = "R4"
-nome = "Carla"
+nome = "Carla Mendes"
 meses_atraso = 4
 historico = [
     { meses_atras = 1, dia = 15, forma = "BOLETO" },
@@ -38,7 +38,7 @@ historico = [
 [[caso]]
 numero = 4
 titulo = "R5"
-nome = "Daniel"
+nome = "Daniel Ferreira"
 meses_atraso = 5
 historico = [
     { meses_atras = 1, dia = 8, forma = "CARTAO" },
@@ -49,5 +49,5 @@ historico = [
 [[caso]]
 numero = 5
 titulo = "R6, último mês antes do corte"
-nome = "Elisa"
+nome = "Elisa Barbosa"
 meses_atraso = 6

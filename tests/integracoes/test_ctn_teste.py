@@ -133,7 +133,7 @@ class TestCTNDeCasos(ContratoLeituraCTN):
 def test_o_cliente_e_o_do_caso_com_o_telefone_do_ativar():
     ctn = _ctn_de_casos()
     ctn.ativar(SIM_2, TELEFONE)
-    assert ctn.consultar_cliente(SIM_2) == ClienteCTN(SIM_2, "Bruno", TELEFONE, None)
+    assert ctn.consultar_cliente(SIM_2) == ClienteCTN(SIM_2, "Bruno Oliveira", TELEFONE, None)
 
 
 def test_o_cliente_sem_o_ativar_vem_sem_telefone():
@@ -524,6 +524,7 @@ def test_a_interpolacao_deixa_o_texto_de_teste_do_pix_e_do_link_sair_inteiro():
         degrau=0,
         desconto_centavos=0,
         valor_final_centavos=10020,
+        referencia="mensalidades em atraso",
         link_ctn=link.url,
         valor_pix_centavos=10020,
         br_code=pix.br_code,

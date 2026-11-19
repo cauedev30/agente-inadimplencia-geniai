@@ -24,7 +24,8 @@ class DependenciasExecutar(Protocol):
 
 @dataclass(frozen=True)
 class Numeros:
-    """Os números do turno. O valor final é o do degrau, no link e no Pix (D64)."""
+    """Os números do turno. O valor final é o do degrau, no link e no Pix (D64). `referencia` é o
+    texto da linha "REF" do Pix (D65): os meses em aberto, ou "mensalidades em atraso"."""
 
     acoes: tuple[Acao, ...]
     divida_centavos: int
@@ -32,6 +33,7 @@ class Numeros:
     degrau: int
     desconto_centavos: int
     valor_final_centavos: int
+    referencia: str
     link_ctn: str | None = None
     valor_pix_centavos: int | None = None
     br_code: str | None = None
@@ -44,6 +46,23 @@ class Numeros:
         if self.forma is not None:
             dados["forma"] = self.forma.value
         return {nome: valor for nome, valor in dados.items() if valor is not None}
+
+
+REFERENCIA_SEM_MESES = "mensalidades em atraso"
+
+
+def referencia_dos_meses(meses: list | None) -> str:
+    """Os meses em aberto como `MM/AA`, separados por vírgula (a REF do Pix, D65).
+
+    O CTN grava `AAAA/MM` em `meses_em_aberto`. Sem meses conferidos (lista vazia ou None), ou com
+    um mês que não é `AAAA/MM`, o texto genérico: a REF nunca leva um mês inventado."""
+    convertidos = []
+    for mes in meses or []:
+        ano, barra, numero = str(mes).partition("/")
+        if not (barra and len(ano) == 4 and len(numero) == 2 and (ano + numero).isdigit()):
+            return REFERENCIA_SEM_MESES
+        convertidos.append(f"{numero}/{ano[2:]}")
+    return ", ".join(convertidos) or REFERENCIA_SEM_MESES
 
 
 def pix_vigente(
@@ -165,6 +184,7 @@ def executar(
         degrau=degrau,
         desconto_centavos=divida - valor_final,
         valor_final_centavos=valor_final,
+        referencia=referencia_dos_meses(cobranca.meses_em_aberto),
         **extras,
     )
 

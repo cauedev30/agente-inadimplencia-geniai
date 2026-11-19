@@ -35,6 +35,8 @@ from agente.tipos import (
     StatusCobranca,
     StatusPagamento,
 )
+from agente.turno.acoes import Acao
+from agente.turno.executar import executar
 from agente.turno.fila import agendar_turno, mensagens_pendentes, tomar_turno
 from agente.turno.gates import humano_na_conversa
 from agente.turno.liberacao import no_piloto
@@ -483,11 +485,15 @@ def _levar_para_a_conversa_viva(
 
 
 def texto_da_abertura(cobranca: Cobranca, politica: Politica) -> str:
-    """O texto da abertura do `[teste]` (P2) com o nome, a dívida e as mensalidades da cobrança.
-    Os marcadores são trocados um a um: chaves e aspas do resto do texto ficam como estão."""
-    partes = cobranca.cliente.nome.split()
+    """O texto da abertura do `[teste]` (P2) com a matrícula, o nome, a dívida e as mensalidades
+    da cobrança (D65). Os marcadores são trocados um a um: chaves e aspas do resto do texto ficam
+    como estão. `{nome}` é o 1º nome; `{nome_completo}`, o nome inteiro em maiúsculas."""
+    nome = cobranca.cliente.nome
+    partes = nome.split()
     return (
-        politica.teste.texto_abertura.replace("{nome}", partes[0] if partes else "")
+        politica.teste.texto_abertura.replace("{nome_completo}", nome.upper())
+        .replace("{nome}", partes[0] if partes else "")
+        .replace("{matricula}", cobranca.cliente.matricula_ctn)
         .replace("{valor}", formatar_reais(cobranca.divida_centavos))
         .replace("{mensalidades}", str(cobranca.mensalidades_abertas))
     )
@@ -513,7 +519,8 @@ def _abrir_no_primeiro_contato(
     no lugar do turno. Só dentro da janela (P8; fora dela o turno normal adia, D16), sem humano na
     conversa e com a conferência de hoje (o valor do texto é o do CTN, nunca o do retrato). Com
     qualquer dessas faltando, `None`: o turno normal trata. A rajada que provocou a abertura é
-    consumida. O texto da abertura é gravado como ABERTURA, e o LLM o vê no histórico."""
+    consumida. O texto da abertura é gravado como ABERTURA, e o LLM o vê no histórico. O Pix
+    integral que ele traz fica pendente e vira o meio vigente da conversa."""
     cobranca = conversa.cobranca
     politica = deps.politica
     if (
@@ -529,6 +536,9 @@ def _abrir_no_primeiro_contato(
     turno = abrir_turno(sessao, conversa.id, [m.id for m in mensagens])
     turno.humano_na_conversa = False
     rajada = _Rajada(sessao, conversa, turno, deps, agora)
+    # O texto traz a chave Pix da dívida integral: registrá-la como enviada faz o 1º `ANSWER` não
+    # anexá-la de novo (`meio_vigente`).
+    executar([Acao.GENERATE_PIX], cobranca, conversa, deps, agora)
     _responder(rajada, texto_da_abertura(cobranca, politica), OrigemMensagem.ABERTURA)
     return _fechar_e_confirmar(sessao, conversa, turno, "TESTE:ABERTURA", agora)
 

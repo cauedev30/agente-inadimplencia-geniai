@@ -6,16 +6,18 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from agente.db.modelos import Conversa, Mensagem, Turno
+from agente.db.modelos import Conversa, Mensagem, Pagamento, Turno
 from agente.integracoes.chatwoot import ChatwootFalso
 from agente.integracoes.ctn import CTNIndisponivel
 from agente.integracoes.ctn_teste import CTNDeCasos
 from agente.integracoes.disparador import FalhaNoEnvio
 from agente.teste.comandos import texto_da_abertura
-from agente.tipos import OrigemMensagem, ResultadoTurno
+from agente.tipos import FormaPagamento, OrigemMensagem, ResultadoTurno
+from agente.turno.executar import meio_vigente
 from agente.turno.fila import mensagens_pendentes
 from agente.turno.orquestrador import processar_turno
 from tests.teste.auxiliares import CHATWOOT_ID, Mandante, montar_deps
+from tests.turno.auxiliares import _bruto
 from tests.turno.test_orquestrador_gates import SEGUNDA_10H
 
 TEXTO_DA_ABERTURA_1 = "Oi, Ana! Há 3 mensalidades em aberto, R$ 100,20."
@@ -53,6 +55,18 @@ class ChatwootQueFalhaNoEnvio(ChatwootFalso):
 
 def test_o_texto_da_abertura_traz_nome_valor_e_mensalidades(conversa_de_teste, politica_de_teste):
     assert texto_da_abertura(conversa_de_teste.cobranca, politica_de_teste) == TEXTO_DA_ABERTURA_1
+
+
+def test_o_texto_da_abertura_traz_a_matricula_e_o_nome_completo_em_maiusculas(
+    conversa_de_teste, politica_de_teste
+):
+    modelo = "Olá, {nome}!\n{matricula} {nome_completo}\nVi {mensalidades}, {valor}."
+    teste = politica_de_teste.teste.model_copy(update={"texto_abertura": modelo})
+    politica = politica_de_teste.model_copy(update={"teste": teste})
+
+    assert texto_da_abertura(conversa_de_teste.cobranca, politica) == (
+        "Olá, Ana!\nSIM-1-7777 ANA SOUZA\nVi 3, R$ 100,20."
+    )
 
 
 def test_o_texto_da_abertura_sem_mensalidades_no_modelo_e_sem_chaves_soltas(
@@ -101,6 +115,33 @@ def test_a_2a_mensagem_segue_ao_turno_normal_e_o_llm_ve_a_abertura(
     assert all("[TESTE]" not in texto for _, texto in historico)
     # A abertura não se repete.
     assert _origens(sessao, conversa_de_teste).count(OrigemMensagem.ABERTURA) == 1
+
+
+def test_a_abertura_registra_o_pix_integral_e_o_answer_seguinte_nao_anexa_a_chave(
+    sessao, testador, conversa_de_teste, politica_de_teste, casos
+):
+    deps = montar_deps(politica_de_teste, casos)
+    deps.llm_turno.respostas[0] = _bruto(
+        acao="ANSWER", reply="Não dá para parcelar: o valor é {divida}, à vista."
+    )
+    testador.manda("Oi")
+    testador.roda(deps)
+
+    cobranca = conversa_de_teste.cobranca
+    [pix] = cobranca.pagamentos
+    assert (pix.forma, pix.valor_centavos) == (FormaPagamento.PIX, cobranca.divida_centavos)
+    assert conversa_de_teste.forma_enviada is FormaPagamento.PIX
+    assert meio_vigente(conversa_de_teste, testador.agora(), deps.politica) is FormaPagamento.PIX
+
+    testador.manda("dá pra parcelar?")
+    testador.roda(deps)
+
+    assert (
+        deps.chatwoot.enviadas(CHATWOOT_ID)[-1]
+        == "Não dá para parcelar: o valor é R$ 100,20, à vista."
+    )
+    assert len(sessao.scalars(select(Pagamento)).all()) == 1
+    assert _ultimo_turno(sessao).acoes_anexadas == []
 
 
 def test_a_cobranca_que_ja_abriu_em_outra_conversa_nao_abre_de_novo(

@@ -14,12 +14,13 @@ from agente.turno.redacao import (
     interpolar,
     marcadores_do_turno,
     motivos_do_texto,
+    valores,
 )
 
 JP = ZoneInfo("America/Fortaleza")
 
 
-def _numeros(*acoes, degrau=0, divida=10020):
+def _numeros(*acoes, degrau=0, divida=10020, referencia="mensalidades em atraso"):
     acoes = tuple(acoes)
     valor_final = 9000 if degrau else divida
     campos = {}
@@ -37,6 +38,7 @@ def _numeros(*acoes, degrau=0, divida=10020):
         degrau=degrau,
         desconto_centavos=divida - valor_final,
         valor_final_centavos=valor_final,
+        referencia=referencia,
         **campos,
     )
 
@@ -434,6 +436,22 @@ def test_a_answer_com_anexo_pix_leva_a_chave_mesmo_se_o_luna_esquecer():
     )
     texto = "O valor é {divida}.\nPara pagar, use o Pix CNPJ: {pix_copia_e_cola}"
     assert interpolar(texto, numeros).endswith("00020126FALSOabc10020")
+
+
+def test_a_referencia_so_existe_com_o_pix():
+    assert "referencia" not in valores(_numeros(Acao.INFORM_DEBT))
+    assert valores(_numeros(Acao.GENERATE_PIX))["referencia"] == "mensalidades em atraso"
+    with pytest.raises(RedacaoInvalida) as erro:
+        interpolar("Valor {divida}. REF {referencia}", _numeros(Acao.INFORM_DEBT))
+    assert erro.value.motivos == ["marcador_sem_valor:referencia"]
+
+
+def test_o_texto_do_pix_leva_a_ref_dos_meses():
+    numeros = _numeros(Acao.GENERATE_PIX, referencia="08/26, 09/26")
+
+    texto = interpolar(TEXTO_DO_PIX, numeros)
+
+    assert "\nREF 08/26, 09/26\n" in texto and "Referente" not in texto
 
 
 def test_o_pix_depois_da_oferta_traz_o_valor_final_e_o_desconto():

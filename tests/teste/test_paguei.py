@@ -53,6 +53,8 @@ def _pagamento(sessao, cobranca, *, forma=FormaPagamento.PIX, referencia="tx-1",
     )
     sessao.add(pagamento)
     sessao.commit()
+    # A abertura já carregou `cobranca.pagamentos` (o Pix integral dela, D65): recarrega.
+    sessao.refresh(cobranca)
     return pagamento
 
 
@@ -167,7 +169,25 @@ def test_paguei_depois_da_oferta_paga_noventa_e_quita_sem_pendencia_de_valor(
     )
 
 
+def test_paguei_logo_depois_da_abertura_confirma_o_pix_integral_dela(
+    sessao, conversa_aberta, conversa_de_teste, deps
+):
+    """A abertura registra o Pix integral (D65): o `/paguei` do 1º minuto o confirma."""
+    cobranca = conversa_de_teste.cobranca
+    [pix] = cobranca.pagamentos
+    conversa_aberta.manda("/paguei")
+
+    conversa_aberta.roda(deps)
+
+    sessao.refresh(pix)
+    assert pix.status is StatusPagamento.PAGO and pix.valor_centavos == cobranca.divida_centavos
+    assert deps.chatwoot.enviadas(CHATWOOT_ID)[-1] == SIMULANDO_PIX
+
+
 def test_paguei_sem_pendente_so_orienta(sessao, conversa_aberta, conversa_de_teste, deps):
+    for pagamento in conversa_de_teste.cobranca.pagamentos:
+        pagamento.status = StatusPagamento.EXPIRADO
+    sessao.commit()
     conversa_aberta.manda("/paguei")
 
     assert conversa_aberta.roda(deps) is ResultadoTurno.FIXA
@@ -187,7 +207,10 @@ def test_paguei_nao_olha_o_pagamento_da_cobranca_trocada(sessao, testador, conve
 
     sessao.refresh(pix)
     assert pix.status is StatusPagamento.PENDENTE
-    assert "/paguei <n>" in deps.chatwoot.enviadas(CHATWOOT_ID)[-1]
+    # Só o Pix da abertura da cobrança nova é visto (o caso 2 é R3: R$ 100,20).
+    [da_nova] = _conversa_do_chatwoot(sessao).cobranca.pagamentos
+    assert da_nova.status is StatusPagamento.PAGO and da_nova.id != pix.id
+    assert deps.chatwoot.enviadas(CHATWOOT_ID)[-1] == SIMULANDO_PIX
 
 
 def test_paguei_num_caso_encerrado_so_orienta(sessao, conversa_aberta, conversa_de_teste, deps):

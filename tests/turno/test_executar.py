@@ -20,7 +20,13 @@ from agente.tipos import (
     StatusPagamento,
 )
 from agente.turno.acoes import Acao
-from agente.turno.executar import executar, meio_vigente, pix_vigente, proximo_estado
+from agente.turno.executar import (
+    executar,
+    meio_vigente,
+    pix_vigente,
+    proximo_estado,
+    referencia_dos_meses,
+)
 from agente.turno.orquestrador import Dependencias, processar_turno
 
 from ..conftest import piloto_com
@@ -43,6 +49,32 @@ def _deps(politica, respostas=()):
         ctn=_ctn(),
         pix=PixFalso(agora=lambda: AGORA),
     )
+
+
+@pytest.mark.parametrize(
+    ("meses", "esperado"),
+    [
+        (["2026/09"], "09/26"),
+        (["2026/08", "2026/09", "2026/10"], "08/26, 09/26, 10/26"),
+        (["2025/12", "2026/01"], "12/25, 01/26"),
+        ([], "mensalidades em atraso"),
+        (None, "mensalidades em atraso"),
+        (["2026-09"], "mensalidades em atraso"),
+        (["09/2026"], "mensalidades em atraso"),
+    ],
+)
+def test_a_referencia_converte_os_meses_do_ctn_de_aaaa_mm_para_mm_aa(meses, esperado):
+    assert referencia_dos_meses(meses) == esperado
+
+
+def test_o_executar_poe_os_meses_em_aberto_da_cobranca_na_referencia(conversa, politica):
+    deps = _deps(politica)
+    conversa.cobranca.meses_em_aberto = ["2026/08", "2026/09"]
+
+    numeros = executar([Acao.GENERATE_PIX], conversa.cobranca, conversa, deps, AGORA)
+
+    assert numeros.referencia == "08/26, 09/26"
+    assert numeros.como_dict()["referencia"] == "08/26, 09/26"
 
 
 def test_o_desconto_com_o_link_gera_o_link_do_valor_descontado(conversa, politica):
